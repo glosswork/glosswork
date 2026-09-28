@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Issue | #3, not yet filed (see "Open before approval"); the number is provisional |
+| Issue | #3, https://github.com/glosswork/glosswork/issues/3 |
 | Branch | `3-generated-notices`, cut from `1-release-images` at `bdb8172`, not from `main` (see "How this relates to change 1") |
 | Spec | `THIRD_PARTY_NOTICES.md` "What this file covers"; `Dockerfile` runtime stage; `README.md` licence paragraph; `AGENTS.md` "Commands" and "Where things are"; `CONTRIBUTING.md` "What CI runs" |
 | Decisions | none changed |
@@ -279,10 +279,8 @@ replaces the "not a complete inventory" paragraph with these three:
 > the packages themselves publish. `numpy` and `onnxruntime` publish notices for what they
 > link, and those are included.
 
-The third paragraph stands only if the maintainer keeps F8 out of this change (see "Open
-before approval"). If F8 is brought in, it is replaced by a sentence saying where those
-notices are, written when that scope is planned. The three build tools are `vite`,
-`tailwindcss` and `rolldown` (F3).
+The third paragraph stands: the maintainer kept F8 out of this change (see "Decided at
+approval"). The three build tools are `vite`, `tailwindcss` and `rolldown` (F3).
 - **Docs**: `README.md` licence paragraph names the new file; `AGENTS.md` gains a "Commands"
   row for regenerating it and a "Where things are" row; `CONTRIBUTING.md` says a dependency
   change regenerates the file in the same commit, and that T1 is what fails if it does not.
@@ -298,7 +296,7 @@ notices are, written when that scope is planned. The three build tools are `vite
 - Development-only packages (pytest, ruff, mypy, and the npm dev tree apart from `vite`,
   `tailwindcss` and `rolldown`) get no entry. The image does not redistribute them. This reads the
   done-when's "every Python package in `uv.lock`" under its governing clause, "every work the
-  runtime image redistributes"; see "Open before approval".
+  runtime image redistributes"; see "Decided at approval".
 - The release workflow and `tests/test_release_workflow.py` (P10).
 - Anything in `src/` or `web/`.
 
@@ -321,25 +319,61 @@ notices are, written when that scope is planned. The three build tools are `vite
 
 ## Checklist
 
-1. [ ] Write T1 to T6, the checker test changes (`npm_production_entries`, `--licenses` in
+Executed 2026-09-28, in order, in commits `285a8a9` (steps 1 and 2, the checker half) and
+`030f87b` (steps 1 and 3 to 6).
+
+1. [x] Write T1 to T6, the checker test changes (`npm_production_entries`, `--licenses` in
    every `main()` test, `rolldown` in the build tools and the all-covered fixture), the
    container test for the new file, and the `test_ci_changes.py` fence. Run them against
    this plan commit and record how each failed (T1 to T3, T5 and T6: the file and the
    overrides do not exist; T4: the function does not exist; the checker tests: no
    `--licenses` option, no `rolldown`).
-2. [ ] Refactor `npm_production_names` onto `npm_production_entries`; add `--licenses`; add
+   *Recorded.* Against `8340459`: `tests/test_third_party_licenses.py` failed at collection,
+   `FileNotFoundError` for `scripts/third_party_licenses.py`, so T1 to T6 all failed. With
+   the generator present but the file and the overrides absent: T1, T2, T3 and T6 errored
+   (`FileNotFoundError` for THIRD_PARTY_LICENSES.md) and T5 failed (no overrides file);
+   T4 and T5's synthetic refusal test passed, as synthetic tests should. The checker
+   tests: 5 failed, `AttributeError: ... no attribute 'npm_production_entries'`, `rolldown`
+   not in the real lockfile's names, and the three `main()` tests exiting 2 on the unknown
+   `--licenses`. The `test_ci_changes.py` case passed, as a fence does. The
+   container test was not run before the fix: the image had no such file to copy.
+2. [x] Refactor `npm_production_names` onto `npm_production_entries`; add `--licenses`; add
    `rolldown` to `BUNDLED_BUILD_TOOLS`. The checker tests pass.
-3. [ ] Write `scripts/third_party_licenses.py` and `scripts/third_party_licenses.toml` with
+   *Recorded.* 12 passed. One existing test changed beyond the plan's list (Deviation D1).
+3. [x] Write `scripts/third_party_licenses.py` and `scripts/third_party_licenses.toml` with
    the two overrides.
-4. [ ] Generate THIRD_PARTY_LICENSES.md. Record here: entries per ecosystem, the declared
+   *Recorded.* The override digests re-fetched 2026-09-28 match P4's prefixes in full.
+4. [x] Generate THIRD_PARTY_LICENSES.md. Record here: entries per ecosystem, the declared
    licences by count, which entries took files from outside `.dist-info/`, an sdist or an
    override, how many texts were line-ending normalised, and the file's size.
-5. [ ] Dockerfile `COPY`; build; run the checker and the container notices tests.
-6. [ ] Docs: `THIRD_PARTY_NOTICES.md` as written in "The public text, as it will read",
+   *Recorded.* `uv run python scripts/third_party_licenses.py`, exit 0, 25 seconds with an
+   empty cache. 168 entries: Python 60, npm 108. 206 licence texts: Python 97, npm 109.
+   - Declared licences, npm: MIT 104, OFL-1.1 3, ISC 1. Python: MIT 25, BSD-3-Clause 14,
+     Apache-2.0 4, "MIT License" 2, and one each of MPL-2.0, MIT-0, "BSD License",
+     "Apache-2.0 OR BSD-3-Clause", "Apache 2.0", "MIT AND PSF-2.0", "BSD-3-Clause AND 0BSD
+     AND MIT AND Zlib AND CC0-1.0", "Apache-2.0 OR BSD-2-Clause", "3-Clause BSD License",
+     PSF, "MIT License, Apache License, Version 2.0", "MIT OR Apache-2.0", "Apache Software
+     License", "MPL-2.0 AND MIT" and PSF-2.0, as each package's metadata states them.
+   - Outside `.dist-info/`: `onnxruntime` (`onnxruntime/LICENSE`,
+     `onnxruntime/ThirdPartyNotices.txt`). From an sdist: `tokenizers`
+     (`tokenizers-0.23.1/tokenizers/LICENSE`, the sdist's only licence file). From an
+     override: `flatbuffers` (1 file), `sqlite-vec` (2 files).
+   - Normalised: 19 of 206 texts, 8 for carriage returns and 11 for their final newline
+     only (Deviation D3 on P15's count).
+   - Size: 1,021,369 bytes (Deviation D4 on P7).
+5. [x] Dockerfile `COPY`; build; run the checker and the container notices tests.
+   *Recorded.* See AC7 and AC8.
+6. [x] Docs: `THIRD_PARTY_NOTICES.md` as written in "The public text, as it will read",
    `README.md`, `AGENTS.md`, `CONTRIBUTING.md`. Any backticked or linked mention of the new
    file lands in the commit that creates it, or later (`docs/changes/README.md`, "Two
    tests guard a citation").
-7. [ ] Run the Accept block and record its output here.
+   *Recorded.* The public text went in as approved, with the licences file's name
+   backticked in all three places it appears, as the plan's note says. Every backticked or
+   linked mention is in `030f87b`, the commit that creates the file; `285a8a9`'s checker
+   docstring names it in plain text, and the structural lane passed at `285a8a9` (88
+   passed).
+7. [x] Run the Accept block and record its output here.
+   *Recorded* under "Accept output".
 
 ## Accept
 
@@ -369,6 +403,29 @@ notices are, written when that scope is planned. The three build tools are `vite
   least 1: `grep -c 'THIRD PARTY SOFTWARE NOTICES AND INFORMATION' THIRD_PARTY_LICENSES.md`
   (onnxruntime's notices), `grep -c 'Copyright (c) 2020 Evan Wallace' THIRD_PARTY_LICENSES.md`
   (esbuild's notice through rolldown), and `grep -c '^## .rolldown. ' THIRD_PARTY_LICENSES.md`.
+
+### Accept output
+
+Run 2026-09-28 by the building session at `030f87b`, on a clean tree, arm64 macOS with
+Docker 28.4.0. This is the builder's record; the verifier runs the block again.
+
+| | Result |
+| --- | --- |
+| AC1 | exit 0, 64 passed |
+| AC2 | exit 0, 96 passed, 1955 deselected |
+| AC3 | exit 0, 2048 passed, 3 xfailed |
+| AC4 | exit 0, "All checks passed!" |
+| AC5 | exit 0, "250 files already formatted" |
+| AC6 | exit 0, with an empty download cache |
+| AC7 | build exit 0; the check exit 0: python 57 of 57 covered, npm 107 of 107, 0 not covered for both. The image's revision label is `030f87b...` |
+| AC8 | exit 0, 7 passed, 1 skipped (the revision test skips by design when `GW_IMAGE` is set) |
+| AC9 | `react` entry deleted: exit 1, T1 names "npm `react` 19.2.8". `scheduler` bumped from 0.27.0 to 0.99.0 in the lockfile copy: exit 1, T1 names "npm `scheduler` 0.99.0" and T2 names "npm `scheduler` 0.27.0" |
+| AC10 | prints 0, exit 1, the expected answer |
+| AC11 | root `e5a047b` only; `Glosswork <hello@glosswork.dev> Glosswork <hello@glosswork.dev>` only |
+| AC12 | 1, 1, 1 |
+
+Also run: gitleaks 8.30.1 as CI's `secrets` job runs it (`git . --config .gitleaks.toml
+--log-opts=HEAD`), 9 commits, "no leaks found", exit 0.
 
 ## Adversarial pass
 
@@ -440,8 +497,8 @@ established by running something against the lock-recorded artifacts, an image b
   task's done-when enumerates lockfile packages, and the checker counts packages, so this
   plan meets both; its governing clause, "every work the runtime image redistributes",
   reaches further, which is the same argument that created this task from change 035.
-  *Disposition: for the maintainer*, in "Open before approval". The plan as written keeps
-  it out and says so in the public text.
+  *Disposition: kept out by the maintainer at approval, 2026-09-28, with no follow-up*
+  (see "Decided at approval"). The public text says so.
 - **F9. The public text was not written.** The plan said the scope paragraph would be
   "replaced by one saying where every other package's notice is". That paragraph is
   published in the image and on GitHub and reads as a statement about what a copy
@@ -475,32 +532,44 @@ P5 extended to onnxruntime's and numpy's out-of-`.dist-info` files; the override
 either (HTTP 404), so Apache-2.0's NOTICE clause adds nothing for them; every one of the
 107 npm names has a licence file at its package root.
 
-## Open before approval
+## Decided at approval
 
-- **The issue is not filed.** Filing #3 was refused by this run's permission check. The
-  issue text is ready. If the number GitHub assigns is not 3, the branch and this file are
-  renamed before anything is pushed; nothing here has left this machine.
-- **The reading of "every Python package in `uv.lock`".** This plan covers the 60 runtime
-  packages and not the 11 development-only ones, under the done-when's governing clause
-  "every work the runtime image redistributes". The maintainer confirms that reading when
-  approving.
-- **The notices text ships publicly.** The generated file is third-party text reproduced
-  verbatim, plus one generated line per entry. The maintainer approves its shape (the entry
-  format above, and the no-invented-holder rule) with the plan.
-  The paragraphs in "The public text, as it will read" are approved as written (F9).
-- **Whether this change covers code compiled into packages from elsewhere (F8).** As
-  written, it does not: the six Rust-built packages' entries hold what those packages
-  publish, and the public text says so. The alternative brings it in: the generator reads
-  each package's `Cargo.lock` from its lock-recorded sdist, fetches each crate from
-  crates.io against the checksum `Cargo.lock` records, and takes its licence files, with an
-  override for OpenSSL. That is the same mechanism with a third ecosystem, several hundred
-  more entries, an unknown number of crates that publish no licence file (each an
-  override), and a second adversarial pass on the new scope. The maintainer decides, and
-  if it stays out, whether the first public image waits for it.
+The maintainer approved this plan as written at `8340459` on 2026-09-28. The approval
+covers the public text in "The public text, as it will read", the entry format, the rule
+that no copyright holder is invented, and "every Python package in `uv.lock`" read as the
+60 runtime packages. **F8 was kept out**: the Rust crates and OpenSSL compiled into six
+Python packages are not listed, the public text says so, and there is no follow-up.
+Merging is not approved yet. Issue #3 was filed on 2026-09-28 and took the number the plan
+assumed, so nothing was renamed.
 
 ## Deviations from the approved plan
 
-None yet.
+Recorded during execution, 2026-09-28. None changes the approved public text, the entry
+format's substance or the scope.
+
+- **D1. One more existing checker test changed.**
+  `test_npm_production_names_leave_out_dev_packages_and_the_root` expected the names as
+  three production names followed by the sorted build tools. With `rolldown` added,
+  `rolldown` sorts before `scheduler`, so the expectation became the sorted union, and it
+  now also asserts the `devOptional` package is left out. Same behaviour, correct order.
+- **D2. The checker's covered-by-heading reason reads "a heading in the notices"** for
+  either file, where it named THIRD_PARTY_NOTICES.md. No test pins the wording.
+- **D3. P15 counted 14 texts with carriage returns; the generated set has 8.** All are
+  `pywin32`'s, from the wheel the selection rule picks for it (no pure or manylinux wheel,
+  so the first listed). Why the counts differ is not established: P15 does not record
+  which `pywin32` wheel it read. The rule normalises whatever it finds, and `--check`
+  passes on a fresh regeneration (AC6).
+- **D4. The file is 1.02 MB, not about 900 KB.** P7 measured the licence texts alone; the
+  file adds the four-space indent on every line, the headings and the source lines.
+- **D5. Each override carries an `ecosystem` key** beside `package` and `version`, so an
+  override names its package unambiguously. T5 has a second, synthetic test that an
+  override for a version the lockfiles no longer hold is refused, naming it.
+- **D6. The entry's source line reads `Ecosystem: <python|npm>. Declared licence: <as
+  declared>. Source: <artifact URL>`.** For an override the source is "upstream, pinned in
+  scripts/third_party_licenses.toml", and each file line carries the upstream URL. The
+  declared licence is the metadata's `License-Expression`, else a one-line `License`,
+  else its licence classifiers, else "not declared"; for npm, the lockfile's `license`.
+- **D7. The container test module's docstrings say three files where they said two.**
 
 ## Durable content moved out of this plan
 
