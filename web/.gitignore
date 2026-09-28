@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+.DS_Store
+*.local
+*.tsbuildinfo
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Per-run e2e credential, minted by e2e/constants.ts
+/e2e/.e2e-token*
+/e2e/.e2e-datadir*
+/e2e/.e2e-principal-id*

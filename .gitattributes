@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+# Generated from a running instance's /openapi.json by
+# `npm --prefix web run generate:api-types`. Collapsed in diffs and excluded from
+# language statistics; regenerate it rather than editing it.
+web/src/api/schema.ts linguist-generated=true
+
+# Lockfiles: real content, but never worth reading in a pull request diff.
+uv.lock              linguist-generated=true -diff
+web/package-lock.json linguist-generated=true -diff
+
+# Playwright visual baselines. Binary, macOS-only, and regenerated rather than merged.
+*.png binary

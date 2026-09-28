@@ -1,0 +1,34 @@
+{
+  "model_id": "bge-small-en-v1.5@5c38ec7",
+  "chunk_max_tokens": 256,
+  "per_chunk": {
+    "short": {
+      "tokens": 9,
+      "samples": 40,
+      "p50_ms": 3.39,
+      "p95_ms": 3.52,
+      "chunks_per_second": 294.9
+    },
+    "full_256_token": {
+      "tokens": 264,
+      "samples": 40,
+      "p50_ms": 43.62,
+      "p95_ms": 47.3,
+      "chunks_per_second": 22.9
+    }
+  },
+  "bounded_drain": {
+    "jobs_enqueued": 23632,
+    "elapsed_s": 208.84,
+    "chunks_written": 23472,
+    "sources_per_second": 113.2,
+    "note": "chunks_written counts newly inserted rows only; an unchanged chunk keeps its existing row by content hash, so a re-index of unmodified content writes nothing while still paying to discover that."
+  },
+  "full_corpus_extrapolation": {
+    "total_sources": 423439,
+    "all_short_minutes": 23.9,
+    "all_full_length_minutes": 307.8,
+    "even_mix_minutes": 165.9,
+    "basis": "single-threaded, one chunk per source. A source whose text exceeds one chunk costs proportionally more; MAX_CHUNKS_PER_SOURCE caps it at 64."
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "busy_timeout_ms": 5000,
+  "object_type": "initiative",
+  "live_records_in_type": 90000,
+  "concurrent_writer_threads": 4,
+  "writer_object_type": "task",
+  "measurements": [
+    {
+      "operation": "embed_on",
+      "object_type": "initiative",
+      "field": "vendor",
+      "applied_immediately": true,
+      "elapsed_ms": 60610.05,
+      "concurrent_writers": {
+        "writes": 20175,
+        "p50_ms": 0.97,
+        "p95_ms": 12.37,
+        "max_ms": 7263.78,
+        "failures": [],
+        "exceeded_busy_timeout": 2
+      }
+    },
+    {
+      "operation": "delete_field_approval",
+      "object_type": "initiative",
+      "field": "vendor",
+      "elapsed_ms": 8865.9,
+      "concurrent_writers": {
+        "writes": 473,
+        "p50_ms": 1.11,
+        "p95_ms": 15.11,
+        "max_ms": 1652.42,
+        "failures": [
+          "OperationalError: (sqlite3.OperationalError) database is locked\n[SQL: BEGIN IMMEDIATE]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+          "OperationalError: (sqlite3.OperationalError) database is locked\n[SQL: BEGIN IMMEDIATE]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+          "OperationalError: (sqlite3.OperationalError) database is locked\n[SQL: BEGIN IMMEDIATE]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+          "OperationalError: (sqlite3.OperationalError) database is locked\n[SQL: BEGIN IMMEDIATE]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)"
+        ],
+        "exceeded_busy_timeout": 0
+      }
+    }
+  ]
+}

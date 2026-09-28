@@ -1,0 +1,29 @@
+.git
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.egg-info
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+**/.env*
+
+# Nothing below is copied into the image, and some of it is large or private: the fetched
+# model (the image fetches its own), the performance corpus, agent tool state and editor
+# workspaces. Leaving them out keeps them out of the build context too.
+models/
+perf-data/
+perf-data-*/
+.claude/
+*.code-workspace
+
+web/node_modules
+web/dist
+web/coverage
+web/playwright-report
+web/test-results

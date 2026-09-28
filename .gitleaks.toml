@@ -1,0 +1,18 @@
+title = "Glosswork"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "glosswork-token"
+description = "A Glosswork personal access token (gw_pat_) or upload capability token (gw_upl_)"
+regex = '''\bgw_(?:pat|upl)_[A-Za-z0-9_-]{32}'''
+entropy = 3.0
+keywords = ["gw_pat_", "gw_upl_"]
+
+[[allowlists]]
+description = "The bootstrap handoff tests' fixed SESSION_SECRET fixture, which is not a credential anywhere"
+condition = "AND"
+paths = ['''^(?:container_tests|tests)/test_bootstrap_handoff\.py$''']
+regexTarget = "match"
+regexes = ['''n6QHcLmR2vTkX8pZwFdJbY4sA7eG3uNq''']

@@ -1,0 +1,60 @@
+{
+  "probe": {
+    "client": "urllib.request.urlopen, one request per poll",
+    "endpoint": "GET /readyz",
+    "poll_interval_s": 0.02,
+    "published_port": true,
+    "volume": "named, local",
+    "first_boot_volume": "empty, so migrations run inside the measurement",
+    "cycle_volume": "already migrated",
+    "environment": "local Docker VM, image layers already on the host, warm page cache; not a hosted number"
+  },
+  "platform": {
+    "uname": "Darwin 25.6.0 arm64",
+    "host_cores": 12,
+    "docker_server_version": "28.4.0",
+    "image": "glosswork:container-test",
+    "image_id": "sha256:47f30532b1b9565bc5b82ea5cd86eb1cc58d9210537b27a000911ae0c5cab01c"
+  },
+  "first_boot": {
+    "start_call_s": 2.119,
+    "start_returned_s": 2.029,
+    "docker_start_s": 0.09
+  },
+  "runs": [
+    {
+      "start_call_s": 2.236,
+      "start_returned_s": 2.125,
+      "docker_start_s": 0.111
+    },
+    {
+      "start_call_s": 2.127,
+      "start_returned_s": 2.013,
+      "docker_start_s": 0.114
+    },
+    {
+      "start_call_s": 2.119,
+      "start_returned_s": 2.003,
+      "docker_start_s": 0.116
+    },
+    {
+      "start_call_s": 2.23,
+      "start_returned_s": 2.105,
+      "docker_start_s": 0.125
+    },
+    {
+      "start_call_s": 2.188,
+      "start_returned_s": 2.077,
+      "docker_start_s": 0.111
+    }
+  ],
+  "start_call_min_s": 2.119,
+  "start_call_p50_s": 2.188,
+  "start_call_max_s": 2.236,
+  "start_returned_min_s": 2.003,
+  "start_returned_p50_s": 2.077,
+  "start_returned_max_s": 2.125,
+  "docker_start_min_s": 0.111,
+  "docker_start_p50_s": 0.114,
+  "docker_start_max_s": 0.125
+}

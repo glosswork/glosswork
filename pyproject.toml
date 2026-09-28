@@ -1,0 +1,107 @@
+[project]
+name = "glosswork"
+version = "0.1.0"
+description = "Schema-flexible, agent-native record store with an MCP endpoint, a REST API, and a lightweight UI."
+requires-python = ">=3.13"
+# PEP 639. `FSL-1.1-ALv2` is a listed SPDX identifier (licence list 3.29.0), so this is an
+# expression rather than the deprecated `license = { file = ... }` table, and `license-files`
+# carries LICENSE into the wheel's `.dist-info/licenses/`.
+license = "FSL-1.1-ALv2"
+license-files = ["LICENSE"]
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    "structlog==26.1.0",
+    "sqlalchemy==2.0.52",
+    "python-multipart==0.0.32",
+    "mcp==2.0.0",
+    # Argon2id for local password accounts (FR-I1). Verified on PyPI 2026-08-24;
+    # resolves argon2-cffi-bindings==26.1.0, which publishes cp310-abi3 wheels for the
+    # three platforms DD-31 verified, so no compiler is needed in the runtime image.
+    "argon2-cffi==25.1.0",
+    # OIDC ID-token validation (FR-I1/FR-I2). Present transitively via mcp==2.0.0;
+    # declared directly so an mcp upgrade cannot silently remove the project's JWT library.
+    "pyjwt[crypto]==2.13.0",
+    # Semantic and hybrid search (DD-31, DD-32).
+    # Each verified as the latest stable on PyPI on 2026-08-24 with
+    # `uv run --with pip pip index versions <pkg>`, not carried over from an earlier note.
+    #
+    # onnxruntime executes the bundled bge-small ONNX graph on CPU; there is no torch,
+    # no transformers, no optimum, and no sentence-transformers anywhere in this tree.
+    "onnxruntime==1.29.0",
+    # The model's own tokenizer configuration, loaded only through
+    # `Tokenizer.from_file` on the bundled tokenizer.json (DD-32). Its transitive
+    # `huggingface-hub` is tolerated and guarded by tests, never imported by this
+    # project and never reached at runtime.
+    "tokenizers==0.23.1",
+    # Vector storage as a loadable SQLite extension in the same database file (DD-31).
+    # Loaded on every connection in db.py, named only by SqliteSearchRepository.
+    "sqlite-vec==0.1.9",
+    # Required by onnxruntime; declared directly because the embedding provider does
+    # its own pooling and L2 normalization over the model's output array.
+    "numpy==2.5.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx2==2.12.0",
+    "ruff==0.16.4",
+    "mypy==2.3.1",
+]
+
+# Resolve from the public index, explicitly.
+#
+# Read what this does and does not do before trusting it. It governs every machine whose
+# user-level `uv` configuration does not name an index of its own, which is every machine
+# except the maintainer's. **It does not protect this lockfile here.** A machine-level
+# `uv` setting beats every project-level control: this block, `[tool.uv] index-url`, a
+# project `uv.toml`, `UV_INDEX_URL`, `UV_DEFAULT_INDEX` and `uv lock --default-index` were
+# each measured, and all six still wrote the private index into `uv.lock`. Only
+# `UV_NO_CONFIG=1` did not.
+#
+# So this pin is for contributors, and `tests/test_supply_chain.py` is what protects the
+# lockfile. See AGENTS.md, Non-negotiable 1.
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/glosswork"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src"]
+
+# Third-party packages that ship no type information. Narrowly listed rather
+# than set globally: the point of strict mode is that an untyped import is visible,
+# and each of these three is a deliberate, named exception.
+[[tool.mypy.overrides]]
+module = ["sqlite_vec.*", "onnxruntime.*", "tokenizers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    # The structural lane: tests whose input is a file in this repository rather than
+    # the running system, so a change that touches no code can still break them. CI
+    # runs `-m structural` on every pipeline, including the ones where the behavioural
+    # suites are skipped. tests/test_structural_lane.py fails if a test that reads a
+    # document from disk is missing the marker.
+    "structural: reads repository documentation from disk; runs on every CI pipeline",
+]

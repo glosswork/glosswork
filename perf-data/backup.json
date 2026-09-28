@@ -1,0 +1,18 @@
+{
+  "artifact_bytes": 1294738944,
+  "artifact_mb": 1234.8,
+  "total_seconds": 3.74,
+  "snapshot_seconds": 3.6,
+  "blob_walk_seconds": 0.14,
+  "throughput_mb_per_second": 330.4,
+  "snapshot_member": "glosswork.sqlite3",
+  "busy_timeout_ms": 5000,
+  "concurrent_writers": {
+    "writes": 3632,
+    "p50_ms": 1.06,
+    "p95_ms": 1.51,
+    "max_ms": 4129.38,
+    "failures": [],
+    "exceeded_busy_timeout": 0
+  }
+}

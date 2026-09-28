@@ -1,0 +1,226 @@
+/**
+ * The design-system entry point (DD-41, "Counterpart": its palette, faces,
+ * radii, scale and structural rules). The specification is docs/DESIGN.md.
+ *
+ * Tailwind 4 is configured here, in CSS — never in a JavaScript config file, which is the
+ * 3.x idiom (this comment does not write that filename out, so a search for it finds only a
+ * real one, the same convention tests/test_config.py uses for guarded literals).
+ * Fonts are imported as modules from main.tsx and bundled into dist/, never fetched at
+ * runtime (FR-P1; DD-41).
+ *
+ * The default Tailwind palette stays cleared, so a component cannot reach an unthemed
+ * color. That also means a utility naming a token this file does not define emits NOTHING:
+ * no error, no warning, an element that renders unstyled. web/src/ui/noOrphanedTokens.test.ts
+ * is what turns that silence into a failing test.
+ */
+@import "tailwindcss";
+
+@theme {
+  /* Faces (docs/DESIGN.md 2.2). Display for titles and the wordmark; sans for everything a
+     person operates; mono for identifiers a human or agent exchanges verbatim.
+     The VARIABLE family name comes first and is not optional: fontsource's variable packages
+     declare `Bricolage Grotesque Variable` and `Figtree Variable`, so the specification's
+     literal stack would have matched nothing and fallen through to Helvetica, silently and
+     in every screenshot. The static names stay behind them for a browser that has the face
+     installed locally. docs/DESIGN.md 2.2 says the same. */
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Figtree Variable", "Figtree", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Type scale (2.2): 11.5 / 12.5 / 13.5 / 14 / 15 / 18 / 22 / 26 / 30. Redefines
+     Tailwind's text-* steps so no component can reach an off-scale size. Line heights are
+     1.35 at and below 14px, 1.45 at 15 to 18, 1.15 at 22 and above. */
+  --text-2xs: 11.5px;
+  --text-2xs--line-height: 1.35;
+  --text-xs: 12.5px;
+  --text-xs--line-height: 1.35;
+  --text-sm: 13.5px;
+  --text-sm--line-height: 1.35;
+  --text-base: 14px;
+  --text-base--line-height: 1.35;
+  --text-lg: 15px;
+  --text-lg--line-height: 1.45;
+  --text-xl: 18px;
+  --text-xl--line-height: 1.45;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 1.15;
+  --text-3xl: 26px;
+  --text-3xl--line-height: 1.15;
+  --text-4xl: 30px;
+  --text-4xl--line-height: 1.15;
+  /* The first-run question, the one size docs/DESIGN.md 8.5 names and the only
+     thing that reads this token. The scale stopped at 30px, which is a 7% step over the
+     Inbox h1's text-[28px] and would have read as a page title rather than as the question
+     the product opens on. Added to the scale rather than written as an arbitrary value,
+     which is the habit 2.2 exists to stop. */
+  --text-5xl: 36px;
+  --text-5xl--line-height: 1.15;
+
+  /* Palette (2.1), and nothing else. Three families that never borrow from each other:
+     neutrals, the two role-bound families (human blue is what a person does, agent amber is
+     what an agent did), and semantic status. `warn` is red-orange rather than amber so a
+     warning cannot be read as an agent (rule 3). */
+  --color-*: initial;
+
+  --color-ground: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-raised: #fafbfc;
+  --color-sunk: #eef0f4;
+  --color-ink: #1c2030;
+  --color-ink-2: #5d6479;
+  --color-ink-3: #8f95a6;
+  --color-line: #e3e6ed;
+  --color-line-2: #cbd0db;
+
+  --color-human: #2e5bff;
+  --color-human-ink: #2247d4;
+  --color-human-soft: #e9eeff;
+  --color-human-line: #b9c8ff;
+  --color-on-human: #ffffff;
+
+  --color-agent: #e09a0f;
+  --color-agent-ink: #8c5e00;
+  --color-agent-soft: #fff3d6;
+  --color-agent-line: #f3d48a;
+
+  --color-ok: #1f9d55;
+  --color-ok-soft: #e3f5ea;
+  --color-warn: #d9480f;
+  --color-warn-soft: #fdebe3;
+  --color-bad: #d93838;
+  --color-bad-soft: #fde8e8;
+
+  /* Status borders are DERIVED, not authored: three families times two themes is six more
+     hand-picked values to keep in step, and a border that is a wash of its own family cannot
+     drift out of step with it. docs/DESIGN.md 2.1 says so, because the specification is where
+     the answer belongs. */
+  --color-ok-line: color-mix(in srgb, var(--color-ok) 30%, transparent);
+  --color-warn-line: color-mix(in srgb, var(--color-warn) 30%, transparent);
+  --color-bad-line: color-mix(in srgb, var(--color-bad) 30%, transparent);
+
+  /* Radii (2.3). Pills and filter chips are 999px, written at the call site. */
+  --radius-ctl: 6px;
+  --radius-card: 8px;
+  --radius-frame: 12px;
+
+  /* Elevation is color, not shadow: ground -> surface -> raised. This is the one shadow,
+     and it is used only on dialogs and popovers (2.3). */
+  --shadow-float: 0 1px 2px rgba(28, 32, 48, 0.05), 0 10px 30px rgba(28, 32, 48, 0.07);
+
+  /* Breakpoints (docs/DESIGN.md 9), used by the shell.
+
+     These are the product's own two, and they are NAMED rather than written as arbitrary
+     variants at each call site, for the reason 2.1 gives about colour: every value in that
+     document is a decision, and a decision spelled `min-[960px]:` in four components is four
+     places to change it and no place to read it.
+
+     `shell` (960px) is where the sidebar collapses to a top bar, two-column screens stack, and
+     the Inbox becomes list-then-detail. `narrow` (640px) is where toolbar chips wrap and tables
+     scroll inside their card. They deliberately do NOT reuse Tailwind's `md` (768px), which is
+     neither of the two numbers the design specifies. */
+  --breakpoint-shell: 960px;
+  --breakpoint-narrow: 640px;
+}
+
+/**
+ * Dark is defined TWICE, deliberately (docs/DESIGN.md 2.1).
+ *
+ * The media block carries the system default and is guarded so an explicit light choice
+ * wins inside it; the attribute block carries an explicit dark choice and wins in a browser
+ * whose system preference is light. A single media query would get the first case silently
+ * wrong: a user who picks Light on a machine set to dark would still get dark.
+ *
+ * The values are identical in both blocks on purpose. e2e/theme.spec.ts asserts all three
+ * states rather than trusting that.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-ground: #12141b;
+    --color-surface: #1a1d26;
+    --color-raised: #20242f;
+    --color-sunk: #0e1016;
+    --color-ink: #edeff5;
+    --color-ink-2: #a2a8b8;
+    --color-ink-3: #6f7587;
+    --color-line: #272b37;
+    --color-line-2: #363b49;
+
+    --color-human: #7c95ff;
+    --color-human-ink: #a3b4ff;
+    --color-human-soft: #1e2748;
+    --color-human-line: #34448a;
+    --color-on-human: #0d1330;
+
+    --color-agent: #f5b841;
+    --color-agent-ink: #f7c968;
+    --color-agent-soft: #3b2e12;
+    --color-agent-line: #6b5320;
+
+    --color-ok: #5fcf8c;
+    --color-ok-soft: #163325;
+    --color-warn: #f0895c;
+    --color-warn-soft: #3a2015;
+    --color-bad: #f07a7a;
+    --color-bad-soft: #3d1c1c;
+
+    --shadow-float: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-ground: #12141b;
+  --color-surface: #1a1d26;
+  --color-raised: #20242f;
+  --color-sunk: #0e1016;
+  --color-ink: #edeff5;
+  --color-ink-2: #a2a8b8;
+  --color-ink-3: #6f7587;
+  --color-line: #272b37;
+  --color-line-2: #363b49;
+
+  --color-human: #7c95ff;
+  --color-human-ink: #a3b4ff;
+  --color-human-soft: #1e2748;
+  --color-human-line: #34448a;
+  --color-on-human: #0d1330;
+
+  --color-agent: #f5b841;
+  --color-agent-ink: #f7c968;
+  --color-agent-soft: #3b2e12;
+  --color-agent-line: #6b5320;
+
+  --color-ok: #5fcf8c;
+  --color-ok-soft: #163325;
+  --color-warn: #f0895c;
+  --color-warn-soft: #3a2015;
+  --color-bad: #f07a7a;
+  --color-bad-soft: #3d1c1c;
+
+  --shadow-float: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-ground);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+  }
+
+  /* Focus is visible everywhere, styled once (DD-41). outline rather
+     than box-shadow so it works on any element without layout side effects. */
+  :focus-visible {
+    outline: 2px solid var(--color-human);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

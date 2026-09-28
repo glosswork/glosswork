@@ -1,0 +1,339 @@
+# Glosswork CI.
+#
+# What runs here is the checks table in AGENTS.md, plus a secret scan, a commit identity
+# check and static analysis, minus one deliberate omission: the Playwright **visual**
+# project. Its baselines are macOS-only (`*-darwin.png`) and these runners are Linux, so
+# it would fail on every run. It stays a local gate, and CONTRIBUTING.md makes confirming
+# it part of the pull request. `container_tests` stays a local gate too.
+#
+# CI runs only what a change can affect (CONTRIBUTING.md, "What CI runs"). The skip is
+# made per job, behind the `changes` job, and never by a `paths` filter on the workflow:
+# GitHub leaves a required check from a path-filtered workflow "Pending" forever, which
+# blocks the merge, while a job skipped by `if` reports "Success". Because a skipped job
+# passes, no heavy job is required on its own. `ci-ok` is the gate: it always runs, needs
+# every other job, and fails unless each one ended the way the classification allows,
+# including when `changes` itself failed and the heavy jobs skipped as a consequence.
+#
+# tests/test_ci_workflow.py pins this shape, and tests/test_ci_changes.py the
+# documentation rule. A change to this file is a change to what judges every change:
+# say so in the plan (CONTRIBUTING.md, "What CI runs").
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # `edited` is the only event a base-branch change fires; without it a retargeted pull
+    # request keeps the green checks it earned against its old base.
+    types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.12.19"
+  UV_LINK_MODE: copy
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: classify
+        name: Classify the change
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request: HEAD is the merge GitHub built, and its first parent is the base
+          # it merges into. A push to main: under the ruleset every push is one merge commit
+          # whose first parent is the previous main, and its tree is the tree the pull
+          # request's run already tested (strict up-to-date), so it is classified the same
+          # way. Anything else runs everything.
+          if [ "$EVENT" = pull_request ] || { [ "$EVENT" = push ] && [ "$(git rev-parse -q --verify HEAD^1 || true)" = "$BEFORE" ]; }; then
+            git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+            python3 scripts/ci_changes.py < "$RUNNER_TEMP/changed.txt" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  guards:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run pytest -q -m structural
+      - name: Install actionlint 1.7.12, checked against its published SHA-256
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+      - run: '"$RUNNER_TEMP/actionlint" -color'
+
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks 8.30.1, checked against its published SHA-256
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+      # --log-opts=HEAD: the history of the commit under test only. Without it gitleaks
+      # scans `--all`, which after a fetch-depth 0 checkout is every branch on GitHub, so one
+      # branch holding a finding turns every pull request red.
+      - name: No credential in any commit
+        run: '"$RUNNER_TEMP/gitleaks" git . --config .gitleaks.toml --log-opts=HEAD --redact --no-banner --exit-code 1'
+      - name: Every commit carries the company identity
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request's own commits, not the merge GitHub builds for the run, whose
+          # identity is GitHub's. A push to main: the commits that push added, so one wrong
+          # merge email is one red run rather than every main run from then on. Any
+          # other run: all of history.
+          if [ "$EVENT" = pull_request ]; then
+            range="$BASE..$HEAD_SHA"
+          elif [ "$EVENT" = push ] && git merge-base --is-ancestor "$BEFORE" HEAD 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            range=HEAD
+          fi
+          authors=$(git log --format='%ae' "$range" | sort -u | grep -v -x -e hello@glosswork.dev || true)
+          committers=$(git log --format='%ce' "$range" | sort -u | grep -v -x -e hello@glosswork.dev -e noreply@github.com || true)
+          if [ -n "$authors$committers" ]; then
+            echo "::error::a commit is authored or committed by an address other than hello@glosswork.dev"
+            exit 1
+          fi
+      - name: One root commit, so no older history came along
+        run: |
+          # A merge of unrelated history still descends from the root, so descent is not
+          # the test; the number of roots is. Re-creating the repository keeps it at one.
+          roots=$(git rev-list --max-parents=0 HEAD | wc -l)
+          if [ "$roots" -ne 1 ]; then
+            echo "::error::history has $roots root commits; a merge brought unrelated history in"
+            exit 1
+          fi
+
+  sast:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      # avoid-sqlalchemy-text flags every `text()` in the storage module (49 on 2026-09-26),
+      # all of which bind parameters. It is excluded there only: everywhere else it is the
+      # one rule that catches SQL built by string formatting. See CONTRIBUTING.md.
+      - name: Every rule, everything but the storage module
+        run: >-
+          uvx --from semgrep==1.178.0 semgrep scan
+          --config p/python --config p/javascript --config p/typescript
+          --exclude src/glosswork/repositories/sqlite.py
+          --metrics off --error .
+      - name: The storage module, one rule excluded
+        run: >-
+          uvx --from semgrep==1.178.0 semgrep scan
+          --config p/python --config p/javascript --config p/typescript
+          --exclude-rule python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+          --metrics off --error src/glosswork/repositories/sqlite.py
+
+  backend-lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+
+  frontend-lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run lint
+      - run: npm --prefix web run typecheck
+
+  backend-test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      # tests/test_generated_api_types_fresh.py runs `npx --prefix web openapi-typescript`.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch_model.py') }}
+      - run: uv sync --frozen
+      - run: npm --prefix web ci
+      # DD-32: the real-model fixtures fail rather than skip without the model. The script
+      # verifies the digest on a cache hit too.
+      - run: uv run python scripts/fetch_model.py
+      - run: uv run pytest -q --junitxml=report.xml
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-junit
+          path: report.xml
+          retention-days: 7
+
+  frontend-test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run test
+
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Playwright's image carries Node 22 and browsers matching @playwright/test 1.62.1 in
+    # web/package.json. Keep the two in step. Pinned by digest.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+      options: --user 1001
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch_model.py') }}
+      - run: uv sync --frozen
+      - run: uv run python scripts/fetch_model.py
+      - run: npm --prefix web ci
+      # The functional project only; `visual` is excluded by project.
+      - run: npm --prefix web run e2e -- --project=e2e
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-report
+          path: |
+            web/test-results/
+            web/playwright-report/
+          retention-days: 7
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Builds, never publishes. GW_REVISION sets
+      # org.opencontainers.image.revision; tests/test_supply_chain.py pins the flag.
+      - run: docker build --build-arg GW_REVISION=${{ github.sha }} -t glosswork:ci .
+
+  ci-ok:
+    if: always()
+    needs: [changes, guards, secrets, sast, backend-lint, frontend-lint, backend-test, frontend-test, e2e, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job ended the way this change allows
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          result() { jq -r --arg job "$1" '.[$job].result' <<<"$NEEDS"; }
+          code=$(jq -r '.changes.outputs.code // "unset"' <<<"$NEEDS")
+          case "$code" in
+            true) heavy_ok=success ;;
+            false) heavy_ok=skipped ;;
+            *) echo "::error::changes gave no answer ($code)"; exit 1 ;;
+          esac
+          fail=0
+          for job in changes guards secrets sast; do
+            r=$(result "$job")
+            [ "$r" = success ] || { echo "::error::$job ended $r; it must succeed on every change"; fail=1; }
+          done
+          for job in backend-lint frontend-lint backend-test frontend-test e2e image; do
+            r=$(result "$job")
+            [ "$r" = "$heavy_ok" ] || { echo "::error::$job ended $r; with code=$code it must end $heavy_ok"; fail=1; }
+          done
+          exit "$fail"

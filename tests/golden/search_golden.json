@@ -1,0 +1,1743 @@
+{
+  "$comment": "Golden relevance set for semantic and hybrid search (DD-33). Authored before any retrieval code existed, so that the floors measure the implementation rather than the other way round. tests/test_search_golden_corpus.py lints this file's structure; tests/test_search_golden.py seeds it through the service layer, drains the worker with the real model, runs every case in every mode it names, and asserts the hard per-case expectations, the aggregate hybrid recall@5 floor over the 27 positive cases (0.90 as authored; the shipping gate is the measured 23/27 = 0.852 under DD-33, with 0.90 kept as the target, and three cases marked as strict expected failures in the runner), and the per-class floor (no class scores zero). Neither floor nor any case expectation may be edited to make a run pass; see DD-33 for what may change and for the two test corrections it records (E2 asserted in keyword mode only; hit source asserted where the keyword arm ran).",
+  "version": 1,
+  "authored": "2026-08-25",
+  "principals": {
+    "seed": "The golden seed actor: an administrator who creates every object type, record, and comment not marked otherwise.",
+    "second": "A second administrator, created directly for the suite (as the FR-C5 tests do), who creates exactly one record so that a created_by = @me filter evaluated as this principal is maximally selective."
+  },
+  "object_types": [
+    {
+      "key": "initiative",
+      "name": "Initiative",
+      "name_plural": "Initiatives",
+      "key_prefix": "INIT",
+      "description": "A funded, sponsored workstream in the organisation's portfolio. Initiatives own a scope, a sponsor organisation, and a target date; tasks, decisions, and risks hang off them.",
+      "fields": [
+        {
+          "key": "name",
+          "name": "Name",
+          "type": "short_text",
+          "required": true,
+          "embed": true,
+          "description": "The initiative's name as the portfolio board uses it. Searchable: this short_text field opts in to the search index."
+        },
+        {
+          "key": "scope_summary",
+          "name": "Scope summary",
+          "type": "long_text",
+          "description": "What the initiative will and will not change, in a few sentences of prose. The main searchable narrative for an initiative."
+        },
+        {
+          "key": "status",
+          "name": "Status",
+          "type": "single_select",
+          "description": "Delivery health. Use 'at_risk' when the target date is threatened but recoverable and 'blocked' only when work has actually stopped.",
+          "config": {
+            "options": [
+              {
+                "value": "proposed",
+                "label": "Proposed",
+                "description": "Not yet funded or sponsored."
+              },
+              {
+                "value": "active",
+                "label": "Active",
+                "description": "Funded, sponsored, and being worked."
+              },
+              {
+                "value": "at_risk",
+                "label": "At Risk",
+                "description": "Target date threatened but recoverable."
+              },
+              {
+                "value": "blocked",
+                "label": "Blocked",
+                "description": "Work has stopped pending an external dependency."
+              },
+              {
+                "value": "complete",
+                "label": "Complete",
+                "description": "Delivered and accepted by the sponsor."
+              }
+            ]
+          }
+        },
+        {
+          "key": "sponsor_org",
+          "name": "Sponsor organisation",
+          "type": "single_select",
+          "description": "The executive function sponsoring the initiative.",
+          "config": {
+            "options": [
+              {
+                "value": "finance",
+                "label": "Finance",
+                "description": "Sponsored or owned by the finance function."
+              },
+              {
+                "value": "operations",
+                "label": "Operations",
+                "description": "Sponsored or owned by operations: depots, hubs, fleet, warehouses."
+              },
+              {
+                "value": "commercial",
+                "label": "Commercial",
+                "description": "Sponsored or owned by the commercial and sales function."
+              },
+              {
+                "value": "technology",
+                "label": "Technology",
+                "description": "Sponsored or owned by technology and data."
+              },
+              {
+                "value": "people",
+                "label": "People",
+                "description": "Sponsored or owned by the people (HR) function."
+              }
+            ]
+          }
+        },
+        {
+          "key": "target_date",
+          "name": "Target date",
+          "type": "date",
+          "description": "The date the initiative is due to complete."
+        },
+        {
+          "key": "procurement_ref",
+          "name": "Procurement reference",
+          "type": "short_text",
+          "embed": false,
+          "description": "Procurement's own reference code for the initiative. An internal code, deliberately excluded from search (embed is off)."
+        }
+      ]
+    },
+    {
+      "key": "decision",
+      "name": "Decision",
+      "name_plural": "Decisions",
+      "key_prefix": "DEC",
+      "description": "A recorded decision with its rationale and status. Decisions are searched for the reasoning behind them, so the rationale is prose rather than a bullet.",
+      "fields": [
+        {
+          "key": "title",
+          "name": "Title",
+          "type": "short_text",
+          "required": true,
+          "embed": true,
+          "description": "One line naming what was decided. Searchable."
+        },
+        {
+          "key": "rationale",
+          "name": "Rationale",
+          "type": "long_text",
+          "description": "Why the decision was taken, what was weighed, and what it rules out. The searchable narrative for a decision."
+        },
+        {
+          "key": "status",
+          "name": "Status",
+          "type": "single_select",
+          "description": "Where the decision stands. 'superseded' means a later decision replaced it.",
+          "config": {
+            "options": [
+              {
+                "value": "proposed",
+                "label": "Proposed",
+                "description": "Awaiting a decision."
+              },
+              {
+                "value": "approved",
+                "label": "Approved",
+                "description": "Decided and in force."
+              },
+              {
+                "value": "rejected",
+                "label": "Rejected",
+                "description": "Considered and turned down."
+              },
+              {
+                "value": "superseded",
+                "label": "Superseded",
+                "description": "Replaced by a later decision."
+              }
+            ]
+          }
+        },
+        {
+          "key": "decided_on",
+          "name": "Decided on",
+          "type": "date",
+          "description": "The date the decision was taken."
+        }
+      ]
+    },
+    {
+      "key": "task",
+      "name": "Task",
+      "name_plural": "Tasks",
+      "key_prefix": "TASK",
+      "description": "A unit of work with an owning team and a status. Notes carry the working detail: identifiers, blockers, and what actually happened.",
+      "fields": [
+        {
+          "key": "title",
+          "name": "Title",
+          "type": "short_text",
+          "required": true,
+          "embed": true,
+          "description": "A short imperative title for the work. Searchable."
+        },
+        {
+          "key": "notes",
+          "name": "Notes",
+          "type": "long_text",
+          "description": "Working notes: purchase order and ticket numbers, who is waiting on whom, and what was done. The searchable narrative for a task."
+        },
+        {
+          "key": "status",
+          "name": "Status",
+          "type": "single_select",
+          "description": "Work state. 'done' means finished and accepted, not merely handed over.",
+          "config": {
+            "options": [
+              {
+                "value": "todo",
+                "label": "Todo",
+                "description": "Not started."
+              },
+              {
+                "value": "in_progress",
+                "label": "In Progress",
+                "description": "Being worked."
+              },
+              {
+                "value": "done",
+                "label": "Done",
+                "description": "Finished and accepted."
+              }
+            ]
+          }
+        },
+        {
+          "key": "owner_team",
+          "name": "Owner team",
+          "type": "single_select",
+          "description": "The team accountable for the task.",
+          "config": {
+            "options": [
+              {
+                "value": "finance",
+                "label": "Finance",
+                "description": "Sponsored or owned by the finance function."
+              },
+              {
+                "value": "operations",
+                "label": "Operations",
+                "description": "Sponsored or owned by operations: depots, hubs, fleet, warehouses."
+              },
+              {
+                "value": "commercial",
+                "label": "Commercial",
+                "description": "Sponsored or owned by the commercial and sales function."
+              },
+              {
+                "value": "technology",
+                "label": "Technology",
+                "description": "Sponsored or owned by technology and data."
+              },
+              {
+                "value": "people",
+                "label": "People",
+                "description": "Sponsored or owned by the people (HR) function."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "risk",
+      "name": "Risk",
+      "name_plural": "Risks",
+      "key_prefix": "RISK",
+      "description": "Something that might go wrong, with a severity and a status. The description explains the exposure; mitigations and updates are discussed in comments.",
+      "fields": [
+        {
+          "key": "title",
+          "name": "Title",
+          "type": "short_text",
+          "required": true,
+          "embed": true,
+          "description": "One line naming the risk. Searchable."
+        },
+        {
+          "key": "description",
+          "name": "Description",
+          "type": "long_text",
+          "description": "What could go wrong, why, and what it would cost. The searchable narrative for a risk."
+        },
+        {
+          "key": "severity",
+          "name": "Severity",
+          "type": "single_select",
+          "description": "How bad it would be if the risk materialised.",
+          "config": {
+            "options": [
+              {
+                "value": "low",
+                "label": "Low",
+                "description": "Inconvenient; absorbed within the team."
+              },
+              {
+                "value": "medium",
+                "label": "Medium",
+                "description": "Needs management attention or budget."
+              },
+              {
+                "value": "high",
+                "label": "High",
+                "description": "Threatens an initiative's date or a regulatory commitment."
+              }
+            ]
+          }
+        },
+        {
+          "key": "status",
+          "name": "Status",
+          "type": "single_select",
+          "description": "Whether the risk is still live.",
+          "config": {
+            "options": [
+              {
+                "value": "open",
+                "label": "Open",
+                "description": "Live and unmitigated."
+              },
+              {
+                "value": "mitigated",
+                "label": "Mitigated",
+                "description": "Controls in place; monitoring."
+              },
+              {
+                "value": "closed",
+                "label": "Closed",
+                "description": "No longer possible or no longer material."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "ref": "init_commercial_op_model",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Commercial operating model",
+        "scope_summary": "Harmonise how the three regions govern discounts and approve non-standard deals. Establish a central deal desk, retire the regional exception spreadsheets, and publish one pricing and discount authority matrix. Out of scope: list price changes, which stay with product management.",
+        "status": "active",
+        "sponsor_org": "commercial",
+        "target_date": "2026-12-31",
+        "procurement_ref": "CR-COM-014"
+      }
+    },
+    {
+      "ref": "init_price_book_archive",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Price book archive",
+        "scope_summary": "Archive the 2019 to 2023 regional price books and pricing memos into the document store so the commercial team stops quoting withdrawn prices.",
+        "status": "complete",
+        "sponsor_org": "commercial",
+        "target_date": "2026-02-28",
+        "procurement_ref": "CR-COM-002"
+      }
+    },
+    {
+      "ref": "init_fleet_telematics",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Fleet telematics rollout",
+        "scope_summary": "Fit telematics units to the 340 vans and 60 rigid trucks, feed driver scorecards to depot managers weekly, and use idle-time data to cut fuel spend by eight percent.",
+        "status": "active",
+        "sponsor_org": "operations",
+        "target_date": "2026-10-31",
+        "procurement_ref": "KESTREL-0091"
+      }
+    },
+    {
+      "ref": "init_manchester_consolidation",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Manchester service centre consolidation",
+        "scope_summary": "Headcount reductions at the Manchester service centre will be phased over three quarters, with voluntary redundancy offered first and the customer contact volume moved to the Glasgow site once its second floor is fitted out.",
+        "status": "at_risk",
+        "sponsor_org": "people",
+        "target_date": "2027-03-31",
+        "procurement_ref": "CR-PEO-031"
+      }
+    },
+    {
+      "ref": "init_people_systems",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "People systems renewal",
+        "scope_summary": "Replace the HR and payroll platforms with one supplier. We will dual-run the old and new payroll for two pay cycles before cutting over, and freeze non-essential HR configuration changes during the parallel period.",
+        "status": "active",
+        "sponsor_org": "people",
+        "target_date": "2026-11-30",
+        "procurement_ref": "CR-PEO-018"
+      }
+    },
+    {
+      "ref": "init_early_careers",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Early careers programme",
+        "scope_summary": "Stand up a two-year apprenticeship route into the operations and finance teams, using the unspent apprenticeship levy funds before they expire, with twelve places in the first cohort.",
+        "status": "proposed",
+        "sponsor_org": "people",
+        "target_date": "2027-09-01",
+        "procurement_ref": "CR-PEO-040"
+      }
+    },
+    {
+      "ref": "init_data_platform",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Data platform migration",
+        "scope_summary": "Move the reporting warehouse and the analytics pipelines from the on-premise cluster to the cloud data platform. Data residency: EU customer records stay in the Frankfurt region, and the migration plan sequences the finance marts first.",
+        "status": "active",
+        "sponsor_org": "technology",
+        "target_date": "2026-09-30",
+        "procurement_ref": "CR-TEC-007"
+      }
+    },
+    {
+      "ref": "init_warehouse_slotting",
+      "type": "initiative",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "name": "Warehouse slotting redesign",
+        "scope_summary": "Re-plan where fast-moving stock sits in the Coventry warehouse so pickers walk less; the new layout cuts the average pick walk by a third based on last year's order lines.",
+        "status": "active",
+        "sponsor_org": "operations",
+        "target_date": "2026-08-31",
+        "procurement_ref": "CR-OPS-022"
+      }
+    },
+    {
+      "ref": "dec_regional_pricing",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Consolidate regional pricing authority",
+        "rationale": "Regional general managers currently approve discounts independently, which produced three different prices for the same product last quarter. Approval authority moves to a central deal desk with a published matrix.",
+        "status": "approved",
+        "decided_on": "2026-03-03"
+      }
+    },
+    {
+      "ref": "dec_data_residency",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Keep EU customer data in Frankfurt",
+        "rationale": "Data residency for EU customer records is a contractual commitment to two of our largest accounts, so the platform's EU region is mandatory even though the US region is cheaper; the migration must not stage EU data outside Frankfurt.",
+        "status": "approved",
+        "decided_on": "2026-01-20"
+      }
+    },
+    {
+      "ref": "dec_firewall_change",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Approve the warehouse firewall change",
+        "rationale": "Change request CHG-2291 opens port 8443 from the warehouse VLAN to the new warehouse management system so the scanners can post stock movements directly. Security signed off after the penetration test.",
+        "status": "approved",
+        "decided_on": "2026-04-14"
+      }
+    },
+    {
+      "ref": "dec_wms_firewall_decoy",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Warehouse management system network access",
+        "rationale": "The change request to open the warehouse management system ports from the warehouse network is approved in principle, subject to the penetration test findings being closed; the service desk will assign the change number.",
+        "status": "approved",
+        "decided_on": "2026-04-02"
+      }
+    },
+    {
+      "ref": "dec_supplier_invoice_tolerance",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Supplier payment control settings",
+        "rationale": "Set the three-way invoice matching tolerance at two percent of line value, so small freight variances no longer block payment runs while anything larger still routes to a buyer for review.",
+        "status": "approved",
+        "decided_on": "2026-02-11"
+      }
+    },
+    {
+      "ref": "dec_retire_legacy_crm",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Retire the legacy CRM by the third quarter",
+        "rationale": "The legacy CRM costs more in support contracts than the replacement's licence, and its contacts are already mirrored in the new system.",
+        "status": "approved",
+        "decided_on": "2026-03-20"
+      }
+    },
+    {
+      "ref": "dec_rota_change",
+      "type": "decision",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Move the Leeds hub to a four-shift rota",
+        "rationale": "The new rota was negotiated with the union over six sessions; it adds a night shift and removes the split shift that drove most of the overtime claims.",
+        "status": "approved",
+        "decided_on": "2026-05-05"
+      }
+    },
+    {
+      "ref": "task_server_delivery",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Chase the delayed server delivery",
+        "notes": "Purchase order PO-88213 for the Hyderabad rack servers is stuck in customs; the freight forwarder needs the commercial invoice re-issued with the correct HS code.",
+        "status": "in_progress",
+        "owner_team": "technology"
+      }
+    },
+    {
+      "ref": "task_server_decoy",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Expedite the second rack server order",
+        "notes": "The PO for the second batch of rack servers is still awaiting approval from the CFO; procurement will not release it until the Hyderabad build has a signed acceptance.",
+        "status": "todo",
+        "owner_team": "technology"
+      }
+    },
+    {
+      "ref": "task_deal_desk_staffing",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Draft the deal desk staffing plan",
+        "notes": "Two analysts and a lead, reporting to the commercial director, with a rota that covers both regional time zones.",
+        "status": "in_progress",
+        "owner_team": "commercial"
+      }
+    },
+    {
+      "ref": "task_leeds_backlog",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Leeds hub recovery plan",
+        "notes": "The returns handling backlog at the Leeds hub is now eleven days; parcels sent back by customers sit unopened until the second shift clears them, and refund complaints are rising.",
+        "status": "in_progress",
+        "owner_team": "operations"
+      }
+    },
+    {
+      "ref": "task_discount_signoff",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Discount sign-off routing",
+        "notes": "Every discount over eight percent is priced by the deal desk and approved by the regional director; anything over fifteen percent goes to the commercial VP.",
+        "status": "in_progress",
+        "owner_team": "commercial"
+      }
+    },
+    {
+      "ref": "task_telematics_contract",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Renew the telematics contract",
+        "notes": "Contract CTR-2024-117 with the telematics vendor expires on 30 September; procurement negotiated a six percent reduction for a three-year term, pending legal review of the data clauses.",
+        "status": "in_progress",
+        "owner_team": "operations"
+      }
+    },
+    {
+      "ref": "task_telematics_decoy",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Review the telematics vendor terms",
+        "notes": "The telematics vendor contract expires at the end of September; procurement wants a three-year term in exchange for a discount, and legal has asked to see the data clauses first.",
+        "status": "todo",
+        "owner_team": "operations"
+      }
+    },
+    {
+      "ref": "task_expense_archive",
+      "type": "task",
+      "deleted": false,
+      "created_by": "second",
+      "values": {
+        "title": "Archive the old expense reports",
+        "notes": "The 2018 to 2021 expense reports were exported from the retired finance tool, checked against the audit retention schedule, and filed in the document store under the finance archive. Access is restricted to the finance controllers. The last box of paper receipts was scanned and shredded on 14 April. This closes the final item left over from the finance tool migration.",
+        "status": "done",
+        "owner_team": "finance"
+      }
+    },
+    {
+      "ref": "task_mailbox_migration",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Migrate the shared mailboxes",
+        "notes": "Mailbox migration for the finance and commercial teams runs over the bank holiday weekend; users keep their addresses and nothing changes for customers.",
+        "status": "todo",
+        "owner_team": "technology"
+      }
+    },
+    {
+      "ref": "task_finance_marts",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Finance marts migration cutover",
+        "notes": "Migration runbook for the finance marts: freeze the on-premise loads at 18:00, run the migration scripts, reconcile row counts, then switch the reporting connections to the cloud platform.",
+        "status": "in_progress",
+        "owner_team": "technology"
+      }
+    },
+    {
+      "ref": "task_pricing_binders",
+      "type": "task",
+      "deleted": true,
+      "created_by": "seed",
+      "values": {
+        "title": "Print the Q1 pricing binders",
+        "notes": "Print and bind the Q1 pricing binders for the regional sales kick-off: forty copies, spiral bound, delivered to the Birmingham office by Thursday.",
+        "status": "done",
+        "owner_team": "commercial"
+      }
+    },
+    {
+      "ref": "task_support_office_refit",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Book the support office refit",
+        "notes": "The Aberdeen support office refit is a gradual programme of small works: kitchen first, then the meeting rooms, all funded from the facilities budget.",
+        "status": "todo",
+        "owner_team": "operations"
+      }
+    },
+    {
+      "ref": "task_goods_in_posting",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Update the goods-in posting rules",
+        "notes": "Goods received must be posted to the stock system within two working days of arrival; anything waiting longer than a fortnight is escalated to the site lead.",
+        "status": "todo",
+        "owner_team": "operations"
+      }
+    },
+    {
+      "ref": "task_markdown_calendar",
+      "type": "task",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Clearance markdown calendar",
+        "notes": "Set the markdown dates for end-of-season stock so each area clears its own leftovers before the new range lands, and stop the markdowns a week before stocktake.",
+        "status": "todo",
+        "owner_team": "commercial"
+      }
+    },
+    {
+      "ref": "risk_incident",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Repeat of the March outage",
+        "description": "Incident INC-40917 took the customer portal down for four hours on 12 March; the root cause, an expired certificate on the load balancer, has a manual renewal step that nobody owns.",
+        "severity": "high",
+        "status": "open"
+      }
+    },
+    {
+      "ref": "risk_portal_decoy",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Portal outage recurrence",
+        "description": "The March incident took the customer portal down for most of an afternoon; the root cause was never fully documented, so a recurrence is likely at the next certificate expiry.",
+        "severity": "medium",
+        "status": "open"
+      }
+    },
+    {
+      "ref": "risk_vendor_lockin",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Vendor lock-in on the analytics estate",
+        "description": "Our analytics estate depends on one cloud provider's proprietary storage format; moving to another supplier would mean rewriting every pipeline, so the exit cost grows with each new dataset.",
+        "severity": "medium",
+        "status": "open"
+      }
+    },
+    {
+      "ref": "risk_payroll_keyperson",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Key-person dependency in the payroll run",
+        "description": "Only one engineer understands the payroll run's hand-off to the payment provider, and there is no runbook.",
+        "severity": "high",
+        "status": "open"
+      }
+    },
+    {
+      "ref": "risk_union_monitoring",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Union pushback on in-cab monitoring",
+        "description": "The union has not yet agreed the terms under which in-cab cameras and location data may be used in disciplinary cases; a formal objection would stall the fleet programme.",
+        "severity": "medium",
+        "status": "open"
+      }
+    },
+    {
+      "ref": "risk_migration_yearend",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Migration cutover clashes with year-end close",
+        "description": "If the data platform migration slips by three weeks it lands in the year-end close window, when finance cannot support reconciliation testing.",
+        "severity": "high",
+        "status": "open"
+      }
+    },
+    {
+      "ref": "risk_intercompany",
+      "type": "risk",
+      "deleted": false,
+      "created_by": "seed",
+      "values": {
+        "title": "Entity simplification audit exposure",
+        "description": "The entity simplification programme touches nine legal entities, each with statutory filings due inside the same six-week window.",
+        "severity": "medium",
+        "status": "open"
+      }
+    }
+  ],
+  "comments": [
+    {
+      "ref": "c_scorecard_exclusion",
+      "record": "init_fleet_telematics",
+      "body": "Depot managers want the driver scorecards to exclude the first fortnight after someone joins.",
+      "deleted": false
+    },
+    {
+      "ref": "c_scorecard_thresholds",
+      "record": "init_fleet_telematics",
+      "body": "Driver scorecard thresholds agreed with the union: amber at three harsh-braking events per shift.",
+      "deleted": false
+    },
+    {
+      "ref": "c_ledger_deleted",
+      "record": "init_early_careers",
+      "body": "Draft budget attached; ignore the figures in the ledger tab, they are last year's.",
+      "deleted": true
+    },
+    {
+      "ref": "c_migration_wave",
+      "record": "init_data_platform",
+      "body": "Migration wave two now includes the HR marts; the wave one migration sign-off is attached.",
+      "deleted": false
+    },
+    {
+      "ref": "c_deal_desk_golive",
+      "record": "dec_regional_pricing",
+      "body": "Deal desk go-live is now 1 June; the two analysts start on 18 May.",
+      "deleted": false
+    },
+    {
+      "ref": "c_deal_desk_email",
+      "record": "dec_regional_pricing",
+      "body": "Until the deal desk is staffed, regional exceptions still come to me by email.",
+      "deleted": false
+    },
+    {
+      "ref": "c_crm_sandbox",
+      "record": "dec_retire_legacy_crm",
+      "body": "Heads up: the CRM sandbox refresh wiped the test data, so user acceptance testing slips a week.",
+      "deleted": false
+    },
+    {
+      "ref": "c_crm_migration",
+      "record": "dec_retire_legacy_crm",
+      "body": "CRM contact migration dry run completed; 412 duplicate contacts flagged.",
+      "deleted": false
+    },
+    {
+      "ref": "c_deal_desk_finance",
+      "record": "task_deal_desk_staffing",
+      "body": "Finance won't sign off on two more headcount until the discount leakage analysis is done.",
+      "deleted": false
+    },
+    {
+      "ref": "c_incident_owner",
+      "record": "risk_incident",
+      "body": "Certificate renewal is now owned by the platform team; the automation ticket is raised.",
+      "deleted": false
+    },
+    {
+      "ref": "c_payroll_priya",
+      "record": "risk_payroll_keyperson",
+      "body": "Priya is the only one who knows the bank file format; she's on leave from 12 May.",
+      "deleted": false
+    },
+    {
+      "ref": "c_union_dashcam",
+      "record": "risk_union_monitoring",
+      "body": "The union rep raised the dashcam footage retention question again; we owe them a written answer before the depot briefing.",
+      "deleted": false
+    },
+    {
+      "ref": "c_intercompany_legal",
+      "record": "risk_intercompany",
+      "body": "Legal says the Irish entity's intercompany agreements haven't been updated since 2019, which the auditors will pick up.",
+      "deleted": false
+    }
+  ],
+  "cases": [
+    {
+      "id": "A1",
+      "class": "A",
+      "query": "dashcam footage retention",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "risk_union_monitoring",
+        "hit_source": {
+          "type": "comment",
+          "comment": "c_union_dashcam"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The dashcam question exists only in a comment on the in-cab monitoring risk; the risk's own fields never mention it."
+    },
+    {
+      "id": "A2",
+      "class": "A",
+      "query": "sandbox refresh wiped test data",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_retire_legacy_crm",
+        "hit_source": {
+          "type": "comment",
+          "comment": "c_crm_sandbox"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The sandbox incident is comment-only; the decision's rationale is about licence cost."
+    },
+    {
+      "id": "A3",
+      "class": "A",
+      "query": "discount leakage analysis",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "task_deal_desk_staffing",
+        "hit_source": {
+          "type": "comment",
+          "comment": "c_deal_desk_finance"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Finance's precondition lives only in a comment on the staffing task."
+    },
+    {
+      "id": "A4",
+      "class": "A",
+      "query": "bank file format",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "risk_payroll_keyperson",
+        "hit_source": {
+          "type": "comment",
+          "comment": "c_payroll_priya"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The specific knowledge gap (the bank file format) is named only in a comment; the risk description says 'payment provider'."
+    },
+    {
+      "id": "B1",
+      "class": "B",
+      "query": "returns handling backlog",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "task_leeds_backlog",
+        "hit_source": {
+          "type": "field",
+          "field_key": "notes"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Only the task notes describe the returns backlog; the title says 'recovery plan'."
+    },
+    {
+      "id": "B2",
+      "class": "B",
+      "query": "invoice matching tolerance",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_supplier_invoice_tolerance",
+        "hit_source": {
+          "type": "field",
+          "field_key": "rationale"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The three-way match tolerance is in the rationale only; the title is generic."
+    },
+    {
+      "id": "B3",
+      "class": "B",
+      "query": "dual running the old and new payroll",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_people_systems",
+        "hit_source": {
+          "type": "field",
+          "field_key": "scope_summary"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The parallel-run plan is in the scope summary only; the initiative is named 'People systems renewal'."
+    },
+    {
+      "id": "B4",
+      "class": "B",
+      "query": "apprenticeship levy",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_early_careers",
+        "hit_source": {
+          "type": "field",
+          "field_key": "scope_summary"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The levy is mentioned only in the scope summary; the record's one comment is soft-deleted and about something else."
+    },
+    {
+      "id": "C1",
+      "class": "C",
+      "query": "PO-88213",
+      "mode_runs": [
+        "hybrid",
+        "keyword"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "task_server_delivery",
+        "hit_source": {
+          "type": "field",
+          "field_key": "notes"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "keyword": 1,
+          "hybrid": 1
+        },
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Purchase order number; the decoy task is about the same rack servers, says 'PO' without the number, and must not outrank the exact match."
+    },
+    {
+      "id": "C2",
+      "class": "C",
+      "query": "CHG-2291",
+      "mode_runs": [
+        "hybrid",
+        "keyword"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_firewall_change",
+        "hit_source": {
+          "type": "field",
+          "field_key": "rationale"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "keyword": 1,
+          "hybrid": 1
+        },
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Change request number; the decoy decision is the same firewall topic with no number."
+    },
+    {
+      "id": "C3",
+      "class": "C",
+      "query": "INC-40917",
+      "mode_runs": [
+        "hybrid",
+        "keyword"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "risk_incident",
+        "hit_source": {
+          "type": "field",
+          "field_key": "description"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "keyword": 1,
+          "hybrid": 1
+        },
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Incident number; the decoy risk describes the same March outage without it."
+    },
+    {
+      "id": "C4",
+      "class": "C",
+      "query": "contract CTR-2024-117",
+      "mode_runs": [
+        "hybrid",
+        "keyword"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "task_telematics_contract",
+        "hit_source": {
+          "type": "field",
+          "field_key": "notes"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "keyword": 1,
+          "hybrid": 1
+        },
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "A contract number typed with a word beside it; the decoy is the same vendor renewal without the number."
+    },
+    {
+      "id": "D1",
+      "class": "D",
+      "query": "gradual staff cuts at the northern support office",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_manchester_consolidation",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "semantic": 3
+        },
+        "absent_in": [
+          "keyword"
+        ],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Headcount reductions phased over three quarters at the Manchester service centre, asked in plain words. Hit source not asserted: the title chunk and the scope chunk are both plausible nearest neighbours, which is a model property, not an implementation one."
+    },
+    {
+      "id": "D2",
+      "class": "D",
+      "query": "trapped with a single hosting company because of their custom file layout",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "risk_vendor_lockin",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "semantic": 3
+        },
+        "absent_in": [
+          "keyword"
+        ],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Vendor lock-in through a proprietary storage format, asked without any of those words. Hit source not asserted: which chunk is the nearest neighbour is a model property, not an implementation one."
+    },
+    {
+      "id": "D3",
+      "class": "D",
+      "query": "people waiting nearly a fortnight for their money after posting goods to us",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "task_leeds_backlog",
+        "hit_source": {
+          "type": "field",
+          "field_key": "notes"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "semantic": 3
+        },
+        "absent_in": [
+          "keyword"
+        ],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The returns backlog and rising refund complaints, asked as a customer complaint. The goods-in decoy shares 'waiting', 'fortnight', 'posting', and 'goods' and is about receiving stock."
+    },
+    {
+      "id": "D4",
+      "class": "D",
+      "query": "stale paperwork between our own subsidiaries that the year-end review will catch",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "risk_intercompany",
+        "hit_source": {
+          "type": "comment",
+          "comment": "c_intercompany_legal"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "semantic": 3
+        },
+        "absent_in": [
+          "keyword"
+        ],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Out-of-date intercompany agreements the auditors will find: the fact is comment-only and the query shares no content stem with it (note 'audit' does not stem to 'auditors' under Porter, so the query avoids it rather than relying on that)."
+    },
+    {
+      "id": "D5",
+      "class": "D",
+      "query": "stop each area boss setting their own markdowns",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_regional_pricing",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "semantic": 3
+        },
+        "absent_in": [
+          "keyword"
+        ],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Regional managers approving discounts independently, asked in shop-floor language. The markdown-calendar decoy shares 'markdown', 'area', and 'own' and is about clearance dates. Hit source not asserted: which chunk is the nearest neighbour is a model property, not an implementation one."
+    },
+    {
+      "id": "E1",
+      "class": "E",
+      "query": "slotting",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_warehouse_slotting",
+        "hit_source": {
+          "type": "field",
+          "field_key": "name"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The word appears only in the initiative's name, an opted-in short_text field; the scope summary says 'layout'."
+    },
+    {
+      "id": "E2",
+      "class": "E",
+      "query": "kestrel",
+      "mode_runs": [
+        "keyword"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": null,
+        "hit_source": null,
+        "recall_floor_mode": null,
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "init_fleet_telematics"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Negative: the codename appears only in procurement_ref, a short_text field with embed off, so the keyword arm may return nothing. Asserted in keyword mode only (a test correction DD-33 records): a nearest-neighbour search always returns neighbours, so absence in semantic or hybrid mode would assert something the technique cannot do. Before the correction the fleet record surfaced at rank 1 in both modes (nearest chunk at L2 distance 1.034, cosine 0.47, against below 0.93 for every true hit in the run); a distance cutoff that would make the wider claim assertable is not tuned on 36 records."
+    },
+    {
+      "id": "F1",
+      "class": "F",
+      "query": "pricing",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": [
+        "initiative"
+      ],
+      "filter": {
+        "field": "status",
+        "op": "eq",
+        "value": "active"
+      },
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_commercial_op_model",
+        "hit_source": {
+          "type": "field",
+          "field_key": "scope_summary"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "init_price_book_archive"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Two initiatives mention pricing; the filter on the type's own status field keeps only the active one (one-type rule: object_types names exactly one type)."
+    },
+    {
+      "id": "F2",
+      "class": "F",
+      "query": "portal outage",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": {
+        "field": "comment_count",
+        "op": "eq",
+        "value": 0
+      },
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "risk_portal_decoy",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "risk_incident"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Across all types, a system pseudo-field filter (records with no discussion) keeps the undocumented recurrence risk and drops the incident risk, which has a comment."
+    },
+    {
+      "id": "F3",
+      "class": "F",
+      "query": "migration",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": {
+        "field": "created_by",
+        "op": "eq",
+        "value": "@me"
+      },
+      "limit": 2,
+      "as_principal": "second",
+      "expect": {
+        "record": "task_expense_archive",
+        "hit_source": {
+          "type": "field",
+          "field_key": "notes"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "init_data_platform",
+          "task_finance_marts",
+          "task_mailbox_migration",
+          "risk_migration_yearend",
+          "dec_data_residency",
+          "dec_retire_legacy_crm"
+        ],
+        "other_matches": null,
+        "widened": true
+      },
+      "why": "Starvation: eleven sources mention migration prominently and the target mentions it once at the end of a long note. With limit 2 the first pool (8 rows per arm) cannot contain it; the @me filter, evaluated as the second principal who created only this record, leaves no survivor until the pool widens once to 32."
+    },
+    {
+      "id": "G1",
+      "class": "G",
+      "query": "data residency",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": [
+        "decision"
+      ],
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_data_residency",
+        "hit_source": {
+          "type": "field",
+          "field_key": "rationale"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "init_data_platform"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The phrase lives in an initiative's scope and a decision's rationale; scoping to decision returns only the decision."
+    },
+    {
+      "id": "G2",
+      "class": "G",
+      "query": "data residency",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": [
+        "initiative"
+      ],
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_data_platform",
+        "hit_source": {
+          "type": "field",
+          "field_key": "scope_summary"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "dec_data_residency"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "The same query scoped to initiative returns only the initiative."
+    },
+    {
+      "id": "H1",
+      "class": "H",
+      "query": "deal desk",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_regional_pricing",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": 2,
+        "widened": null
+      },
+      "why": "The decision matches in its rationale and in two comments; it returns once with other_matches 2. Other records that mention the deal desk are separate results."
+    },
+    {
+      "id": "H2",
+      "class": "H",
+      "query": "driver scorecards",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "init_fleet_telematics",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": 2,
+        "widened": null
+      },
+      "why": "The initiative matches in its scope summary and in two comments; once, other_matches 2."
+    },
+    {
+      "id": "I1",
+      "class": "I",
+      "query": "pricing binders",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": null,
+        "hit_source": null,
+        "recall_floor_mode": null,
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "task_pricing_binders"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Negative: the only record mentioning binders is soft-deleted, so it must not appear in any mode even though its index rows still exist."
+    },
+    {
+      "id": "I2",
+      "class": "I",
+      "query": "ledger tab",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": null,
+        "hit_source": null,
+        "recall_floor_mode": null,
+        "hard_rank": {},
+        "absent_in": [],
+        "absent_records": [
+          "init_early_careers"
+        ],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Negative: the only mention of the ledger tab is a soft-deleted comment, so the initiative must not be returned in any mode."
+    },
+    {
+      "id": "J1",
+      "class": "J",
+      "query": "pricing approvals",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "task_discount_signoff",
+        "hit_source": {
+          "type": "field",
+          "field_key": "notes"
+        },
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "keyword": 5
+        },
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "Neither query word appears literally; the notes say 'priced' and 'approved', which Porter reduces to the same stems."
+    },
+    {
+      "id": "J2",
+      "class": "J",
+      "query": "shift rota negotiations",
+      "mode_runs": [
+        "hybrid",
+        "keyword",
+        "semantic"
+      ],
+      "object_types": null,
+      "filter": null,
+      "limit": 10,
+      "as_principal": "seed",
+      "expect": {
+        "record": "dec_rota_change",
+        "hit_source": null,
+        "recall_floor_mode": "hybrid",
+        "hard_rank": {
+          "keyword": 5
+        },
+        "absent_in": [],
+        "absent_records": [],
+        "other_matches": null,
+        "widened": null
+      },
+      "why": "'negotiations' finds 'negotiated'. Hit source not asserted: the title also carries 'shift' and 'rota' and bm25's length normalisation may prefer it to the rationale."
+    }
+  ]
+}

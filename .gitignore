@@ -1,0 +1,57 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+node_modules/
+dist/
+build/
+data/
+# The performance corpus (scripts/seed_perf.py): ~1.3 GB, regenerated on demand
+# and never committed. The small JSON measurement reports ARE committed, so every
+# number in docs/PERFORMANCE.md can be checked against the run that produced it.
+#
+# Note the form: `perf-data/*` rather than `perf-data/`. Git cannot re-include a
+# file whose parent directory is excluded, so ignoring the directory itself would
+# make the negation below silently do nothing.
+perf-data/*
+!perf-data/*.json
+# A superseded corpus is kept aside under a suffixed name rather than deleted, and
+# then outlives its usefulness: one sat here at 1.3 GB long after an edit to migration 1
+# had made it unopenable. Ignored whole, not in the form
+# above, because a stale corpus has no reports worth committing -- the ones it carries
+# are byte-identical to the tracked perf-data/*.json. Reseed with scripts/seed_perf.py.
+perf-data-*/
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+models/
+
+# Editor / workspace files. `glosswork.code-workspace` was tracked until the repo
+# was prepared for a remote; it referenced a path that existed on one machine only.
+*.code-workspace
+.vscode/
+.idea/
+
+# Agent tooling. Shared configuration (`.claude/agents/`) IS tracked; per-developer
+# state is not. These were previously invisible only because of ~/.config/git/ignore
+# and .git/info/exclude, neither of which travels with a clone.
+.claude/settings.local.json
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local/
+
+# CI and test output
+report.xml
+web/test-results/
+web/playwright-report/
+.cache/

@@ -1,0 +1,18 @@
+# One line per migration in src/glosswork/migrations.py: number, name, sha256 of its content.
+# APPEND-ONLY (DD-6). Existing migrations are never edited, so no existing digest line ever changes.
+# Checked by tests/test_migrations_are_forward_only.py. A red guard means the edit is wrong.
+# A new migration appends its own line, in the same change, with:
+#   uv run python -m tests.test_migrations_are_forward_only >> tests/migration_hashes.txt
+# Lines 1 to 9 were recorded from the first image that was deployed.
+1 initial_schema d07b0f12c3024f1211b9c54ff56aaae6febe4f86fe14c90d3e8b9853aa8f8f85
+2 attachments 24153f3a3782643d4de5de99dfa0590034167a40a82139d8e1db391f7307a92b
+3 saved_views 3fa53ffc0e17d335ec6e96b1ff9227666da187d85921cc3d7809627277942464
+4 access_tokens f9ab7260e363310f203cde87f822b005ac842d669a308d2cba57ae18027e1a02
+5 sessions 9d0a85f389b9a846ed9cbb1f85524a5a1de35fb58cc4454499c37c29767a9ac4
+6 search_indexes 87d02739e17e97439f073e7eb67df5ce585ed2117e9a0166a651eb4cc753f4d5
+7 access_control b1abf064afe451c98bacaefce28725879b33cf6dd7bb4989e598269ed4e387d0
+8 capability_tokens e007af9600824984d2266a0bd2a7669a3f7afe50f2fc20c4dc40bdf2b16f8054
+9 record_agent_label 8202781ecdb4c0fea6cf48174977be764b1c1673e82f646ad52395182192bc9f
+10 agent_label_on_token f6d8f8a28caeaf32b70cfeb54cdf1f1a52cb07824fe8cb1662dce371a6008d88
+11 usage_counters 80e935b9f4cb95c0885f968e2ab82a66a28329adfc248e9e48705c11d03f8a50
+12 bootstrap_description 79a24a1369b45d93366f8a096b929dacb35edcf87f778dc7e45c0caa85f31150

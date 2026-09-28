@@ -1,0 +1,37 @@
+# CODEOWNERS.
+#
+# This file records who owns what. GitHub reads it, but the ruleset on `main` requires no
+# code owner review (scripts/github/ruleset-main.json): the organization has one seat, and
+# nobody can approve their own pull request. Add owners alongside @crscheid as the team
+# grows.
+#
+# Everything, by default.
+* @crscheid
+
+# Specifications and decisions. A change here is a change to the contract, not to an
+# implementation, and needs the maintainer even when the code diff looks small.
+/PRD.md            @crscheid
+/AGENTS.md         @crscheid
+/CONTRIBUTING.md   @crscheid
+/SECURITY.md       @crscheid
+/docs/DESIGN_DECISIONS.md @crscheid
+
+# The security-sensitive surface: identity, authorization, the request edge, and the
+# operator CLI that bootstraps credentials.
+/src/glosswork/auth.py       @crscheid
+/src/glosswork/middleware.py @crscheid
+/src/glosswork/admin.py      @crscheid
+/src/glosswork/services/access.py     @crscheid
+/src/glosswork/services/tokens.py     @crscheid
+/src/glosswork/services/principals.py @crscheid
+
+# Storage shape. A migration is not reversible in place once a deployment has run it.
+# The manifest is append-only (DD-6): a change to an existing line needs the
+# maintainer's review.
+/src/glosswork/migrations.py @crscheid
+/tests/migration_hashes.txt  @crscheid
+
+# CI, the repository's GitHub settings, and the container definition.
+/.github/         @crscheid
+/scripts/github/  @crscheid
+/Dockerfile       @crscheid
