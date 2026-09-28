@@ -53,6 +53,22 @@ WORKFLOW_TOKEN='{
   "can_approve_pull_request_reviews": false
 }'
 
+# The `release` environment holds the Docker Hub credential (.github/workflows/release.yml).
+# Only a run for a tag matching v* may enter it, so a pull request's run, or a branch's,
+# cannot read the secret even when it edits the workflow. The secret itself is set by
+# hand (CONTRIBUTING.md, "Releases") and is not a setting this script can read back.
+RELEASE_ENVIRONMENT='{
+  "deployment_branch_policy": {
+    "protected_branches": false,
+    "custom_branch_policies": true
+  }
+}'
+
+RELEASE_TAG_POLICY='{
+  "name": "v*",
+  "type": "tag"
+}'
+
 LABEL='{
   "name": "backlog",
   "color": "c5def5",
@@ -146,6 +162,13 @@ apply() {
     send POST "repos/$REPO/labels" "$LABEL"
   fi
   good "label backlog"
+
+  send PUT "repos/$REPO/environments/release" "$RELEASE_ENVIRONMENT"
+  if ! get "repos/$REPO/environments/release/deployment-branch-policies" \
+    || ! jq -e '.branch_policies | any(.name == "v*" and .type == "tag")' <<<"$BODY" >/dev/null; then
+    send POST "repos/$REPO/environments/release/deployment-branch-policies" "$RELEASE_TAG_POLICY"
+  fi
+  good "environment release, tags v* only"
 
   local id
   id="$(ruleset_id)"
@@ -243,6 +266,10 @@ check() {
   else
     bad "label backlog: missing (HTTP $HTTP_STATUS)"
   fi
+  check_simple "environment release" "repos/$REPO/environments/release" "$RELEASE_ENVIRONMENT"
+  check_simple "environment release admits tags v* only" \
+    "repos/$REPO/environments/release/deployment-branch-policies" \
+    "$(jq '{branch_policies: [.]}' <<<"$RELEASE_TAG_POLICY")"
   check_ruleset
   if [ "$FAILED" -eq 0 ]; then
     say "All settings match."

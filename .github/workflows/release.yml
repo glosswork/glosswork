@@ -1,0 +1,297 @@
+# Glosswork release.
+#
+# Pushing a tag vX.Y.Z publishes the image as ghcr.io/glosswork/glosswork:X.Y.Z and
+# docker.io/glosswork/glosswork:X.Y.Z, one tag covering linux/amd64 and linux/arm64.
+# Nothing is pullable by name until every check has passed (CONTRIBUTING.md, "Releases"):
+#
+#   preflight   the tag is vX.Y.Z, X.Y.Z is pyproject.toml's version, the tagged commit
+#               is on main, and CI passed on main for that commit
+#   build-*     each architecture is built on its own native runner, run through
+#               container_tests and the third-party notices check, and only then pushed
+#               to the GitHub registry by digest, with no tag
+#   publish     the only job that can read the Docker Hub credential. It refuses a
+#               version that already exists as anything other than exactly this build,
+#               writes X.Y.Z in the GitHub registry, copies the same index to Docker Hub,
+#               and reads both back
+#
+# Run by hand (workflow_dispatch) it is a dry run: preflight checks only that CI passed,
+# both builds are built and tested on their real runners, and nothing signs in, pushes or
+# publishes. That is how the build-and-test half is proven before the first tag.
+#
+# The image a user pulls is the image that was tested: each build job builds once into
+# the local engine, tests that, then exports the same build from the builder's cache and
+# fails unless the pushed image is the tested one. SOURCE_DATE_EPOCH (the commit's time)
+# is what makes the two exports identical.
+#
+# Two build jobs rather than a matrix, so each hands its digest to `publish` as a plain
+# job output. tests/test_release_workflow.py pins that their steps stay identical, and
+# the rest of this shape.
+#
+# The Docker Hub credential is a secret of the `release` environment, which
+# scripts/github/configure.sh restricts to tags matching v*. Only `publish` names that
+# environment, and `publish` runs no code from the repository.
+
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.12.19"
+  UV_LINK_MODE: copy
+  GHCR_IMAGE: ghcr.io/glosswork/glosswork
+  HUB_IMAGE: docker.io/glosswork/glosswork
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      epoch: ${{ steps.commit.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: commit
+        name: The commit under release
+        run: |
+          commit=$(git rev-parse "$GITHUB_SHA^{commit}")
+          if [ "$commit" != "$GITHUB_SHA" ]; then
+            echo "::error::GITHUB_SHA $GITHUB_SHA is not a commit"
+            exit 1
+          fi
+          echo "epoch=$(git log -1 --format=%ct "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+      - id: version
+        name: The tag is vX.Y.Z and X.Y.Z is the project's version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::tag $TAG is not vX.Y.Z"
+            exit 1
+          fi
+          version="${TAG#v}"
+          project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$project" != "$version" ]; then
+            echo "::error::tag $TAG does not match pyproject.toml's version, $project"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The tagged commit is on main
+        if: github.event_name == 'push'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_SHA is not on main; a release is cut from main only"
+            exit 1
+          fi
+      - name: CI passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&status=success" \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml" and (.event == "push" and .head_branch == "main" or .event == "pull_request"))] | length')
+          if [ "$passed" -lt 1 ]; then
+            echo "::error::no successful CI run for $GITHUB_SHA"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            on_main=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&event=push&status=success" \
+              --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml" and .head_branch == "main")] | length')
+            if [ "$on_main" -lt 1 ]; then
+              echo "::error::no successful CI run on main for $GITHUB_SHA"
+              exit 1
+            fi
+          fi
+
+  build-amd64:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    env:
+      PLATFORM: linux/amd64
+      EPOCH: ${{ needs.preflight.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen
+      - name: Build into the local engine
+        run: |
+          docker buildx create --name release --driver docker-container --use
+          docker buildx build --platform "$PLATFORM" --provenance=false --sbom=false \
+            --build-arg GW_REVISION=${{ github.sha }} --build-arg SOURCE_DATE_EPOCH="$EPOCH" \
+            --load -t glosswork:release .
+      - name: The image passes container_tests
+        run: GW_IMAGE=glosswork:release uv run pytest -q container_tests
+      - name: Its notices cover every third-party package it carries
+        run: uv run python scripts/notices_coverage.py --image glosswork:release --summary "$GITHUB_STEP_SUMMARY"
+      - name: Sign in to the GitHub registry
+        if: github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - id: push
+        name: Push the tested image by digest, with no tag
+        if: github.event_name == 'push'
+        run: |
+          docker buildx build --platform "$PLATFORM" --provenance=false --sbom=false \
+            --build-arg GW_REVISION=${{ github.sha }} --build-arg SOURCE_DATE_EPOCH="$EPOCH" \
+            --output "type=image,name=$GHCR_IMAGE,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file "$RUNNER_TEMP/metadata.json" .
+          # The classic image store reports the config digest as the image id; the
+          # containerd store reports the manifest digest. Either must match.
+          tested=$(docker image inspect --format '{{.Id}}' glosswork:release)
+          config=$(jq -r '."containerimage.config.digest"' "$RUNNER_TEMP/metadata.json")
+          manifest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/metadata.json")
+          if [ "$tested" != "$config" ] && [ "$tested" != "$manifest" ]; then
+            echo "::error::pushed image $manifest (config $config) is not the tested image $tested"
+            exit 1
+          fi
+          echo "digest=$manifest" >> "$GITHUB_OUTPUT"
+
+  build-arm64:
+    needs: preflight
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    env:
+      PLATFORM: linux/arm64
+      EPOCH: ${{ needs.preflight.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen
+      - name: Build into the local engine
+        run: |
+          docker buildx create --name release --driver docker-container --use
+          docker buildx build --platform "$PLATFORM" --provenance=false --sbom=false \
+            --build-arg GW_REVISION=${{ github.sha }} --build-arg SOURCE_DATE_EPOCH="$EPOCH" \
+            --load -t glosswork:release .
+      - name: The image passes container_tests
+        run: GW_IMAGE=glosswork:release uv run pytest -q container_tests
+      - name: Its notices cover every third-party package it carries
+        run: uv run python scripts/notices_coverage.py --image glosswork:release --summary "$GITHUB_STEP_SUMMARY"
+      - name: Sign in to the GitHub registry
+        if: github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - id: push
+        name: Push the tested image by digest, with no tag
+        if: github.event_name == 'push'
+        run: |
+          docker buildx build --platform "$PLATFORM" --provenance=false --sbom=false \
+            --build-arg GW_REVISION=${{ github.sha }} --build-arg SOURCE_DATE_EPOCH="$EPOCH" \
+            --output "type=image,name=$GHCR_IMAGE,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file "$RUNNER_TEMP/metadata.json" .
+          # The classic image store reports the config digest as the image id; the
+          # containerd store reports the manifest digest. Either must match.
+          tested=$(docker image inspect --format '{{.Id}}' glosswork:release)
+          config=$(jq -r '."containerimage.config.digest"' "$RUNNER_TEMP/metadata.json")
+          manifest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/metadata.json")
+          if [ "$tested" != "$config" ] && [ "$tested" != "$manifest" ]; then
+            echo "::error::pushed image $manifest (config $config) is not the tested image $tested"
+            exit 1
+          fi
+          echo "digest=$manifest" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: [preflight, build-amd64, build-arm64]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      packages: write
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      AMD64: ${{ needs.build-amd64.outputs.digest }}
+      ARM64: ${{ needs.build-arm64.outputs.digest }}
+    steps:
+      - name: Sign in to both registries
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          HUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          echo "$HUB_TOKEN" | docker login docker.io -u "$HUB_USERNAME" --password-stdin
+      - name: Tag X.Y.Z in both registries unless it is published yet
+        run: |
+          # `served IMAGE` prints the tag's platforms and digests, nothing if the registry
+          # answers "not found", and fails on any other error, so an outage or a refused
+          # login is never read as "absent".
+          served() {
+            local out
+            if out=$(docker buildx imagetools inspect "$1:$VERSION" --format '{{json .Manifest}}' 2>&1); then
+              jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)=\(.digest)"] | sort | join(" ")' <<<"$out"
+            elif grep -q "not found" <<<"$out"; then
+              return 0
+            else
+              echo "::error::cannot read $1:$VERSION: $out" >&2
+              return 1
+            fi
+          }
+          want="linux/amd64=$AMD64 linux/arm64=$ARM64"
+          # The GitHub registry first, from the digests the build jobs pushed; then Docker
+          # Hub, copied from that index, so both serve byte-identical manifests. A rerun
+          # after a partial failure skips what is already exactly this build.
+          for image in "$GHCR_IMAGE" "$HUB_IMAGE"; do
+            have=$(served "$image")
+            if [ "$have" = "$want" ]; then
+              echo "$image:$VERSION is already this build"
+            elif [ -n "$have" ]; then
+              echo "::error::$image:$VERSION exists as '$have'; a published version is never replaced"
+              exit 1
+            else
+              docker buildx imagetools create -t "$image:$VERSION" "$GHCR_IMAGE@$AMD64" "$GHCR_IMAGE@$ARM64"
+            fi
+          done
+      - name: Both registries serve both architectures, built from this commit
+        run: |
+          want="linux/amd64=$AMD64 linux/arm64=$ARM64"
+          for image in "$GHCR_IMAGE" "$HUB_IMAGE"; do
+            platforms=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' \
+              | jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)=\(.digest)"] | sort | join(" ")')
+            if [ "$platforms" != "$want" ]; then
+              echo "::error::$image:$VERSION serves '$platforms', not '$want'"
+              exit 1
+            fi
+            revisions=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Image}}' \
+              | jq -r '[.[].config.Labels["org.opencontainers.image.revision"]] | unique | join(" ")')
+            if [ "$revisions" != "$GITHUB_SHA" ]; then
+              echo "::error::$image:$VERSION records revision '$revisions', not $GITHUB_SHA"
+              exit 1
+            fi
+            echo "- \`$image:$VERSION\`: $platforms" >> "$GITHUB_STEP_SUMMARY"
+          done

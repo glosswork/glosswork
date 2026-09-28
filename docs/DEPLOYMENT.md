@@ -56,6 +56,12 @@ docker run -d --name glosswork \
   glosswork
 ```
 
+Released versions are published as `ghcr.io/glosswork/glosswork:X.Y.Z` and
+`docker.io/glosswork/glosswork:X.Y.Z`, the same image in both registries, for
+`linux/amd64` and `linux/arm64`; use one in place of `glosswork` above and skip the
+build. There is no `latest` tag, so a deployment always names the version it runs, and a
+published version is never replaced. `CHANGELOG.md` says what each version changed.
+
 The image is about 496 MB, of which 133.8 MB is the embedding model. A started
 container settles at roughly 264 MiB resident with the model loaded. Set
 `GW_EMBEDDING_ENABLED=false` to run without semantic search; the model is still in the

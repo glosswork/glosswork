@@ -115,6 +115,8 @@ approves a plan before it is executed and merges the pull request afterward.
 
 One workflow, `.github/workflows/ci.yml`, runs on every pull request, on every push to `main`,
 and by hand. A push to any other branch runs nothing. It runs only what a change can affect.
+The only other workflow, `.github/workflows/release.yml`, runs on a version tag and nothing
+else ("Releases" below).
 
 **A change is documentation-only when every path it adds, changes, deletes or renames** (both
 sides of a rename) is one of these, and it has at least one path:
@@ -174,7 +176,8 @@ or exclude the rule here with a reason, never by weakening `ci-ok`.
 **The files that define CI can weaken the checks that judge them.** A pull request runs the
 workflow, the classifier, the secret-scan rules and the tests as that pull request has them.
 These files define CI: `.github/`, `scripts/ci_changes.py`, `.gitleaks.toml`,
-`scripts/github/`, `tests/test_ci_changes.py`, `tests/test_ci_workflow.py` and
+`scripts/github/`, `scripts/notices_coverage.py`, `tests/test_ci_changes.py`,
+`tests/test_ci_workflow.py`, `tests/test_release_workflow.py` and
 `tests/test_structural_lane.py`. A change that touches one says so in its plan's "What
 changes", so the diff is read for it.
 
@@ -183,8 +186,9 @@ changes", so the diff is read for it.
 Every GitHub setting this repository relies on is in `scripts/github/configure.sh`, applied
 from literal values in the script and from `scripts/github/ruleset-main.json`: merge commits
 only, branches deleted on merge, Actions limited to GitHub's own actions and
-`astral-sh/setup-uv` pinned by SHA, a read-only workflow token, the `backlog` label, and the
-ruleset on `main`. The ruleset requires a pull request, `ci-ok` and the three always-run
+`astral-sh/setup-uv` pinned by SHA, a read-only workflow token, the `backlog` label, the
+`release` environment that only `v*` tags may enter (see "Releases"), and the ruleset on
+`main`. The ruleset requires a pull request, `ci-ok` and the three always-run
 checks from GitHub Actions, and the branch up to date before merging; it allows merge commits
 only, blocks force pushes and deletion, and has no bypass list, so it binds administrators.
 It requires no approval, because every pull request is opened from the maintainer's own
@@ -201,6 +205,93 @@ env -u GH_TOKEN -u GITHUB_TOKEN scripts/github/configure.sh check
 
 `check` exits 1 on any difference. A fresh repository gets identical settings by running
 `apply` against it.
+
+## Releases
+
+**A version is `X.Y.Z`, following [Semantic Versioning](https://semver.org/).** While the
+major version is 0, a change an operator has to act on when upgrading (a setting renamed
+or removed, a migration that cannot be rolled back by restoring a backup, a changed API or
+MCP contract) raises `Y`; everything else raises `Z`. The version lives in one place,
+`pyproject.toml`, and the release tag is that version with a `v` in front.
+
+**A release is a change like any other**, numbered, planned and merged by pull request. It
+sets the new version in `pyproject.toml`, updates the `glosswork` entry in `uv.lock` to
+match, and adds the version's entry to [CHANGELOG.md](CHANGELOG.md). Re-locking on a machine
+with a private `uv` index rewrites every registry line (AGENTS.md, non-negotiable 1), so
+after `uv lock` run the substitution given there and confirm `git diff --text uv.lock`
+changes only the `glosswork` version line.
+
+**The changelog is written once per release, not once per change.** `CHANGELOG.md` holds
+one section per released version, newest first, headed `## X.Y.Z`; the tag records the
+date. Each line is one change merged since the previous version, by its number, written as
+what is now true, as its commit subjects are. Anything an operator must do when upgrading
+comes first, under **Upgrading**. Ordinary changes do not touch the file, so it never
+carries an "unreleased" section.
+
+**Before tagging, the release can be rehearsed.** Running `release.yml` by hand
+(`gh workflow run release.yml --ref main`) is a dry run: it builds and tests both
+architectures on their real runners and runs the notices check, then stops. Nothing signs
+in, pushes or publishes, and the Docker Hub credential is never in reach.
+
+**Only the maintainer pushes a `v*` tag.** Anyone else, an agent included, prepares a
+release up to the tag and stops, handing the maintainer the command below; they do not push
+the tag, whatever they have been asked or approved to do. A release tag reaches the Docker
+Hub credential ("Where the credentials live" below), and nothing in the repository's
+settings stops another holder of write access from pushing one, so this rule is the control.
+
+**After the release change merges, the maintainer tags its merge commit** and pushes the
+tag, from a clone whose `user.email` is `hello@glosswork.dev`, because an annotated tag
+records its tagger:
+
+```
+git fetch origin
+git tag -a vX.Y.Z -m "X.Y.Z" <merge commit>
+git push origin vX.Y.Z
+```
+
+The tag starts `.github/workflows/release.yml`, which publishes nothing unless:
+
+- the tag is `vX.Y.Z` and `X.Y.Z` is `pyproject.toml`'s version;
+- the tagged commit is on `main`, and CI passed on `main` for that commit;
+- each architecture's image, built on its own native runner, passes `container_tests`;
+- `scripts/notices_coverage.py` finds, inside the image, the licence text of every
+  third-party package the image installs or bundles (from `uv.lock` and
+  `web/package-lock.json`; the base image's own contents, and libraries compiled into a
+  Python package's binaries, are not counted). This check is a hard gate, never a warning:
+  no image is published without its notices;
+- the version does not exist yet in either registry, other than as exactly this build.
+
+Then it publishes one tag, `X.Y.Z`, covering `linux/amd64` and `linux/arm64`, to
+`ghcr.io/glosswork/glosswork` and `docker.io/glosswork/glosswork`, and reads both back.
+There is no `latest` tag and no moving `X.Y` tag: a deployment names the version it runs.
+**A published version is never replaced.** A bad release is fixed by the next patch
+version; the workflow refuses to overwrite a version that exists. A run that failed part
+way can be re-run: it skips a registry that already serves exactly this build.
+
+**Where the credentials live.** The GitHub registry needs no stored credential: the
+workflow's own token pushes there. The Docker Hub credential is a Read & Write personal
+access token on the maintainer's Docker account, a member of the `glosswork` organization.
+It is the `DOCKERHUB_TOKEN` secret of the repository's `release` environment, with that
+account's Docker ID in the environment's `DOCKERHUB_USERNAME` variable, and the
+maintainer's password manager holds the source copy. A personal token can push to every
+repository its account can write, not only `glosswork/glosswork`; a token scoped to the one
+repository is an organization access token, which needs a paid Docker plan the
+organization does not have. `scripts/github/configure.sh` lets only runs
+for tags matching `v*` enter that environment, and only the `publish` job, which runs no
+code from the repository, names it. So no pull request, branch or dry run can read the
+token. **Anyone who can push a `v*` tag can**, because a tag runs the workflow as the
+tagged commit has it, which is why only the maintainer pushes one.
+
+**The first release needs, in this order, each step done by the maintainer:** change 3
+(#3) merged, which puts the licence text of every package into the image so the notices
+check passes (before it, 109 of 163 packages had none); `configure.sh apply` (a job that names an
+environment that does not exist makes GitHub create it with no tag restriction); the
+`DOCKERHUB_USERNAME` variable and `DOCKERHUB_TOKEN` secret on the `release` environment;
+the Docker Hub repository `glosswork/glosswork` created as public, since a first push
+would otherwise create it with the organization's default privacy; the organization's
+package settings allowing public packages; a dry run; the tag; and, after the run, the
+GitHub package `glosswork` made public in its settings, because a package pushed by a
+workflow starts private.
 
 ## Design decisions
 
