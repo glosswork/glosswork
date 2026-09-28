@@ -255,7 +255,8 @@ a cluster of login failures in files it did not touch, look there first.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. In short:
 
 - One change at a time, tracked as a GitHub issue, executed on a branch, merged by pull request.
-  Only the maintainer merges.
+  Only the maintainer merges, and only the maintainer pushes a `v*` release tag
+  (`CONTRIBUTING.md`, "Releases"): prepare a release up to the tag and stop.
 - **The plan is a file**, at `docs/changes/<N>-<slug>.md`, where `N` is the change's number, its
   GitHub issue number (`CONTRIBUTING.md`, step 2), committed alone as the first commit on the
   branch. It is deleted in the change's final commit, after its durable content has moved into
