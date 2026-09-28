@@ -128,14 +128,18 @@ the evidence.
 
 ## Checklist
 
-1. [ ] Run the new structural and unit tests against the unfixed tree (no workflow, no
-   script) and record how each failed.
-2. [ ] Add `scripts/notices_coverage.py` and its tests.
-3. [ ] Add `release.yml` and `tests/test_release_workflow.py`; add it to `MARKED`.
-4. [ ] Add the `release` environment to `configure.sh`.
-5. [ ] CONTRIBUTING "Releases", CHANGELOG, DEPLOYMENT.
-6. [ ] Run the Accept block.
-7. [ ] Close out in two commits; push once; open the pull request once.
+1. [x] Run the new structural and unit tests against the unfixed tree (no workflow, no
+   script) and record how each failed. On `5ccbfa0`: `test_notices_coverage.py` fails
+   collection (`FileNotFoundError`, no script); `test_release_workflow.py` 11 failed, 10
+   `FileNotFoundError` (no workflow) and 1 `AssertionError` (no `release` environment in
+   `configure.sh`).
+2. [x] Add `scripts/notices_coverage.py` and its tests.
+3. [x] Add `release.yml` and `tests/test_release_workflow.py`; add it to `MARKED`.
+4. [x] Add the `release` environment to `configure.sh`.
+5. [x] CONTRIBUTING "Releases", CHANGELOG, DEPLOYMENT.
+6. [x] Run the Accept block (AC1 to AC8 and AC10 below; AC9 on the pull request).
+7. [ ] Close out in two commits; push once; open the pull request once. The pull request
+   is open; the closeout waits for approval (D2).
 
 ## Accept
 
@@ -164,6 +168,25 @@ After merge, and each needing the maintainer's approval, in this order:
   the check working, and everything before that step green is the evidence.
 - **AC12.** A `v0.1.0` tag run ends `success` in all four jobs; then the anonymous pulls in the
   operator's release runbook, section 4 (it lives outside this repository), print both platforms for both references.
+
+### Accept output, 2026-09-28, on `bc5b86b`
+
+```
+AC1  exit 0   25 passed
+AC2  exit 0   88 passed, 1953 deselected
+AC3  exit 0   2038 passed, 3 xfailed
+AC4  exit 0   ruff check: All checks passed!
+     exit 0   ruff format --check: 246 files already formatted
+AC5  exit 0   actionlint 1.7.12 with shellcheck 0.11.0 on PATH
+AC6  exit 0   shellcheck scripts/github/configure.sh
+     exit 1   configure.sh check (agent token): "DIFFERS environment release: unreadable
+              with this token (HTTP 404)" and the same for the tag policy; the
+              environment does not exist until the maintainer runs apply
+AC7  exit 1   python 57/54/3 (flatbuffers, sqlite-vec, tokenizers); npm 106/0/106;
+              "109 of 163 third-party packages ... have no licence text in the image"
+AC8  exit 0   unmutated exit 0; each of 15 mutations exit 1
+AC10 exit 0   2
+```
 
 ## Adversarial pass
 
@@ -220,5 +243,19 @@ twelve; four needed the maintainer and the rest are folded in above.
   move between the two builds in one job, which fails the identity check safely.
 
 ## Deviations from the approved plan
+
+- **D1. Executed before the plan was approved.** CONTRIBUTING step 5 puts approval before
+  execution. The run was dispatched to prepare everything short of the merge and the tag
+  in one pass, so the plan, its adversarial pass and the build are presented for approval
+  together. If the maintainer changes the plan, the build commit is revised to match.
+- **D2. The pull request is open before the closeout.** The closeout deletes this file
+  and moves its durable content, and two of its findings (F1, F2) wait on the
+  maintainer's decisions, which may change the plan. The closeout's two commits follow
+  those decisions, on this pull request, before the merge.
+- **D3. AC7 ran on an image built from `e5a047b`,** not from this branch. The branch
+  changes no file the image is built from (`Dockerfile`, `.dockerignore`, `src/`, `web/`,
+  `pyproject.toml`, `uv.lock` are untouched: `git diff --stat e5a047b -- Dockerfile
+  .dockerignore src web pyproject.toml uv.lock` is empty), so the image's contents are the
+  same but for the revision label.
 
 ## Durable content moved out of this plan
