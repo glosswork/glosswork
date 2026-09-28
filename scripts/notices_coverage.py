@@ -10,18 +10,21 @@ are not counted.
 
 - A **Python distribution** under ``/opt/venv`` is covered when one of the files it
   installed is a licence file (named ``LICENSE``, ``LICENCE``, ``COPYING`` or ``NOTICE``,
-  with any suffix but ``.py``), or when ``THIRD_PARTY_NOTICES.md`` gives it a heading.
+  with any suffix but ``.py``), or when a heading gives it one (below).
   ``glosswork`` itself is covered by ``LICENSE`` and is not counted.
-- An **npm package** compiled into ``/app/web/dist`` is covered when
-  ``THIRD_PARTY_NOTICES.md`` gives it a heading. The bundle is minified and carries no
-  licence text of its own, and the image carries no ``node_modules``, so there is no
-  other place its notice could be. The packages are the production entries of
-  ``web/package-lock.json`` plus :data:`BUNDLED_BUILD_TOOLS`, the development packages
-  measured to inject code into the bundle.
+- An **npm package** compiled into ``/app/web/dist`` is covered when a heading gives it
+  one. The bundle is minified and carries no licence text of its own, and the image
+  carries no ``node_modules``, so there is no other place its notice could be. The
+  packages are the production entries of ``web/package-lock.json`` plus
+  :data:`BUNDLED_BUILD_TOOLS`, the development packages measured to inject code into the
+  bundle.
 
-"Gives it a heading" means a Markdown heading line of that file names the package in
-backticks, as in ``## `react` ``. A mention in prose does not count, because the file's
-own scope paragraph names the packages it does *not* cover.
+"Gives it a heading" means a Markdown heading line of ``THIRD_PARTY_NOTICES.md`` or of
+the generated licences file, THIRD_PARTY_LICENSES.md (``--licenses``), names the package
+in backticks, as in ``## `react` 19.2.8``. A mention in prose does not count, because the
+notices file's own scope paragraph names packages it does not cover. Both files are
+copied into the image at ``/app/``, which ``container_tests/test_image_notices.py``
+proves byte for byte; this script reads the repository's copies.
 
 It exits 1 while anything is uncovered, and the release workflow runs it before it
 pushes anything, so an image whose notices do not cover what it carries is never
@@ -45,6 +48,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTICES = REPO_ROOT / "THIRD_PARTY_NOTICES.md"
+LICENSES = REPO_ROOT / "THIRD_PARTY_LICENSES.md"
 PACKAGE_LOCK = REPO_ROOT / "web" / "package-lock.json"
 
 #: The project's own distribution. Its licence is ``LICENSE``, copied to ``/app/``.
@@ -53,8 +57,12 @@ OWN_DISTRIBUTION = "glosswork"
 #: Development dependencies whose own code ends up in ``web/dist``, so they are
 #: redistributed although the lockfile marks them ``dev``. Measured 2026-09-28 by
 #: grepping the built bundle: Vite's modulepreload polyfill (``relList.supports``) in the
-#: JavaScript, and Tailwind's preflight and ``--tw-*`` properties in the CSS.
-BUNDLED_BUILD_TOOLS = ("tailwindcss", "vite")
+#: JavaScript, and Tailwind's preflight and ``--tw-*`` properties in the CSS. And by
+#: reading the bundle's first bytes, because minified helper names are mangled and a grep
+#: for them finds nothing: the shipped JavaScript opens with rolldown's CommonJS interop
+#: helpers (``Object.create``, an ``__esModule`` check, a ``Symbol.toStringTag`` of
+#: ``Module``), which rolldown takes from esbuild; Vite 8 bundles with rolldown.
+BUNDLED_BUILD_TOOLS = ("rolldown", "tailwindcss", "vite")
 
 #: A file a distribution installed that carries licence text, matched on its own name:
 #: ``LICENSE``, ``LICENSE.txt``, ``licenses/LICENSE.APACHE``, ``NOTICE``. Not a module.
@@ -83,6 +91,17 @@ class Package:
     how: str
 
 
+@dataclass(frozen=True)
+class NpmEntry:
+    """One package at one version, as the lockfile records it."""
+
+    name: str
+    version: str
+    resolved: str
+    integrity: str
+    license: str
+
+
 def normalise(name: str) -> str:
     """PEP 503 normalisation, so `Huggingface_Hub` and `huggingface-hub` are one name."""
     return re.sub(r"[-_.]+", "-", name).lower()
@@ -105,15 +124,17 @@ def python_packages(distributions: list[dict[str, object]], named: set[str]) -> 
         if any(LICENCE_FILE.search(path) and not path.endswith(".py") for path in paths):
             packages.append(Package("python", name, True, "installs a licence file"))
         elif normalise(name) in named:
-            packages.append(Package("python", name, True, "a heading in THIRD_PARTY_NOTICES.md"))
+            packages.append(Package("python", name, True, "a heading in the notices"))
         else:
             packages.append(Package("python", name, False, "installs no licence file, no heading"))
     return sorted(packages, key=lambda package: normalise(package.name))
 
 
-def npm_production_names(lock: dict[str, object]) -> list[str]:
-    """Every package the lockfile installs for production, by name, once each, plus the
-    build tools that inject code into the bundle.
+def npm_production_entries(lock: dict[str, object]) -> list[NpmEntry]:
+    """Every package the lockfile installs for production, once per name and version,
+    plus every entry of a build tool that injects code into the bundle, although each is
+    marked ``dev``. The one rule for which npm packages the image redistributes, shared
+    by this checker, ``scripts/third_party_licenses.py`` and its test.
 
     ``packages`` is keyed by install path (``node_modules/a/node_modules/b``); the name is
     what follows the last ``node_modules/``. The root entry (key ``""``) is the project.
@@ -121,19 +142,37 @@ def npm_production_names(lock: dict[str, object]) -> list[str]:
     entries = lock.get("packages")
     if not isinstance(entries, dict):
         raise ValueError("package-lock.json has no `packages` map (lockfileVersion 2 or 3)")
-    names = set()
+    found: dict[tuple[str, str], NpmEntry] = {}
     for path, entry in entries.items():
-        if not path or not isinstance(entry, dict):
+        if not path or not isinstance(entry, dict) or entry.get("link"):
             continue
-        if entry.get("dev") or entry.get("devOptional") or entry.get("link"):
+        name = path.rsplit("node_modules/", 1)[-1]
+        if name not in BUNDLED_BUILD_TOOLS and (entry.get("dev") or entry.get("devOptional")):
             continue
-        names.add(path.rsplit("node_modules/", 1)[-1])
+        version = str(entry.get("version", ""))
+        found.setdefault(
+            (name, version),
+            NpmEntry(
+                name,
+                version,
+                str(entry.get("resolved", "")),
+                str(entry.get("integrity", "")),
+                str(entry.get("license", "")),
+            ),
+        )
+    return [found[key] for key in sorted(found)]
+
+
+def npm_production_names(lock: dict[str, object]) -> list[str]:
+    """Every name :func:`npm_production_entries` yields, once each, plus the build tools
+    whether or not the lockfile holds them."""
+    names = {entry.name for entry in npm_production_entries(lock)}
     return sorted(names | set(BUNDLED_BUILD_TOOLS))
 
 
 def npm_packages(names: list[str], named: set[str]) -> list[Package]:
     return [
-        Package("npm", name, True, "a heading in THIRD_PARTY_NOTICES.md")
+        Package("npm", name, True, "a heading in the notices")
         if normalise(name) in named
         else Package("npm", name, False, "the bundle carries no licence text, no heading")
         for name in names
@@ -171,11 +210,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--image", required=True, help="a built image, by tag or id")
     parser.add_argument("--notices", type=Path, default=NOTICES)
+    parser.add_argument(
+        "--licenses", type=Path, default=LICENSES, help="the generated licences file"
+    )
     parser.add_argument("--package-lock", type=Path, default=PACKAGE_LOCK)
     parser.add_argument("--summary", type=Path, help="also append the report to this file")
     args = parser.parse_args(argv)
 
-    named = named_in_notices(args.notices.read_text())
+    named = named_in_notices(args.notices.read_text()) | named_in_notices(args.licenses.read_text())
     lock = json.loads(args.package_lock.read_text())
     packages = python_packages(image_distributions(args.image), named) + npm_packages(
         npm_production_names(lock), named

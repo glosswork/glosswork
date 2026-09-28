@@ -98,12 +98,10 @@ def test_npm_production_names_leave_out_dev_packages_and_the_root() -> None:
             "node_modules/fsevents": {"version": "2.3.3", "devOptional": True},
         }
     }
-    assert nc.npm_production_names(lock) == [
-        "@tanstack/react-query",
-        "react",
-        "scheduler",
-        *sorted(nc.BUNDLED_BUILD_TOOLS),
-    ]
+    assert nc.npm_production_names(lock) == sorted(
+        ["@tanstack/react-query", "react", "scheduler", *nc.BUNDLED_BUILD_TOOLS]
+    )
+    assert "fsevents" not in nc.npm_production_names(lock)
 
 
 def test_an_npm_package_is_covered_only_when_the_notices_name_it() -> None:
@@ -115,13 +113,64 @@ def test_an_npm_package_is_covered_only_when_the_notices_name_it() -> None:
     ]
 
 
+def test_npm_production_entries_carry_each_version_and_where_it_came_from() -> None:
+    """One entry per name and version, however many install paths hold it, and a build
+    tool's entries although each is marked ``dev``."""
+    lock = {
+        "packages": {
+            "": {"name": "web"},
+            "node_modules/@types/unist": {"version": "3.0.3", "resolved": "u3", "integrity": "i3"},
+            "node_modules/a/node_modules/@types/unist": {
+                "version": "2.0.11",
+                "resolved": "u2",
+                "integrity": "i2",
+            },
+            "node_modules/b/node_modules/@types/unist": {
+                "version": "2.0.11",
+                "resolved": "u2",
+                "integrity": "i2",
+            },
+            "node_modules/rolldown": {"version": "1.2.5", "dev": True, "resolved": "r"},
+            "node_modules/typescript": {"version": "6.0.0", "dev": True, "resolved": "t"},
+        }
+    }
+    entries = nc.npm_production_entries(lock)
+    assert [(entry.name, entry.version, entry.resolved) for entry in entries] == [
+        ("@types/unist", "2.0.11", "u2"),
+        ("@types/unist", "3.0.3", "u3"),
+        ("rolldown", "1.2.5", "r"),
+    ]
+    assert entries[0].integrity == "i2"
+
+
 def test_the_real_lockfile_yields_the_runtime_and_the_build_tools_that_ship_code() -> None:
-    """Vite and Tailwind are development packages whose code the bundle carries;
-    TypeScript and ESLint are development packages whose code it does not."""
+    """Vite, Tailwind and rolldown are development packages whose code the bundle
+    carries (rolldown's interop helpers open the shipped JavaScript); TypeScript and
+    ESLint are development packages whose code it does not."""
     names = nc.npm_production_names(json.loads(PACKAGE_LOCK.read_text()))
     assert "react" in names and "react-dom" in names
-    assert "vite" in names and "tailwindcss" in names
+    assert "vite" in names and "tailwindcss" in names and "rolldown" in names
     assert "typescript" not in names and "eslint" not in names
+
+
+def test_a_heading_in_the_licences_file_covers_a_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The generated licences file counts as the notices file does."""
+    notices = tmp_path / "notices.txt"
+    notices.write_text("# Notices\n")
+    licenses = tmp_path / "licenses.txt"
+    licenses.write_text("## `react` 19.0.0\n\n    MIT\n")
+    lock = tmp_path / "package-lock.json"
+    lock.write_text(
+        json.dumps({"packages": {"": {}, "node_modules/react": {}, "node_modules/ms": {}}})
+    )
+    monkeypatch.setattr(nc, "image_distributions", lambda image: [])
+    argv = ["--image", "x", "--notices", str(notices), "--licenses", str(licenses)]
+    assert nc.main([*argv, "--package-lock", str(lock)]) == 1
+    uncovered = capsys.readouterr().out.split("Not covered:")[1]
+    assert "- npm `ms`" in uncovered
+    assert "`react`" not in uncovered
 
 
 def test_main_exits_1_and_names_what_is_uncovered(
@@ -129,6 +178,8 @@ def test_main_exits_1_and_names_what_is_uncovered(
 ) -> None:
     notices = tmp_path / "notices.txt"
     notices.write_text("## `react`\n\nCovers `ms` in prose only.\n")
+    licenses = tmp_path / "licenses.txt"
+    licenses.write_text("# Licences\n")
     lock = tmp_path / "package-lock.json"
     lock.write_text(
         json.dumps({"packages": {"": {}, "node_modules/react": {}, "node_modules/ms": {}}})
@@ -145,6 +196,8 @@ def test_main_exits_1_and_names_what_is_uncovered(
             "x",
             "--notices",
             str(notices),
+            "--licenses",
+            str(licenses),
             "--package-lock",
             str(lock),
             "--summary",
@@ -163,6 +216,8 @@ def test_main_exits_0_when_everything_is_covered(
 ) -> None:
     notices = tmp_path / "notices.txt"
     notices.write_text("## `react`\n\n## `vite`\n\n## `tailwindcss`\n")
+    licenses = tmp_path / "licenses.txt"
+    licenses.write_text("## `rolldown` 1.2.5\n")
     lock = tmp_path / "package-lock.json"
     lock.write_text(json.dumps({"packages": {"": {}, "node_modules/react": {}}}))
     monkeypatch.setattr(
@@ -170,4 +225,5 @@ def test_main_exits_0_when_everything_is_covered(
         "image_distributions",
         lambda image: [_distribution("idna", "idna-3.10.dist-info/LICENSE.md")],
     )
-    assert nc.main(["--image", "x", "--notices", str(notices), "--package-lock", str(lock)]) == 0
+    argv = ["--image", "x", "--notices", str(notices), "--licenses", str(licenses)]
+    assert nc.main([*argv, "--package-lock", str(lock)]) == 0
