@@ -233,6 +233,12 @@ carries an "unreleased" section.
 architectures on their real runners and runs the notices check, then stops. Nothing signs
 in, pushes or publishes, and the Docker Hub credential is never in reach.
 
+**Only the maintainer pushes a `v*` tag.** Anyone else, an agent included, prepares a
+release up to the tag and stops, handing the maintainer the command below; they do not push
+the tag, whatever they have been asked or approved to do. A release tag reaches the Docker
+Hub credential ("Where the credentials live" below), and nothing in the repository's
+settings stops another holder of write access from pushing one, so this rule is the control.
+
 **After the release change merges, the maintainer tags its merge commit** and pushes the
 tag, from a clone whose `user.email` is `hello@glosswork.dev`, because an annotated tag
 records its tagger:
@@ -249,8 +255,10 @@ The tag starts `.github/workflows/release.yml`, which publishes nothing unless:
 - the tagged commit is on `main`, and CI passed on `main` for that commit;
 - each architecture's image, built on its own native runner, passes `container_tests`;
 - `scripts/notices_coverage.py` finds, inside the image, the licence text of every
-  third-party package the project put there (from `uv.lock` and `web/package-lock.json`;
-  the base image's own contents are not counted);
+  third-party package the image installs or bundles (from `uv.lock` and
+  `web/package-lock.json`; the base image's own contents, and libraries compiled into a
+  Python package's binaries, are not counted). This check is a hard gate, never a warning:
+  no image is published without its notices;
 - the version does not exist yet in either registry, other than as exactly this build.
 
 Then it publishes one tag, `X.Y.Z`, covering `linux/amd64` and `linux/arm64`, to
@@ -261,15 +269,22 @@ version; the workflow refuses to overwrite a version that exists. A run that fai
 way can be re-run: it skips a registry that already serves exactly this build.
 
 **Where the credentials live.** The GitHub registry needs no stored credential: the
-workflow's own token pushes there. The Docker Hub credential is the `DOCKERHUB_TOKEN`
-secret of the repository's `release` environment, with the account it belongs to in that
-environment's `DOCKERHUB_USERNAME` variable. `scripts/github/configure.sh` lets only runs
+workflow's own token pushes there. The Docker Hub credential is a Read & Write personal
+access token on the maintainer's Docker account, a member of the `glosswork` organization.
+It is the `DOCKERHUB_TOKEN` secret of the repository's `release` environment, with that
+account's Docker ID in the environment's `DOCKERHUB_USERNAME` variable, and the
+maintainer's password manager holds the source copy. A personal token can push to every
+repository its account can write, not only `glosswork/glosswork`; a token scoped to the one
+repository is an organization access token, which needs a paid Docker plan the
+organization does not have. `scripts/github/configure.sh` lets only runs
 for tags matching `v*` enter that environment, and only the `publish` job, which runs no
 code from the repository, names it. So no pull request, branch or dry run can read the
 token. **Anyone who can push a `v*` tag can**, because a tag runs the workflow as the
-tagged commit has it: pushing a release tag is the maintainer's act alone.
+tagged commit has it, which is why only the maintainer pushes one.
 
-**The first release needs, in this order:** `configure.sh apply` (a job that names an
+**The first release needs, in this order, each step done by the maintainer:** change 3
+(#3) merged, which puts the licence text of every package into the image so the notices
+check passes (before it, 109 of 163 packages had none); `configure.sh apply` (a job that names an
 environment that does not exist makes GitHub create it with no tag restriction); the
 `DOCKERHUB_USERNAME` variable and `DOCKERHUB_TOKEN` secret on the `release` environment;
 the Docker Hub repository `glosswork/glosswork` created as public, since a first push
