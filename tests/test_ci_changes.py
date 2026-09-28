@@ -85,9 +85,11 @@ def test_documentation_only(paths: list[str]) -> None:
     [
         # An empty diff is code, so nothing is ever skipped by accident.
         [],
-        # The image ships these two (container_tests/test_image_notices.py).
+        # The image ships these three (container_tests/test_image_notices.py). The third
+        # is a fence, not coverage: a root-level markdown file is already code by rule.
         ["LICENSE"],
         ["THIRD_PARTY_NOTICES.md"],
+        ["THIRD_PARTY_LICENSES.md"],
         # Markdown is not documentation by extension, only by place.
         ["web/src/brand/README.md"],
         ["src/glosswork/README.md"],

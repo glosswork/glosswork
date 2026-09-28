@@ -9,7 +9,7 @@ defeated by ``.dockerignore``. So everything here is read off the built image wi
 
 **Nothing here starts a container and nothing contacts a registry.** The files are
 pulled out of a container that is created and immediately removed, which is enough to
-read a filesystem and avoids booting the application to answer a question about two text
+read a filesystem and avoids booting the application to answer a question about three text
 files.
 
 **This file is outside every automated gate**, like the rest of this directory:
@@ -97,7 +97,7 @@ def _create_for_inspection(image_tag: str) -> str:
 
     Deliberately not :func:`docker_support.create_container`, which mounts a named volume
     and copies the API client in: both exist for tests that talk to a running
-    application, and this one reads two text files out of a filesystem. The container is
+    application, and this one reads three text files out of a filesystem. The container is
     never started.
     """
     result = subprocess.run(
@@ -112,9 +112,10 @@ def _create_for_inspection(image_tag: str) -> str:
 
 @pytest.fixture(scope="module")
 def image_files(image_tag: str) -> dict[str, str]:
-    """``/app/LICENSE`` and ``/app/THIRD_PARTY_NOTICES.md``, read out of the image.
+    """``/app/LICENSE``, ``/app/THIRD_PARTY_NOTICES.md`` and
+    ``/app/THIRD_PARTY_LICENSES.md``, read out of the image.
 
-    ``docker create`` and never ``docker start``: reading two text files does not need
+    ``docker create`` and never ``docker start``: reading three text files does not need
     the application running, and a container that never boots cannot leave a database or
     a log behind. Removed with ``-v`` through the suite's single chokepoint.
     """
@@ -123,7 +124,7 @@ def image_files(image_tag: str) -> dict[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
             contents = {}
-            for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+            for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_LICENSES.md"):
                 ds.copy_out(cid, f"/app/{name}", out / name)
                 contents[name] = (out / name).read_text()
             return contents
@@ -192,6 +193,19 @@ def test_the_licence_travels_with_the_image(image_files: dict[str, str]) -> None
 def test_the_notices_travel_with_the_image(image_files: dict[str, str]) -> None:
     assert (
         image_files["THIRD_PARTY_NOTICES.md"] == (REPO_ROOT / "THIRD_PARTY_NOTICES.md").read_text()
+    )
+
+
+def test_the_generated_licences_travel_with_the_image(image_files: dict[str, str]) -> None:
+    """Every third-party package's licence text, generated from the lockfiles.
+
+    Compared with the repository's copy rather than regenerated here: the repository's
+    copy is what ``tests/test_third_party_licenses.py`` holds to the lockfiles, so an
+    image carrying exactly that file carries an entry for every package.
+    """
+    assert (
+        image_files["THIRD_PARTY_LICENSES.md"]
+        == (REPO_ROOT / "THIRD_PARTY_LICENSES.md").read_text()
     )
 
 

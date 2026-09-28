@@ -1,0 +1,35 @@
+# Licence texts for packages whose lock-recorded artifacts carry none.
+#
+# Read by scripts/third_party_licenses.py, and only for a package whose wheel and sdist
+# (if the lock records one) hold no licence file. Each override names one package at the
+# exact version the lockfile holds, so it cannot outlive the release it was checked
+# against: the generator and tests/test_third_party_licenses.py both fail on an override
+# whose version the lockfiles no longer hold. Each file is fetched from the upstream
+# repository at the tag for that version and refused unless its sha256 matches.
+
+# flatbuffers ships one py2.py3 wheel with no licence file and no sdist. Upstream licence
+# at the release tag. Upstream has no NOTICE file at that tag (HTTP 404, 2026-09-28).
+[[override]]
+ecosystem = "python"
+package = "flatbuffers"
+version = "25.12.19"
+
+[[override.file]]
+url = "https://raw.githubusercontent.com/google/flatbuffers/v25.12.19/LICENSE"
+sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+
+# sqlite-vec ships platform wheels with no licence file and no sdist. Its metadata
+# declares "MIT License, Apache License, Version 2.0", so both upstream texts go in.
+# Upstream has no NOTICE file at that tag (HTTP 404, 2026-09-28).
+[[override]]
+ecosystem = "python"
+package = "sqlite-vec"
+version = "0.1.9"
+
+[[override.file]]
+url = "https://raw.githubusercontent.com/asg017/sqlite-vec/v0.1.9/LICENSE-MIT"
+sha256 = "6ce72bbe12d975bd5286e5ab0a064c069693300c47bccbc57bec18485f1621ea"
+
+[[override.file]]
+url = "https://raw.githubusercontent.com/asg017/sqlite-vec/v0.1.9/LICENSE-APACHE"
+sha256 = "a38070a94d4afd9cd710e3ce67bd1de78097cfe1784c1f0109ac95d3c196bfdc"

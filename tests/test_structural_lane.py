@@ -55,6 +55,7 @@ MARKED = {
     "test_retired_names.py",
     "test_structural_lane.py",
     "test_supply_chain.py",
+    "test_third_party_licenses.py",
 }
 
 

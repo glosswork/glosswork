@@ -77,7 +77,9 @@ licence travels with it. A competing use is offering Glosswork, or something tha
 substitutes for it or does substantially the same thing, to others as a commercial product
 or service. Two years after any given release ships, that release converts to Apache 2.0
 and the restriction falls away. Third-party components bundled in the image are listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and the licence text of every package the
+image installs or bundles is in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md),
+generated from the lockfiles.
 
 ## Stack
 
