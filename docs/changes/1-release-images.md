@@ -113,7 +113,8 @@ the evidence.
 ## What does not change
 
 - `ci.yml` and everything it runs; `ruleset-main.json`; the `Dockerfile`.
-- `THIRD_PARTY_NOTICES.md`. Closing the gap in P10 is a separate decision.
+- `THIRD_PARTY_NOTICES.md`. Closing the gap in P10 is change 3 (#3), which merges after
+  this one (F1).
 - README's quick start. It keeps `docker build` until an image exists to point at.
 - No tag is pushed, no package is made public, no secret is stored by this change.
 
@@ -122,7 +123,7 @@ the evidence.
 - Nothing is pullable by name until every check has passed for both architectures.
 - The Docker Hub token is readable only by a `v*` tag run, only in `publish`'s sign-in
   step, and never before both images have passed their tests. Pushing a `v*` tag is
-  therefore the maintainer's act alone (F2).
+  therefore the maintainer's act alone, as a written rule (F2).
 - Every action pinned by SHA; no action outside the allowed set.
 - Every commit `Glosswork <hello@glosswork.dev>`, one root.
 
@@ -138,8 +139,9 @@ the evidence.
 4. [x] Add the `release` environment to `configure.sh`.
 5. [x] CONTRIBUTING "Releases", CHANGELOG, DEPLOYMENT.
 6. [x] Run the Accept block (AC1 to AC8 and AC10 below; AC9 on the pull request).
-7. [ ] Close out in two commits; push once; open the pull request once. The pull request
-   is open; the closeout waits for approval (D2).
+7. [x] Close out in two commits, after the maintainer's decisions on F1 and F2 and the
+   Docker Hub credential, on the open pull request (D2): this file's final text, then
+   the durable content (CONTRIBUTING "Releases", AGENTS.md) with this file deleted.
 
 ## Accept
 
@@ -188,6 +190,22 @@ AC8  exit 0   unmutated exit 0; each of 15 mutations exit 1
 AC10 exit 0   2
 ```
 
+### Accept output, 2026-09-28, closeout, on the working tree of both closeout commits
+
+The closeout changes `CONTRIBUTING.md`, `AGENTS.md` and this file only. AC5 and AC6 cover
+no file it touches and were not re-run (CI's `guards` job runs actionlint on the pull
+request); AC7 was not re-run because no file the image is built from changed (D3).
+
+```
+AC1  exit 0   25 passed
+AC2  exit 0   88 passed, 1953 deselected
+AC3  exit 0   2038 passed, 3 xfailed
+AC4  exit 0   ruff check: All checks passed!
+     exit 0   ruff format --check: 246 files already formatted
+AC8  exit 0   unmutated exit 0; each of 15 mutations exit 1
+AC10 exit 0   2
+```
+
 ## Adversarial pass
 
 Run by a separate Opus session on `5ccbfa0` and the working tree, 2026-09-28. It found
@@ -196,17 +214,21 @@ twelve; four needed the maintainer and the rest are folded in above.
 - **F1. The notices check fails every release as the image stands**, so the first tag
   builds, tests and stops, and this change alone cannot meet its done-when. The rule also
   fixes the remedy: an npm package counts only through a heading in the notices file.
-  *Disposition: for the maintainer.* Keep the check hard, and close the gap in a change
-  of its own before the first tag, or make the check report-only until then. Which remedy
-  the rule accepts (headings, or a generated licences file in the image) is decided with
-  that change.
+  *Disposition: decided by the maintainer, 2026-09-28.* The check stays a hard gate, and
+  the gap closes before the first tag in a change of its own: change 3 (#3), which extends
+  this checker in place, settles the remedy (a licences file generated from the lockfiles
+  into the image), and merges after this change. Its scope is every package the image
+  installs or bundles; libraries compiled into a Python package's binaries are not
+  counted. CONTRIBUTING "Releases" lists change 3 as the first release's first step.
 - **F2. Anyone who can push a `v*` tag can read the Docker Hub token**, because a tag runs
   the workflow as the tagged commit has it, and required reviewers on environments are not
   available to private repositories on the Team plan. The agent's GitHub token belongs to
   the maintainer's own account (`gh api user` returns `crscheid`, with admin on the
   repository), so a tag ruleset with a bypass for the maintainer would bypass for the
-  agent too. *Disposition: for the maintainer.* CONTRIBUTING now says it plainly, and the
-  constraint below is corrected.
+  agent too. *Disposition: decided by the maintainer, 2026-09-28.* Only the maintainer
+  pushes a `v*` tag, as a written rule rather than a separate identity: CONTRIBUTING
+  "Releases" and AGENTS.md say it, and the constraint above is corrected. A separate agent
+  identity with a tag ruleset stays possible later, as its own change.
 - **F3. Development packages ship code in the bundle.** Vite's modulepreload polyfill is
   in the JavaScript and Tailwind's preflight in the CSS, and a test asserted `vite` was not
   counted. *Fixed:* `BUNDLED_BUILD_TOOLS`, measured, and the test inverted.
@@ -251,11 +273,35 @@ twelve; four needed the maintainer and the rest are folded in above.
 - **D2. The pull request is open before the closeout.** The closeout deletes this file
   and moves its durable content, and two of its findings (F1, F2) wait on the
   maintainer's decisions, which may change the plan. The closeout's two commits follow
-  those decisions, on this pull request, before the merge.
+  those decisions, on this pull request, before the merge. Neither decision changed the
+  workflow, the scripts or the tests; both land as text.
 - **D3. AC7 ran on an image built from `e5a047b`,** not from this branch. The branch
   changes no file the image is built from (`Dockerfile`, `.dockerignore`, `src/`, `web/`,
   `pyproject.toml`, `uv.lock` are untouched: `git diff --stat e5a047b -- Dockerfile
   .dockerignore src web pyproject.toml uv.lock` is empty), so the image's contents are the
   same but for the revision label.
+- **D4. `AGENTS.md` changes**, which "What changes" did not list: one clause under "How to
+  work here", that only the maintainer pushes a `v*` release tag. F2's decision is a
+  rule for whoever works here, agents first, and AGENTS.md is where they read the rules.
+- **D5. The Docker Hub credential is named in CONTRIBUTING** as a Read & Write personal
+  access token on the maintainer's Docker account (the maintainer's choice, 2026-09-28),
+  where the plan said only where the credentials live. An organization access token scoped
+  to the one repository needs a paid Docker plan the organization does not have.
+
+Approved as written by the maintainer on 2026-09-28, after execution (D1).
 
 ## Durable content moved out of this plan
+
+- The version scheme, the release change, the changelog convention, the dry run, how to
+  tag, what the workflow refuses, and where the credentials live: CONTRIBUTING "Releases",
+  in the build commit.
+- F1's decision (the notices check is a hard gate; change 3 comes first) and its scope:
+  CONTRIBUTING "Releases", the notices bullet and the first release's steps.
+- F2's decision (only the maintainer pushes a `v*` tag): CONTRIBUTING "Releases" and
+  AGENTS.md "How to work here".
+- The Docker Hub credential's kind and reach: CONTRIBUTING "Releases", "Where the
+  credentials live".
+- The operator's procedure around a release (one-time setup commands, how to tell it
+  worked, undo, cost): the operator's release runbook, which lives outside this repository.
+- The premises' measurements (P4 to P12) stay in this file's final text, in the pull
+  request description and in this commit.
