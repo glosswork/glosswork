@@ -427,6 +427,37 @@ Docker 28.4.0. This is the builder's record; the verifier runs the block again.
 Also run: gitleaks 8.30.1 as CI's `secrets` job runs it (`git . --config .gitleaks.toml
 --log-opts=HEAD`), 9 commits, "no leaks found", exit 0.
 
+### Verify, 2026-09-28, independent run on `85a562f`
+
+Run by a separate Opus session, in a detached scratch worktree, arm64 macOS, Docker 28.4.0,
+after this branch merged `origin/main` (the merge commit is `85a562f`; `origin/main`'s
+`b0147f2` is its ancestor). Every `done_when` clause passed except "merged", which the
+dispatch excluded from judgment.
+
+The verifier wrote its own checker, independent of `scripts/third_party_licenses.py`, that
+re-downloads every artifact, checks each against the hash `uv.lock` or
+`web/package-lock.json` records (or the sha256 in the overrides file), and rebuilds every
+entry from scratch: all 168 entries and 206 texts matched THIRD_PARTY_LICENSES.md byte for
+byte. It also re-derived the Python and npm package sets itself, from its own offline
+`uv export` and its own reading of `web/package-lock.json`, and got 60 and 108, matching the
+file's headings exactly. It compared the public text against "The public text, as it will
+read" with whitespace collapsed and found all three paragraphs and both changed opening
+sentences present verbatim.
+
+It reran the Accept block in full and got the same results as the builder's run above,
+with two differences: AC3's first attempt exited 1 (63 errors, 3 failed, all "model.onnx,
+tokenizer.json missing"), because a fresh worktree has no fetched embedding model
+(`models/` is untracked); linking the main checkout's fetched model in and rerunning gave
+exit 0. This is environmental, not a defect in this change. And AC9 was extended with four
+mutations of its own, beyond the two the plan names, each exiting 1 and naming the right
+package: a new npm package added to the lock, a real `uv add --no-sync tomli-w`, the
+`idna` entry deleted, and a made-up extra entry.
+
+It also confirmed, independently: the image's copies of THIRD_PARTY_LICENSES.md,
+THIRD_PARTY_NOTICES.md and LICENSE match the repository's by sha256; no `Claude` or
+`Co-Authored-By` text appears in any commit since `e5a047b`; and the main checkout was left
+clean, on `main` at `e5a047b`, with a single worktree.
+
 ## Adversarial pass
 
 Run 2026-09-28 by a session that did not write this plan. Every finding below was
@@ -542,6 +573,10 @@ Python packages are not listed, the public text says so, and there is no follow-
 Merging is not approved yet. Issue #3 was filed on 2026-09-28 and took the number the plan
 assumed, so nothing was renamed.
 
+Verified independently on `85a562f`, 2026-09-28: every `done_when` clause passes except
+"merged" (see "Verify" above). Merging stays the maintainer's, on the pull request, once
+`ci-ok` is green.
+
 ## Deviations from the approved plan
 
 Recorded during execution, 2026-09-28. None changes the approved public text, the entry
@@ -573,4 +608,19 @@ format's substance or the scope.
 
 ## Durable content moved out of this plan
 
-Not yet.
+All of it moved in the build commit (`030f87b`), because the docs step was a checklist item
+rather than something waiting on a decision made after execution:
+
+- The public text for `THIRD_PARTY_NOTICES.md`'s "What this file covers, and what it does
+  not" (the three replacement paragraphs, F8's paragraph among them) and its opening
+  paragraph's two changed sentences: in that file.
+- The generated file itself, `THIRD_PARTY_LICENSES.md`, its generator
+  `scripts/third_party_licenses.py`, and its overrides file `scripts/third_party_licenses.toml`:
+  at the repository root.
+- The `AGENTS.md` "Commands" row for regenerating it and its "Where things are" row: in
+  `AGENTS.md`.
+- The rule that a dependency change regenerates the file in the same commit, and what fails
+  if it does not: in `CONTRIBUTING.md`.
+- `README.md`'s licence paragraph naming the new file: in `README.md`.
+- The premises' measurements (P1 to P15) stay in this file's final text and in the pull
+  request description.
