@@ -79,6 +79,11 @@ MIN_CONCURRENT_WRITES = 3
 # the backup artifact.
 CHURN_STOP_MARKER = "/tmp/churn-stop"
 
+# Created by the writer after its first successful write, and waited for before the
+# backup starts. Under /tmp for the same reason as the stop marker.
+CHURN_WRITING_MARKER = "/tmp/churn-writing"
+WRITER_START_TIMEOUT_S = 60
+
 # Mirrors services/backup.py's SNAPSHOT_ARCNAME/BLOB_ARCNAME_ROOT as string literals
 # rather than importing them: this module proves the built image from the outside,
 # over docker exec and docker cp, and never imports glosswork itself (see
@@ -232,7 +237,26 @@ def _run_churn_writer(cid: str, token: str, result_holder: list[dict[str, Any]])
     thread needs to get on with taking the backup concurrently; the actual writing
     happens entirely inside the container, not over repeated ``docker exec`` calls
     from here (see the module docstring for why that distinction is load-bearing)."""
-    result_holder.append(ds.run_loop_write(cid, token, "churn", CHURN_STOP_MARKER))
+    result_holder.append(
+        ds.run_loop_write(cid, token, "churn", CHURN_STOP_MARKER, CHURN_WRITING_MARKER)
+    )
+
+
+def _writes_inside(
+    writes: list[dict[str, Any]], window_started: float, window_finished: float
+) -> list[dict[str, Any]]:
+    """The writes that began after the backup call began and committed before it ended.
+
+    Both sides are ``time.monotonic()`` read inside the one container, by the writer
+    loop and by ``_gw_client.py``'s ``download``, so they are one clock. A write that
+    straddles either edge is not counted: it might have been held until the backup
+    finished, which is exactly what FR-P8 says must not happen.
+    """
+    return [
+        write
+        for write in writes
+        if write["started"] >= window_started and write["finished"] <= window_finished
+    ]
 
 
 # ------------------------------------------------------------------ container A
@@ -315,6 +339,12 @@ def backup_source(
         # inside the container, not a host-side loop making one docker exec per
         # write -- the latter measurably could not keep pace with this backup (see
         # the module docstring).
+        #
+        # The backup starts only once the writer has announced its first successful
+        # write, and only the writes that began and committed inside the backup call
+        # are counted. Starting both at once made this a race between two docker exec
+        # start-ups, which a fast runner lost with zero writes (release dry run
+        # 36554918375); seeding more content would only have moved that race.
         _create_object_type(cid, token, CHURN_OBJECT_TYPE)
         writer_result: list[dict[str, Any]] = []
         writer = threading.Thread(
@@ -322,6 +352,7 @@ def backup_source(
         )
         writer.start()
         try:
+            ds.wait_for_path(cid, CHURN_WRITING_MARKER, timeout=WRITER_START_TIMEOUT_S)
             host_tar = tmp_path_factory.mktemp("backup") / "backup.tar"
             summary = ds.download_to_container(
                 cid,
@@ -343,11 +374,20 @@ def backup_source(
             f"a concurrent write failed during the backup: {loop_summary['failed']!r}"
         )
         churn_records = loop_summary["succeeded"]
-        assert len(churn_records) >= MIN_CONCURRENT_WRITES, (
-            f"only {len(churn_records)} concurrent write(s) completed during the "
-            f"backup window; this proves nothing about FR-P8's 'without stopping "
-            f"writes' clause. Seed more content so the backup takes longer, rather "
-            f"than weakening this assertion."
+        inside = _writes_inside(churn_records, summary["started"], summary["finished"])
+        backup_s = summary["finished"] - summary["started"]
+        measured = {
+            "backup_s": round(backup_s, 3),
+            "writes_inside": len(inside),
+            "writes_total": len(churn_records),
+        }
+        print(f"\n[backup] {json.dumps(measured)}")
+        assert len(inside) >= MIN_CONCURRENT_WRITES, (
+            f"only {len(inside)} of the writer's {len(churn_records)} write(s) began and "
+            f"committed inside the {backup_s:.3f}s backup call; this proves nothing about "
+            f"FR-P8's 'without stopping writes' clause. The writer was already writing "
+            f"when the backup started, so a count this low means the backup held writes "
+            f"back, not that the writer was late."
         )
 
         yield {

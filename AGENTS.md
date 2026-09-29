@@ -373,6 +373,16 @@ Each of these cost real time at least once.
   `tests/test_structural_lane.py` globs `tests/` only, so a module under `container_tests/`
   needs no `structural` marker and no `MARKED` entry, and gets no protection from either.
   Anything that must run on every pipeline goes in `tests/`.
+- **A container test sized to one machine fails on the next.** `container_tests` also runs
+  in `.github/workflows/release.yml`, on native amd64 and arm64 runners, and the first dry
+  run there failed on two proofs sized on a laptop: a fixed 0.3 to 2.5 s per-source band
+  (the arm64 runner took 3.7 s) and a writer racing a backup that the faster amd64 runner
+  finished first. A discriminator that depends on speed is derived from a measurement taken
+  in the same run (`test_clean_shutdown.py`'s sizing arm), and an overlap is proven by
+  waiting for one side to start and counting on the container's own clock
+  (`test_backup_restore.py`), never by a constant. `GW_CONTAINER_CPUS=1` runs every
+  application container under `--cpus 1`, about the arm64 runner's speed, so a slow runner
+  is reproduced on one machine.
 - **Reading an exit code through a pipe reads the pipe's.** `cmd | tail -1; echo $?` reports
   `tail`'s status, which is almost always 0. This is the same class as the green-tally trap above
   and it bit in the same session that trap is written from: `uv run ruff format --check .` piped
