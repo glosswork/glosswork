@@ -15,6 +15,7 @@ container's own network namespace.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import time
@@ -28,6 +29,19 @@ CLIENT_SCRIPT = Path(__file__).resolve().parent / "_gw_client.py"
 CLIENT_PATH_IN_CONTAINER = "/tmp/gw_client.py"
 
 DEFAULT_IMAGE_TAG = "glosswork:container-test"
+
+
+#: Set to a ``docker --cpus`` value (``0.5``, ``2``) to run every application container
+#: under that CPU limit. Unset, containers get the whole machine. It exists so the
+#: suite's speed-sizing can be proven on one machine at more than one speed: a slow
+#: runner is reproduced with a small value, which is how the release dry run's arm64
+#: failures were reproduced locally before they were fixed.
+CPU_LIMIT_ENV = "GW_CONTAINER_CPUS"
+
+
+def _cpu_limit() -> list[str]:
+    value = os.environ.get(CPU_LIMIT_ENV, "").strip()
+    return ["--cpus", value] if value else []
 
 
 class DockerError(RuntimeError):
@@ -88,7 +102,9 @@ def start_container(image_tag: str, *, name_prefix: str = "gw-container-test") -
     in a ``finally`` block, including on a failing test.
     """
     name = f"{name_prefix}-{uuid.uuid4().hex[:8]}"
-    result = _run(["docker", "run", "-d", "--network", "none", "--name", name, image_tag])
+    result = _run(
+        ["docker", "run", "-d", *_cpu_limit(), "--network", "none", "--name", name, image_tag]
+    )
     _require(result, f"docker run --network none {image_tag}")
     cid = result.stdout.decode().strip()
     copy = _run(["docker", "cp", str(CLIENT_SCRIPT), f"{cid}:{CLIENT_PATH_IN_CONTAINER}"])
@@ -133,7 +149,7 @@ def start_published_container(
     container.
     """
     name = f"{name_prefix}-{uuid.uuid4().hex[:8]}"
-    cmd = ["docker", "run", "-d", "-p", f"127.0.0.1:{port}:8000"]
+    cmd = ["docker", "run", "-d", *_cpu_limit(), "-p", f"127.0.0.1:{port}:8000"]
     for key, value in environment.items():
         cmd += ["-e", f"{key}={value}"]
     cmd += ["--name", name, image_tag]
@@ -271,7 +287,7 @@ def create_container(
     this host and from nowhere else.
     """
     name = f"{name_prefix}-{uuid.uuid4().hex[:8]}"
-    cmd = ["docker", "create"]
+    cmd = ["docker", "create", *_cpu_limit()]
     if port is None:
         cmd += ["--network", "none"]
     else:
@@ -525,11 +541,30 @@ def touch_in_container(cid: str, path: str, *, timeout: float = 10) -> None:
     _require(result, f"touch {path} in {cid}")
 
 
+def wait_for_path(cid: str, path: str, *, timeout: float = 30) -> None:
+    """Poll, through ``docker exec``, until ``path`` exists inside a running container.
+
+    The other half of :func:`touch_in_container`'s kind of signal: a process in the
+    container announces a state by creating a file, and the host waits to see it.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = exec_in(cid, ["test", "-e", path], timeout=10)
+        if result.returncode == 0:
+            return
+        time.sleep(0.05)
+    raise DockerError(
+        f"{path} did not appear in container {cid} within {timeout}s\n\n"
+        f"--- docker logs (tail) ---\n{logs(cid)}"
+    )
+
+
 def run_loop_write(
     cid: str,
     token: str,
     object_type_key: str,
     stop_marker_path: str,
+    writing_marker_path: str,
     *,
     timeout: float = 120,
 ) -> dict[str, Any]:
@@ -545,7 +580,12 @@ def run_loop_write(
     host-side loop) proved too slow to reliably overlap a fast backup on a small test
     database.
 
-    Returns ``{"succeeded": [{"key", "note"}, ...], "failed": <error body> | None}``.
+    The loop creates ``writing_marker_path`` once its first write has succeeded;
+    :func:`wait_for_path` on it is how the caller knows the writer is already writing
+    before it starts the operation the writes must overlap.
+
+    Returns ``{"succeeded": [{"key", "note", "started", "finished"}, ...], "failed":
+    <error body> | None}``, the times being the container's ``time.monotonic()``.
     """
     result = exec_in(
         cid,
@@ -556,6 +596,7 @@ def run_loop_write(
             object_type_key,
             token,
             stop_marker_path,
+            writing_marker_path,
         ],
         timeout=timeout,
     )

@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -104,20 +105,36 @@ def cmd_loop_write(argv: list[str]) -> int:
     as one ``docker exec`` on its own thread (it blocks for as long as the loop
     runs), then signals it to stop by creating ``stop_marker_path`` from a second,
     short-lived ``docker exec`` once the operation it was racing has finished.
+
+    ``writing_marker_path`` is created after the first write succeeds, so the host can
+    start the operation it races only once this loop is demonstrably writing. Without
+    it the two ``docker exec`` sessions start together and a fast machine finishes the
+    backup before this process has made its first request (release dry run
+    36554918375, amd64). Every write carries its own ``started`` and ``finished``
+    readings of ``time.monotonic()``, which on Linux is one clock for every process in
+    the container, so the host can count the writes that completed inside the window
+    ``download`` reports rather than every write the loop made.
     """
     object_type_key, token, stop_marker_path = argv[0], argv[1], argv[2]
+    writing_marker_path = argv[3] if len(argv) > 3 else None
     succeeded: list[dict[str, Any]] = []
     failed: dict[str, Any] | None = None
     i = 0
     while not os.path.exists(stop_marker_path):
         note = f"concurrent write {i}"
+        started = time.monotonic()
         result = call(
             "POST", f"/api/v1/object-types/{object_type_key}/records", token, {"note": note}
         )
+        finished = time.monotonic()
         if result["status"] != 200:
             failed = result
             break
-        succeeded.append({"key": result["body"]["key"], "note": note})
+        succeeded.append(
+            {"key": result["body"]["key"], "note": note, "started": started, "finished": finished}
+        )
+        if i == 0 and writing_marker_path:
+            open(writing_marker_path, "w").close()
         i += 1
     print(json.dumps({"succeeded": succeeded, "failed": failed}))
     return 0
@@ -129,7 +146,8 @@ def cmd_download(argv: list[str]) -> int:
     an error response, an arbitrary byte stream) without corrupting it through
     ``json.loads``/``json.dumps``.
 
-    Prints one JSON summary line -- ``{"status", "bytes", "sha256"}`` -- so the host
+    Prints one JSON summary line -- ``{"status", "bytes", "sha256", "started",
+    "finished"}`` -- so the host
     side can assert on size and content hash without a second ``docker exec`` to read
     the file back. An HTTP error response's body (still bytes, usually the JSON error
     envelope) is written and hashed exactly the same way as a success, which is what
@@ -146,6 +164,7 @@ def cmd_download(argv: list[str]) -> int:
     )
     hasher = hashlib.sha256()
     total = 0
+    started = time.monotonic()
     try:
         response_ctx: Any = urllib.request.urlopen(request, timeout=120)
         status = response_ctx.status
@@ -157,7 +176,18 @@ def cmd_download(argv: list[str]) -> int:
             out.write(chunk)
             hasher.update(chunk)
             total += len(chunk)
-    print(json.dumps({"status": status, "bytes": total, "sha256": hasher.hexdigest()}))
+    finished = time.monotonic()
+    print(
+        json.dumps(
+            {
+                "status": status,
+                "bytes": total,
+                "sha256": hasher.hexdigest(),
+                "started": started,
+                "finished": finished,
+            }
+        )
+    )
     return 0
 
 

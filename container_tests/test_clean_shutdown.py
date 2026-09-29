@@ -13,6 +13,16 @@ as JSON.
 takes a real ``docker stop`` while a batch is in flight; the killed arm takes a real
 ``docker kill``. Both then restart and must reach the same number.
 
+**The corpus is sized to the machine, not written down.** A fourth container, the
+sizing arm, first measures how long this machine's worker takes over a probe source and
+picks the words per source that make one source take about ``TARGET_SOURCE_S``. Every
+threshold that depends on speed is then derived from the control arm's own measured
+per-source time rather than carried as a number from the laptop the proof was written
+on: how many sources must still be claimed when the signal lands, and the band the
+per-source time must sit in for the arms to be able to fail. The first release dry run
+(36554918375) is why: the arm64 runner took 3.7 s per source against a band of 0.3 to
+2.5 s sized on an Apple silicon laptop.
+
 **Why each arm can fail.** The graceful arm's discriminator is ``released`` in the
 ``embedding_batch`` log line, a field only a worker that releases its claimed sources
 on a stop writes, plus a measured bound on the stop itself. The killed arm's is the 180 s
@@ -36,7 +46,9 @@ and reach the container as environment; no credential literal is committed here.
 from __future__ import annotations
 
 import json
+import math
 import os
+import random
 import secrets
 import time
 import uuid
@@ -88,21 +100,51 @@ COLD_START_CEILING_S = 30.0
 #: behind it.
 CORPUS_SOURCES = 40
 
-#: Sized so one source takes a measurable fraction of a second: roughly 12 chunks at the
-#: 43.62 ms per full chunk in docs/PERFORMANCE.md. The floor is what keeps the batch in
-#: flight when the signal lands and what makes one unfixed batch outlive
-#: ``docker stop -t 10``; the ceiling is what keeps a single source inside
-#: ``STOP_GRACE_SECONDS`` on the fixed tree. Both are asserted, not assumed: a corpus of
-#: short comments drains in about a second and would make the graceful arm a fence.
-WORDS_PER_SOURCE = 2800
-PER_SOURCE_FLOOR_S = 0.3
-PER_SOURCE_CEILING_S = 2.5
+#: The worker's ``BATCH_SIZE`` (``services/embedding_worker.py``), written here rather
+#: than imported because this directory proves the image from the outside. No more
+#: than this many sources can be claimed when the signal lands.
+BATCH_SIZE = 32
 
-#: How much of the batch must still be unstarted when the signal lands. At least two
-#: makes ``released > 0`` reachable at all; twelve at the measured per-source rate is
-#: more work than the unfixed tree can finish inside ``STOP_GRACE_S``, which is what
-#: makes the stop-duration bound discriminate as well.
-MIN_RUNNING_AT_STOP = 12
+#: What the sizing arm aims one source at: about 2.3x under the ceiling below and about
+#: 1.9x over the floor ``MAX_REQUIRED_RUNNING`` sets (0.8 s), so a calibration that
+#: misses by less than either still leaves every arm able to fail.
+TARGET_SOURCE_S = 1.5
+
+#: The sizing arm's probe: a warm-up source, then this many sources of ``PROBE_WORDS``
+#: each, timed by the worker's own ``embedding_batch`` log lines.
+PROBE_WORDS = 2800
+PROBE_SOURCES = 4
+
+#: Bounds on the words per source, in chunks of the probe's own measured size. The
+#: floor keeps at least one filler chunk beside the nonce's own, so the exact-count
+#: yardstick counts more than sources, and keeps a slow machine's sources as short as
+#: they can usefully be; at most 60 stays under ``MAX_CHUNKS_PER_SOURCE`` (64), past
+#: which a source is truncated.
+MIN_CHUNKS_PER_SOURCE = 1.5
+MAX_CHUNKS_PER_SOURCE = 60
+
+#: The ceiling on one source's worker time, from a product number rather than a test
+#: one: 70% of the worker's own ``STOP_GRACE_SECONDS`` (5.0), the join a stop gives the
+#: source in hand before it abandons it, leaving the rest for the shutdown around it
+#: (measured at under 0.4 s). Above it the fixed tree's stop can time out on this corpus
+#: and the graceful arm fails for a reason that is not a regression. It is a
+#: precondition, not a discriminator: no arm's assertion reads it.
+PER_SOURCE_CEILING_S = 3.5
+
+#: How far past ``STOP_GRACE_S`` the batch in flight must reach, so that a worker that
+#: drains its batch on a stop (the unfixed tree) is still working when ``docker stop``
+#: escalates to ``SIGKILL``, and the stop-duration bound discriminates as well as
+#: ``released``.
+UNFIXED_OVERRUN = 1.2
+
+#: At least two sources claimed at the signal makes ``released > 0`` reachable at all.
+MIN_RELEASABLE = 2
+
+#: The most sources the arms can wait to see claimed at once. Not ``BATCH_SIZE``: the
+#: corpus is written across the claim's one-second hold-back, so it arrives in two or
+#: more batches ([9, 31], [24, 16] and [3, 32] measured), and a requirement above half a
+#: batch can be unreachable. A requirement of 24 was, on a 24 then 16 split.
+MAX_REQUIRED_RUNNING = BATCH_SIZE // 2
 
 EMAIL = "admin@container-test.local"
 
@@ -128,8 +170,14 @@ OBJECT_TYPE: dict[str, Any] = {
     ],
 }
 
-#: Common single-token words, rotated per source so no two bodies are identical while
-#: every body costs the same number of chunks.
+#: Common words, laid down as whole cycles, each cycle shuffled by a per-source seed.
+#: Whole cycles give every body the same words in the same numbers, so every body is the
+#: same number of tokens and chunks; the shuffle makes every chunk's text its own. A plain
+#: rotation repeated its chunks, the worker embeds each distinct chunk once, and a
+#: source's cost stopped growing at 13 distinct chunks (measured in the image: 2800 and
+#: 5305 words both 13 distinct, both 0.51 s), which a sizing arm cannot scale. A free
+#: random draw scaled but gave bodies different token counts, and so different chunk
+#: counts, which the exact yardstick caught (1419 chunks over 40 sources).
 VOCABULARY = (
     "renewal pricing migration rollout checklist onboarding retention forecast "
     "contract escalation handover integration deployment quarterly scorecard"
@@ -138,14 +186,48 @@ VOCABULARY = (
 REPORT: dict[str, Any] = {}
 
 
+def _required_running(per_source_s: float) -> int:
+    """How many sources must still be claimed when the signal lands, at this speed.
+
+    The one in hand finishes; the rest are what the unfixed tree would go on to drain.
+    They must outlast ``STOP_GRACE_S`` by ``UNFIXED_OVERRUN`` at the measured per-source
+    time. The yardstick used to be a fixed twelve, which is right at 0.83 s a source and
+    nowhere else.
+    """
+    return max(MIN_RELEASABLE, math.ceil(STOP_GRACE_S * UNFIXED_OVERRUN / per_source_s) + 1)
+
+
+def _worker_seconds_per_source(batch_lines: list[dict[str, Any]]) -> float:
+    """The worker's own time per source, from its ``embedding_batch`` lines.
+
+    Measured where the stop waits: a batch's ``duration_ms`` over the sources it
+    processed (claimed less released). Wall-clock drain time divided by the corpus also
+    counts the concurrent writes and the claim's one-second hold-back, and is only an
+    upper bound on it.
+    """
+    processed = sum(int(line["claimed"]) - int(line.get("released") or 0) for line in batch_lines)
+    seconds = sum(float(line["duration_ms"]) for line in batch_lines) / 1000
+    assert processed > 0, batch_lines
+    return seconds / processed
+
+
 # ------------------------------------------------------------------ the corpus
 
 
-def _body(index: int, nonce: str) -> str:
-    rotation = index % len(VOCABULARY)
-    rotated = VOCABULARY[rotation:] + VOCABULARY[:rotation]
-    filler = " ".join(rotated[i % len(rotated)] for i in range(WORDS_PER_SOURCE))
-    return f"{nonce} {filler}"
+def _body(index: int, nonce: str, words: int) -> str:
+    """The nonce as its own paragraph, then ``words`` rounded up to whole cycles.
+
+    Its own paragraph so it is its own small first chunk: a nonce's token count varies
+    with its hex digits, and inline it moved the filler's window boundaries by a token or
+    two, which near a boundary is a chunk.
+    """
+    draw = random.Random(index)
+    filler: list[str] = []
+    for _ in range(math.ceil(words / len(VOCABULARY))):
+        cycle = list(VOCABULARY)
+        draw.shuffle(cycle)
+        filler.extend(cycle)
+    return f"{nonce}\n\n{' '.join(filler)}"
 
 
 def _nonces(count: int) -> list[str]:
@@ -273,7 +355,9 @@ def _arm(image_tag: str, name: str) -> Iterator[Arm]:
         ds.remove_volume(volume)
 
 
-def _write_corpus(arm: Arm) -> None:
+def _write_corpus(
+    arm: Arm, words: int, *, sources: int = CORPUS_SOURCES, create_type: bool = True
+) -> None:
     """Create the object type and write the corpus as fast as the API allows.
 
     Concurrent on purpose. The claim predicate holds a brand-new job back for one second
@@ -282,16 +366,17 @@ def _write_corpus(arm: Arm) -> None:
     worker's first claim gets to a full ``BATCH_SIZE`` batch. The arm asserts what it
     actually observed rather than assuming it got one.
     """
-    created = arm.call("POST", "/api/v1/object-types", OBJECT_TYPE)
-    assert created.status_code == 200, created.text
-    arm.nonces = _nonces(CORPUS_SOURCES)
+    if create_type:
+        created = arm.call("POST", "/api/v1/object-types", OBJECT_TYPE)
+        assert created.status_code == 200, created.text
+    arm.nonces = _nonces(sources)
 
     def write(pair: tuple[int, str]) -> str:
         index, nonce = pair
         response = arm.call(
             "POST",
             f"/api/v1/object-types/{OBJECT_TYPE['key']}/records",
-            {"body": _body(index, nonce)},
+            {"body": _body(index, nonce, words)},
         )
         assert response.status_code == 200, response.text
         key: str = response.json()["key"]
@@ -299,7 +384,7 @@ def _write_corpus(arm: Arm) -> None:
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         arm.keys = list(pool.map(write, list(enumerate(arm.nonces))))
-    assert len(arm.keys) == CORPUS_SOURCES, arm.keys
+    assert len(arm.keys) == sources, arm.keys
 
 
 def _batch_lines(log: str) -> list[dict[str, Any]]:
@@ -344,7 +429,9 @@ def _yardstick(arm: Arm, expected_chunks: int) -> dict[str, Any]:
     return status
 
 
-def _interrupt_and_restart(arm: Arm, interrupt: Callable[[Arm], float]) -> dict[str, Any]:
+def _interrupt_and_restart(
+    arm: Arm, interrupt: Callable[[Arm], float], words: int, required_running: int
+) -> dict[str, Any]:
     """Everything the graceful and killed arms share: write the corpus, catch a batch in
     flight, interrupt, restart, and hand back **observations**.
 
@@ -354,12 +441,10 @@ def _interrupt_and_restart(arm: Arm, interrupt: Callable[[Arm], float]) -> dict[
     drain, the yardstick and every discriminator are separate tests below, each able to
     fail on its own against the unfixed tree.
     """
-    observed: dict[str, Any] = {"arm": arm}
-    _write_corpus(arm)
+    observed: dict[str, Any] = {"arm": arm, "required_running": required_running}
+    _write_corpus(arm, words)
     at_signal = arm.wait_for(
-        lambda body: bool(
-            body["indexed_chunks"] > 0 and body["running_jobs"] >= MIN_RUNNING_AT_STOP
-        ),
+        lambda body: bool(body["indexed_chunks"] > 0 and body["running_jobs"] >= required_running),
         timeout=DRAIN_TIMEOUT_S,
         interval=0.1,
     )
@@ -395,29 +480,85 @@ def _publish(name: str, observed: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def control(image_tag: str) -> Iterator[dict[str, Any]]:
+def sizing(image_tag: str) -> dict[str, Any]:
+    """Measure this machine, then choose the words per source every arm writes.
+
+    Its own container, so the control arm's yardstick counts the corpus and nothing
+    else. A warm-up source first, so whatever the first embedding pays once is not
+    charged to the probe; then ``PROBE_SOURCES`` sources of ``PROBE_WORDS``, timed by
+    the worker's own batch lines. Words scale linearly to ``TARGET_SOURCE_S``, inside
+    the chunk bounds. This only aims: the control arm measures what it actually got and
+    asserts the band. The container is removed before the other arms start, so it
+    takes no CPU from them.
+    """
+    with _arm(image_tag, "sizing") as arm:
+        _write_corpus(arm, PROBE_WORDS, sources=1)
+        arm.wait_for(
+            lambda body: bool(body["pending_jobs"] == 0), timeout=DRAIN_TIMEOUT_S, interval=0.2
+        )
+        warmed = len(ds.logs(arm.cid, tail=None))
+        _write_corpus(arm, PROBE_WORDS, sources=PROBE_SOURCES, create_type=False)
+        status = arm.wait_for(
+            lambda body: bool(body["pending_jobs"] == 0), timeout=DRAIN_TIMEOUT_S, interval=0.2
+        )
+        assert status["failed_jobs"] == [], status
+        probe_lines = _batch_lines(ds.logs(arm.cid, tail=None)[warmed:])
+        probe_source_s = _worker_seconds_per_source(probe_lines)
+        chunks_per_probe = status["indexed_chunks"] / (PROBE_SOURCES + 1)
+        words_per_chunk = PROBE_WORDS / chunks_per_probe
+        aimed = round(PROBE_WORDS * TARGET_SOURCE_S / probe_source_s)
+        words = min(
+            max(aimed, math.ceil(MIN_CHUNKS_PER_SOURCE * words_per_chunk)),
+            math.floor(MAX_CHUNKS_PER_SOURCE * words_per_chunk),
+        )
+        # Said here, in one line, rather than as a 180 s drain timeout three arms later.
+        predicted_s = probe_source_s * words / PROBE_WORDS
+        assert predicted_s <= PER_SOURCE_CEILING_S, (
+            f"this machine takes {probe_source_s:.3f}s over a {PROBE_WORDS}-word source, so "
+            f"even the shortest corpus the arms can use ({words} words) would take about "
+            f"{predicted_s:.1f}s a source, over the {PER_SOURCE_CEILING_S}s ceiling that keeps "
+            "one source inside the worker's STOP_GRACE_SECONDS. The graceful arm cannot be "
+            "sized to pass for the right reason here; this is a machine too slow for the "
+            "proof, not a regression."
+        )
+    return _publish(
+        "sizing",
+        {
+            "probe_source_s": round(probe_source_s, 3),
+            "probe_chunks_per_source": chunks_per_probe,
+            "words_per_source": words,
+        },
+    )
+
+
+@pytest.fixture(scope="module")
+def control(image_tag: str, sizing: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """The yardstick: the same corpus, drained with nothing interrupting it.
 
     Also the arm that measures the corpus. ``C`` is asserted to be an exact multiple of
     the number of sources the arm wrote, so a corpus that drifted between arms shows up
-    as itself rather than as a failure in the arm under test.
+    as itself rather than as a failure in the arm under test. Its per-source time, read
+    from the worker's own batch lines, is what the other two arms size their signal to.
     """
     with _arm(image_tag, "control") as arm:
         started = time.monotonic()
-        _write_corpus(arm)
+        _write_corpus(arm, sizing["words_per_source"])
         status = arm.wait_for(
             lambda body: bool(body["pending_jobs"] == 0), timeout=DRAIN_TIMEOUT_S, interval=0.5
         )
         elapsed = time.monotonic() - started
         chunks = int(status["indexed_chunks"])
+        per_source_s = _worker_seconds_per_source(_batch_lines(ds.logs(arm.cid, tail=None)))
         yield _publish(
             "control",
             {
                 "indexed_chunks": chunks,
                 "sources": CORPUS_SOURCES,
+                "words_per_source": sizing["words_per_source"],
                 "chunks_per_source": chunks // CORPUS_SOURCES,
                 "drain_s": round(elapsed, 3),
-                "per_source_s": round(elapsed / CORPUS_SOURCES, 3),
+                "per_source_s": round(per_source_s, 3),
+                "required_running": _required_running(per_source_s),
                 "status": status,
             },
         )
@@ -437,12 +578,21 @@ def test_the_control_arm_drains_the_whole_corpus_and_sets_the_yardstick(
         "the corpus is not a clean multiple of the sources written, so a later arm's "
         "exact-count assertion would be measuring corpus drift rather than lost work"
     )
-    assert PER_SOURCE_FLOOR_S <= control["per_source_s"] <= PER_SOURCE_CEILING_S, (
-        f"a source takes {control['per_source_s']}s to write and embed, outside the "
-        f"{PER_SOURCE_FLOOR_S}-{PER_SOURCE_CEILING_S}s band the arms are sized against. "
-        "Below the floor the unfixed tree drains a whole batch inside the stop grace and "
-        "the graceful arm stops being able to fail; above it a single source no longer "
-        "fits inside STOP_GRACE_SECONDS on the fixed tree."
+    assert control["per_source_s"] <= PER_SOURCE_CEILING_S, (
+        f"a source takes the worker {control['per_source_s']}s at "
+        f"{control['words_per_source']} words, over the {PER_SOURCE_CEILING_S}s ceiling: "
+        "a single source may no longer fit inside the worker's STOP_GRACE_SECONDS on the "
+        f"fixed tree. The sizing arm aimed at {TARGET_SOURCE_S}s and missed by more "
+        f"than {PER_SOURCE_CEILING_S / TARGET_SOURCE_S}x, or this machine cannot embed "
+        f"even {MIN_CHUNKS_PER_SOURCE} chunks inside it. Report: {REPORT.get('sizing')}"
+    )
+    assert control["required_running"] <= MAX_REQUIRED_RUNNING, (
+        f"at {control['per_source_s']}s a source, {control['required_running']} sources "
+        f"must still be claimed when the signal lands for the unfixed tree to overrun "
+        f"the stop grace, and the arms can only rely on {MAX_REQUIRED_RUNNING} at once: "
+        "the graceful arm could not fail. The sources are too short for this machine; the "
+        "sizing arm aimed too low, or this machine is fast enough to hit the chunk cap. "
+        f"Report: {REPORT.get('sizing')}"
     )
 
 
@@ -450,10 +600,13 @@ def test_the_control_arm_drains_the_whole_corpus_and_sets_the_yardstick(
 
 
 @pytest.fixture(scope="module")
-def graceful(image_tag: str) -> Iterator[dict[str, Any]]:
+def graceful(image_tag: str, control: dict[str, Any]) -> Iterator[dict[str, Any]]:
     with _arm(image_tag, "graceful") as arm:
         observed = _interrupt_and_restart(
-            arm, lambda held: ds.stop_container(held.cid, grace=STOP_GRACE_S)
+            arm,
+            lambda held: ds.stop_container(held.cid, grace=STOP_GRACE_S),
+            control["words_per_source"],
+            control["required_running"],
         )
         _publish("graceful", observed)
         print(f"\n[graceful] {json.dumps(REPORT['graceful'])}")
@@ -467,14 +620,25 @@ def test_a_graceful_stop_releases_the_rest_of_its_batch(graceful: dict[str, Any]
     quietly become a fence if the corpus is mis-sized: every other signal in this arm can
     be produced by a tree that drains its batch, given short enough sources.
     """
-    released = [count for count in graceful["released_batches"] if count]
-    assert released, (
+    interrupted = [
+        claimed
+        for claimed, released in zip(
+            graceful["claimed_batches"], graceful["released_batches"], strict=True
+        )
+        if released
+    ]
+    assert interrupted, (
         "no embedding_batch line carried a non-zero `released`, so the stop drained the "
         f"batch rather than checkpointing it. batches claimed: {graceful['claimed_batches']}"
     )
-    assert graceful["claimed_batches"][0] >= MIN_RUNNING_AT_STOP, (
-        "the corpus did not arrive as one batch large enough to outlive the stop grace, "
-        f"so this arm was measured against a batch of {graceful['claimed_batches']}"
+    # The batch the stop interrupted, not the first one claimed. A slow machine writes
+    # the corpus across the claim's one-second hold-back, so an earlier, smaller batch
+    # can drain before the big one; the dry run's arm64 runner claimed [3, 32] and
+    # released 31 of the 32, which is the behaviour this arm exists to prove.
+    assert interrupted[-1] >= graceful["required_running"], (
+        "the batch in flight when the stop landed was too small to outlive the stop "
+        f"grace, so this arm was measured against a batch of {interrupted[-1]}; batches "
+        f"claimed: {graceful['claimed_batches']}"
     )
 
 
@@ -533,14 +697,16 @@ def test_the_graceful_arm_restarts_inside_the_cold_start_ceiling(
 
 
 @pytest.fixture(scope="module")
-def killed(image_tag: str) -> Iterator[dict[str, Any]]:
+def killed(image_tag: str, control: dict[str, Any]) -> Iterator[dict[str, Any]]:
     def kill(arm: Arm) -> float:
         started = time.monotonic()
         ds.kill_container(arm.cid)
         return time.monotonic() - started
 
     with _arm(image_tag, "killed") as arm:
-        observed = _interrupt_and_restart(arm, kill)
+        observed = _interrupt_and_restart(
+            arm, kill, control["words_per_source"], control["required_running"]
+        )
         _publish("killed", observed)
         print(f"\n[killed] {json.dumps(REPORT['killed'])}")
         yield observed
@@ -596,4 +762,4 @@ def test_the_measured_numbers_are_reported(
     destination = os.environ.get("GW_SHUTDOWN_REPORT")
     if destination:
         Path(destination).write_text(json.dumps(REPORT, indent=2, default=str) + "\n")
-    assert set(REPORT) == {"control", "graceful", "killed"}
+    assert set(REPORT) == {"sizing", "control", "graceful", "killed"}
