@@ -33,6 +33,7 @@ decisions, and institutional memory.
 | Run container | `docker run -p 8000:8000 -v gw-data:/data glosswork` |
 | Container accept tests | `uv run pytest -q container_tests` (needs Docker) |
 | Golden retrieval report | `uv run pytest -q tests/test_search_golden.py -s` |
+| Regenerate third-party licences (after any dependency change; needs the network) | `uv run python scripts/third_party_licenses.py` (`--check` to test it is current) |
 
 Operator CLI:
 
@@ -70,7 +71,8 @@ back to `/readyz` and needs Docker and an image tag rather than the seeded corpu
 | `docs/DESIGN.md` | The UI design system (DD-41): tokens, type, the mark, attribution primitives, components, screen intents | Any frontend or brand work |
 | `docs/AGENT_ONBOARDING.md` | How an agent onboards onto a *live deployment* over MCP. A product document, not a contributor one | Agent-facing work |
 | `docs/changes/README.md` | How a change is planned, adversarially passed, executed and verified, and the plan template | Before starting any change |
-| `THIRD_PARTY_NOTICES.md` | Licence and copyright notices for the three bundled fonts and the embedding model, with what it deliberately does not cover | Before changing what the image bundles |
+| `THIRD_PARTY_NOTICES.md` | Licence and copyright notices for the three bundled fonts and the embedding model, where every other package's notice is, and what it deliberately does not cover | Before changing what the image bundles |
+| `THIRD_PARTY_LICENSES.md` | Generated: the licence text of every package the image installs from `uv.lock` or bundles from `web/package-lock.json`. Never edited by hand | Regenerate it whenever a lockfile changes |
 
 These are **specifications, not background**, and they are more detailed than they first appear.
 Read the FRs and design decisions a change references, not just its summary.

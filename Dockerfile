@@ -67,11 +67,11 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=frontend-builder /app/web/dist /app/web/dist
 COPY --from=model --chown=appuser:appuser /app/models /app/models
 
-# The licence and the third-party notices travel with the image, because publishing an
-# image is redistribution and both FSL-1.1-ALv2 and OFL-1.1 require their terms to
-# accompany a copy. Left root-owned and world-readable, which is right for licence files
-# and is what a plain COPY before USER gives.
-COPY LICENSE THIRD_PARTY_NOTICES.md /app/
+# The licence, the third-party notices and every locked package's licence text travel
+# with the image, because publishing an image is redistribution and the licences involved
+# require their terms to accompany a copy. Left root-owned and world-readable, which is
+# right for licence files and is what a plain COPY before USER gives.
+COPY LICENSE THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.md /app/
 
 WORKDIR /app
 RUN mkdir -p /data && chown -R appuser:appuser /data

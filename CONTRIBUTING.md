@@ -138,6 +138,14 @@ path from the repository root. Everything else is code, deliberately including `
 workflow itself. An empty change counts as code. The same list is a tuple in
 `scripts/ci_changes.py`, and `tests/test_ci_changes.py` fails if the two differ.
 
+**A dependency change regenerates `THIRD_PARTY_LICENSES.md` in the same commit**, with
+`uv run python scripts/third_party_licenses.py`, because the image ships that file and it
+must hold the licence text of every package the lockfiles put in the image. If it is not
+regenerated, `tests/test_third_party_licenses.py` in `guards` fails, naming each package
+or version the lockfiles hold with no entry, and each entry the lockfiles no longer hold.
+That test reads committed files only; whether each entry's text is what the artifact
+holds is checked by `--check`, which needs the network and is not run in CI.
+
 | Job | Runs | What it does |
 | --- | --- | --- |
 | `changes` | always | Classifies the change: `code=true` or `code=false` |

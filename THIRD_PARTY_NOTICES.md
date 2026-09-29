@@ -1,28 +1,38 @@
 # Third-party notices
 
-The Glosswork runtime image redistributes third-party work, and both licences involved
+The Glosswork runtime image redistributes third-party work, and the licences involved
 require their notices to travel with any copy. FSL-1.1-ALv2's Redistribution clause says
 that if you redistribute copies, modifications or derivatives of the Software you must
 include a copy of or a link to its terms and not remove any copyright notices provided
 in or with the Software. OFL-1.1 requires the copyright notice and the licence to be
-distributed with the font software. Publishing an image is redistribution, and the image
-contains both the application and the fonts, so `LICENSE` and this file are copied into
-it at `/app/`.
+distributed with the font software. Publishing an image is redistribution, so `LICENSE`,
+this file and `THIRD_PARTY_LICENSES.md` are copied into it at `/app/`.
 
 ## What this file covers, and what it does not
 
 **It covers four works: the three fonts bundled into the web build, and the embedding
 model baked into the image.**
 
-**It is not a complete inventory of everything the image redistributes.** The image also
-carries 70 Python packages under `/opt/venv`, several of them Apache-2.0 with a notice
-clause of its own, and a Vite bundle under `/app/web/dist` built from `react`,
-`react-dom`, `@tanstack/react-query`, `@tanstack/react-table`, `react-router-dom`,
-`react-markdown` and `remark-breaks` with their transitive dependencies. The argument
-above applies to every one of them. Covering them means generating the list from
-`uv.lock` and `web/package-lock.json` rather than maintaining it by hand, which is
-tracked separately and is not done here. A notices file that looks complete and is not
-would be worse than one that says what it covers, so this says it.
+**Every package the image installs from `uv.lock` or bundles from `web/package-lock.json`
+has an entry in `THIRD_PARTY_LICENSES.md`**, beside this file: one entry per package and
+version, holding the licence and copyright text from the exact artifact the lockfile
+records, reproduced as published. Where a package's own text names no copyright holder,
+the entry names none. The file is generated from the two lockfiles by
+`scripts/third_party_licenses.py`, and a test fails when either lockfile holds a package
+it has no entry for, so it is not edited by hand. It lists every runtime package in the
+lockfiles, including three that install only on Windows or in a browser, and none of the
+development-only ones, which the image does not carry, apart from the three build tools
+whose code ends up in the web bundle.
+
+**The base image's own contents carry their own notices.** CPython, the Debian packages
+and the base image's `pip` keep theirs where the base image puts them.
+
+**Code compiled into a package from elsewhere is covered only as far as that package's
+own files cover it.** Six Python packages (`cryptography`, `hf-xet`, `pydantic-core`,
+`rpds-py`, `tokenizers` and `watchfiles`) are built from Rust and link crates their
+wheels carry no notice for, and `cryptography` also links OpenSSL. Their entries hold what
+the packages themselves publish. `numpy` and `onnxruntime` publish notices for what they
+link, and those are included.
 
 ## Where each text came from
 
