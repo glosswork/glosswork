@@ -72,9 +72,13 @@ more reliable first step than building.
 
 ## Checklist
 
-- [ ] 1. Run AC1 and AC2 against the unfixed tree and record how each failed.
-- [ ] 2. Edit the "Run it" block and its paragraph.
-- [ ] 3. Run the Accept block.
+- [x] 1. Run AC1, AC2 and AC6 against the unfixed tree and record how each failed.
+  At `f3b95d4`: AC1a exit 1 (the first line was `docker build -t glosswork .`), AC1b exit 1,
+  AC2 exit 1, AC6 exit 1.
+- [x] 2. Edit the "Run it" block and its paragraph.
+- [x] 3. Run the Accept block. At `bec8817`, 2026-09-29: AC1a 0, AC1b 0, AC2 0, AC3 0
+  (index `sha256:12c783a9...89b4`, `linux/amd64` and `linux/arm64`), AC4 0 (96 passed),
+  AC6 0. AC5 is run after the plan is deleted, by the separate verifying session.
 
 ## Accept
 
@@ -118,4 +122,15 @@ Run by a separate Opus session on 2026-09-29 against `6811e8a`, read-only.
 
 ## Deviations from the approved plan
 
+- **D1. The maintainer approved the change, not this file's text, before execution.** The
+  approval (2026-09-29) covered filing the issue, the branch, the commits and a pull request
+  with CI green. The plan's final text is in the pull request for review before the merge,
+  which is the maintainer's.
+- **D2. Independent verification ran after the closeout, not before it**, because AC5 is only
+  true once the plan file is deleted.
+
 ## Durable content moved out of this plan
+
+None. The README is the durable content, and P3a's password floor is already
+documented as `GW_PASSWORD_MIN_LENGTH=12` in `.env.example`. F1, F2 and F6 are recorded in
+the pull request description for the maintainer.
