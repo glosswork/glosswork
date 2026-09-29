@@ -25,9 +25,18 @@ more reliable first step than building.
   docker.io/glosswork/glosswork:0.1.0` exit 0, digest
   `sha256:12c783a909e7727065d878d40e9b8c15e7c93f0cc7917236a1b621281da389b4`.
 - **P3.** That image runs the README's own command unchanged apart from the image name, and
-  signs in with the bootstrap email and password. Measured 2026-09-29: a scratch container
-  from the pinned digest with `GW_BASE_URL`, `GW_BOOTSTRAP_ADMIN_EMAIL` and
-  `GW_BOOTSTRAP_ADMIN_PASSWORD` answered `/readyz` with `{"status":"ok"}` after 3 seconds.
+  signs in with the bootstrap email and password over plain `http://localhost`. Measured
+  2026-09-29 on a scratch container from the pinned digest (arm64) with `GW_BASE_URL`,
+  `GW_BOOTSTRAP_ADMIN_EMAIL` and `GW_BOOTSTRAP_ADMIN_PASSWORD`: `/readyz` answered
+  `{"status":"ok"}` after 3 seconds; `POST /api/v1/auth/login` answered 200 with `Secure`
+  session and CSRF cookies; `GET /api/v1/object-types` with that cookie jar answered 200.
+  Not established: a real browser. curl sends `Secure` cookies to `localhost`; whether every
+  browser does is not measured here, and the old README had the same flags (F3).
+- **P3a.** A bootstrap password under 12 characters stops the container. Measured 2026-09-29:
+  `GW_BOOTSTRAP_ADMIN_PASSWORD=short` exits with code 3 on first start, log
+  `ValidationFailedError: Password must be at least 12 characters` from
+  `src/glosswork/services/passwords.py` line 44 via `src/glosswork/app.py` line 117. So the
+  README says so (F5).
 - **P4.** A deployment names a version by its tag, and there is no `latest`. Read at
   `CONTRIBUTING.md` "Releases" ("There is no `latest` tag and no moving `X.Y` tag: a
   deployment names the version it runs. A published version is never replaced.") and
@@ -46,7 +55,8 @@ more reliable first step than building.
 - `README.md` "Run it": the `docker build` line goes; `docker run` names
   `docker.io/glosswork/glosswork:0.1.0`; the "No versioned release image" sentence is
   replaced by one saying each version keeps its tag and there is no `latest`, pointing at
-  `CHANGELOG.md`, and one giving the build-from-source route as the alternative.
+  `CHANGELOG.md`, and one giving the build-from-source route as the alternative. The
+  password placeholder says "at least 12 characters" (P3a).
 
 ## What does not change
 
@@ -72,13 +82,39 @@ more reliable first step than building.
   `awk '/^## Run it/{f=1} f&&/^```bash/{getline; print; exit}' README.md | grep -q '^docker run '`
   and `sed -n '/^## Run it/,/^## Point/p' README.md | grep -q 'docker.io/glosswork/glosswork:0.1.0$'`
 - **AC2.** The stale sentence is gone: `! grep -q 'No versioned release image is published yet' README.md`
-- **AC3.** The named reference pulls with no credential:
-  `d=$(mktemp -d); DOCKER_CONFIG=$d docker pull docker.io/glosswork/glosswork:0.1.0` exit 0.
-- **AC4.** The structural lane passes: `uv run pytest -q -m structural` exit 0.
+- **AC3 (fence).** The named reference resolves with no credential, for both architectures:
+  `d=$(mktemp -d); DOCKER_CONFIG=$d docker buildx imagetools inspect docker.io/glosswork/glosswork:0.1.0`
+  exit 0, listing `linux/amd64` and `linux/arm64`. A fence: it passes on the unfixed tree,
+  because the image exists independently of this change.
+- **AC4 (fence).** The structural lane passes: `uv run pytest -q -m structural` exit 0.
 - **AC5.** Only `README.md` differs from `main` once the plan is deleted:
   `git diff --name-only origin/main...HEAD` prints `README.md` alone.
+- **AC6.** The password floor is stated:
+  `sed -n '/^## Run it/,/^## Point/p' README.md | grep -q 'at least 12 characters'`
 
 ## Adversarial pass
+
+Run by a separate Opus session on 2026-09-29 against `6811e8a`, read-only.
+
+- **F1.** The README's tag goes stale at the next release: "Releases" in `CONTRIBUTING.md`
+  updates `pyproject.toml`, `uv.lock` and `CHANGELOG.md`, not the README, and no test ties
+  them. **Disposition:** out of scope, because either fix (a line in "Releases" or a
+  structural test) changes a file this plan keeps. Recorded for the maintainer.
+- **F2.** `docs/DEPLOYMENT.md` section 2 and the 0.1.0 entry in `CHANGELOG.md` name the
+  GitHub registry copy, which answered 401 to an anonymous token request. **Disposition:**
+  the README names Docker Hub only; the other two are left to the task that makes the GitHub
+  copy public.
+- **F3.** P3 claimed sign-in on the strength of `/readyz` alone. **Disposition:** fixed. P3
+  now records a measured password login and a cookie round trip, and says a real browser is
+  not established.
+- **F4.** AC3 and AC4 cannot fail on the unfixed tree, and AC3 downloaded the whole image.
+  **Disposition:** fixed. Both are labelled fences, and AC3 reads the manifest instead,
+  which also checks both architectures.
+- **F5.** A short bootstrap password stops the container with no hint in the README.
+  **Disposition:** fixed. Measured (P3a) and stated in the README (AC6).
+- **F6.** `docs/DEPLOYMENT.md` section 2 has a sentence about `/healthz` spliced into an
+  unrelated paragraph. **Disposition:** out of scope, recorded.
+- **F7.** Anonymous Docker Hub pulls are rate-limited per address. **Disposition:** none.
 
 ## Deviations from the approved plan
 
