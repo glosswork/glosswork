@@ -16,18 +16,21 @@ whatever scope the caller has, and there is deliberately no MCP tool to approve 
 ## Run it
 
 ```bash
-docker build -t glosswork .
 docker run -d --name glosswork -p 8000:8000 -v gw-data:/data \
   -e GW_BASE_URL=http://localhost:8000 \
   -e GW_BOOTSTRAP_ADMIN_EMAIL=you@example.com \
-  -e GW_BOOTSTRAP_ADMIN_PASSWORD='<a real password>' \
-  glosswork
+  -e GW_BOOTSTRAP_ADMIN_PASSWORD='<a real password, at least 12 characters>' \
+  docker.io/glosswork/glosswork:0.1.0
 ```
 
 One container, one process, one volume. Open <http://localhost:8000> and sign in with that
 email and password. Search runs on an embedding model baked into the image, so it needs no
-network and no API key. No versioned release image is published yet, so the build above is
-how you get one. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has what a real deployment needs.
+network and no API key. The image is published for `linux/amd64` and `linux/arm64`. There is
+no `latest` tag and a published version is never replaced, so a deployment names the version
+it runs; [CHANGELOG.md](CHANGELOG.md) says what each version changed. To build the image
+from source instead, run `docker build -t glosswork .` in a clone and use `glosswork` in
+place of the image name. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has what a real
+deployment needs.
 
 ## Point an agent at it
 
