@@ -27,6 +27,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { InviteEmailResult } from "../api/invites";
 import {
   createPrincipal,
   deactivatePrincipal,
@@ -53,6 +54,7 @@ import {
   thClass,
 } from "../ui/tableClasses";
 import { PrincipalStatus } from "./PrincipalStatus";
+import { InviteByEmailDialog } from "./InviteByEmailDialog";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { canResetPassword } from "./resetEligibility";
 
@@ -247,11 +249,15 @@ export interface PeopleTableProps {
   /** The signed-in caller's own principal id: the one input
    * `canResetPassword` needs that this table cannot read for itself. */
   callerId: string;
+  /** True on a workspace that signs people in by emailed code (change 9): "Invite" sends an
+   * email invite instead of creating an account with a password, and no row offers "Reset
+   * password", because nobody there has one. */
+  emailCode?: boolean;
 }
 
 /** Admin-only: list, invite, change role, deactivate, and reset the password of `user`-type
  * principals. */
-export function PeopleTable({ callerId }: PeopleTableProps) {
+export function PeopleTable({ callerId, emailCode = false }: PeopleTableProps) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: usersQueryKey,
@@ -262,6 +268,7 @@ export function PeopleTable({ callerId }: PeopleTableProps) {
   const [inviting, setInviting] = useState(false);
   const [resetTarget, setResetTarget] = useState<PrincipalDoc | null>(null);
   const [resetSuccessName, setResetSuccessName] = useState<string | null>(null);
+  const [inviteResult, setInviteResult] = useState<InviteEmailResult | null>(null);
 
   const createUser = useMutation({
     mutationFn: () =>
@@ -341,7 +348,10 @@ export function PeopleTable({ callerId }: PeopleTableProps) {
           type="button"
           variant="secondary"
           className={btnSmClass}
-          onClick={() => setInviting(true)}
+          onClick={() => {
+            setInviteResult(null);
+            setInviting(true);
+          }}
         >
           Invite
         </Button>
@@ -355,6 +365,12 @@ export function PeopleTable({ callerId }: PeopleTableProps) {
         )}
         {deactivate.isError && (
           <Alert tone="error" title="Could not deactivate the user." error={deactivate.error} />
+        )}
+        {inviteResult && (
+          <Alert
+            tone={inviteResult.outcome === "accepted" ? "success" : "warning"}
+            title={inviteResult.message}
+          />
         )}
         {resetSuccessName && (
           <Alert tone="success" title={`Password reset for ${resetSuccessName}.`} />
@@ -382,7 +398,7 @@ export function PeopleTable({ callerId }: PeopleTableProps) {
                     isOnlyActiveAdmin={
                       user.role === "admin" && user.is_active && activeAdminCount === 1
                     }
-                    canReset={canResetPassword(user, callerId)}
+                    canReset={!emailCode && canResetPassword(user, callerId)}
                     onChangeRole={(role) => updateRole.mutate({ id: user.id, role })}
                     onDeactivate={() => deactivate.mutate(user.id)}
                     onResetPassword={() => openReset(user)}
@@ -399,7 +415,17 @@ export function PeopleTable({ callerId }: PeopleTableProps) {
         )}
       </div>
 
-      {inviting && (
+      {inviting && emailCode && (
+        <InviteByEmailDialog
+          onCancel={() => setInviting(false)}
+          onInvited={(created) => {
+            setInviting(false);
+            setInviteResult(created.email);
+          }}
+        />
+      )}
+
+      {inviting && !emailCode && (
         <InviteDialog
           form={form}
           onChange={setForm}

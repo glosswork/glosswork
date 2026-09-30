@@ -12,6 +12,8 @@ export interface AuthContextValue {
   status: AuthStatus;
   principal: CurrentPrincipal | null;
   login: (email: string, password: string) => Promise<void>;
+  /** Sign in with an emailed code (change 9). */
+  loginWithCode: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 

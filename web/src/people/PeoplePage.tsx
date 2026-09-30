@@ -20,14 +20,21 @@
  * deliberately **not** `access/ReadOnlyBanner.tsx`: that sentence names one object type and the
  * level held on it (DD-42), and this is a deployment-wide role, not a grant.
  */
+import { useQuery } from "@tanstack/react-query";
+import { getAuthModes } from "../api/auth";
 import { useAuth } from "../auth/useAuth";
 import { AgentLabelsTable } from "./AgentLabelsTable";
 import { PeopleTable } from "./PeopleTable";
+import { PendingInvitesTable } from "./PendingInvitesTable";
 import { ServiceAccountsTable } from "./ServiceAccountsTable";
 
 export function PeoplePage() {
   const { principal } = useAuth();
   const isAdmin = principal?.role === "admin";
+  // Change 9: on a workspace that signs people in by emailed code, "Invite" sends an email and
+  // the pending invites are listed. Shares the login page's query key, so it is one request.
+  const { data: modes } = useQuery({ queryKey: ["auth-modes"], queryFn: getAuthModes });
+  const emailCode = modes?.email_code === true;
 
   return (
     <div className="max-w-5xl space-y-4">
@@ -38,7 +45,8 @@ export function PeoplePage() {
           Your own agent labels are below; an administrator can show you the rest.
         </p>
       )}
-      {isAdmin && principal && <PeopleTable callerId={principal.id} />}
+      {isAdmin && principal && <PeopleTable callerId={principal.id} emailCode={emailCode} />}
+      {isAdmin && emailCode && <PendingInvitesTable />}
       <AgentLabelsTable />
       {isAdmin && <ServiceAccountsTable />}
     </div>

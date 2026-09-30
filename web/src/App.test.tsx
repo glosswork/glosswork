@@ -65,7 +65,7 @@ const server = setupServer(
     HttpResponse.json({ records: [], total_count: 0, next_cursor: null, truncated: false }),
   ),
   http.get("/api/v1/object-types/:key/saved-views", () => HttpResponse.json([])),
-  http.get("/api/v1/auth/modes", () => HttpResponse.json({ standalone: true, oidc: false })),
+  http.get("/api/v1/auth/modes", () => HttpResponse.json({ standalone: true, oidc: false, email_code: false })),
   // The shell's own two reads. `onUnhandledRequest: "error"` means an unhandled one
   // fails the test rather than resolving to undefined, which is what caught these.
   http.get("/api/v1/workspace", () =>

@@ -19,6 +19,8 @@
  * form nor `ResetPasswordDialog` performs.
  */
 import { useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getAuthModes } from "../api/auth";
 import { useAuth } from "../auth/useAuth";
 import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
@@ -37,8 +39,24 @@ export function PasswordPanel() {
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [clientError, setClientError] = useState<string | null>(null);
   const { submit, failure, succeeded, isPending } = useChangeOwnPassword();
+  const { data: modes } = useQuery({ queryKey: ["auth-modes"], queryFn: getAuthModes });
 
   if (!principal) return null;
+
+  // Change 9: a workspace that signs people in by emailed code has no passwords to change, and
+  // says so rather than showing nothing.
+  if (modes?.email_code === true) {
+    return (
+      <Card label="Password" heading={<h2 className={cardHeadingClass}>Password</h2>}>
+        <div className="p-3.5">
+          <p data-testid="password-email-code" className="max-w-md text-sm text-ink-2">
+            You sign in to this workspace with a code sent to your email, so there is no password
+            to change.
+          </p>
+        </div>
+      </Card>
+    );
+  }
 
   if (principal.auth_provider !== "local") {
     return (

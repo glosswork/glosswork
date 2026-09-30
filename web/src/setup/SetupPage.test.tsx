@@ -317,6 +317,19 @@ describe("SetupPage", () => {
       return screen.findByRole("region", { name: "Password" });
     }
 
+    it("offers no password change on a workspace that signs people in by emailed code", async () => {
+      // Change 9, DQ1. The control is the case below it: the same local person on a password
+      // workspace gets the form.
+      stores.modes = { standalone: false, oidc: false, email_code: true };
+      renderWithProviders(<SetupPage />, { principal: LOCAL_PRINCIPAL });
+
+      const card = await passwordCard();
+      expect(await within(card).findByTestId("password-email-code")).toHaveTextContent(
+        "You sign in to this workspace with a code sent to your email",
+      );
+      expect(within(card).queryByLabelText("Current password")).not.toBeInTheDocument();
+    });
+
     it("shows Current password, New password and Confirm new password fields with the right autocomplete", async () => {
       renderWithProviders(<SetupPage />, { principal: LOCAL_PRINCIPAL });
 

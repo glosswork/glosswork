@@ -3,6 +3,10 @@
  * (`RequireAuth`), picks a local password login or "Sign in with Okta" depending on
  * `GET /api/v1/auth/modes`, and on success is sent back to whatever route they originally
  * asked for (`location.state.from`, set by `RequireAuth`).
+ *
+ * A hosted workspace whose modes report `email_code` gets `CodeSignInForm` instead of the
+ * password form (change 9). **While `modes` is loading the page renders no form at all**, so
+ * a code workspace never flashes a password form it does not accept.
  */
 import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate, type Location } from "react-router-dom";
@@ -13,6 +17,7 @@ import { Button } from "../ui/Button";
 import { fieldErrorClass, fieldLabelClass, inputClass } from "../ui/classes";
 import { useAuth } from "./useAuth";
 import { Wordmark } from "../brand/Wordmark";
+import { CodeSignInForm } from "./CodeSignInForm";
 
 export function LoginPage() {
   const { status, login } = useAuth();
@@ -59,7 +64,13 @@ export function LoginPage() {
     }
   }
 
-  const showStandalone = modes === undefined || modes.standalone;
+  function goOn() {
+    const from = (location.state as { from?: Location } | null)?.from;
+    navigate(from?.pathname ?? "/", { replace: true });
+  }
+
+  const showCode = modes?.email_code === true;
+  const showStandalone = modes?.standalone === true && !showCode;
   const showOidc = modes?.oidc === true;
 
   return (
@@ -68,6 +79,8 @@ export function LoginPage() {
         <h1 className="mb-4 flex justify-center">
           <Wordmark size={40} />
         </h1>
+
+        {showCode && <CodeSignInForm onSignedIn={goOn} />}
 
         {showStandalone && (
           <form onSubmit={(event) => void handleSubmit(event)} aria-label="Sign in">
@@ -118,7 +131,7 @@ export function LoginPage() {
           </form>
         )}
 
-        {showStandalone && showOidc && (
+        {(showStandalone || showCode) && showOidc && (
           <p className="my-3 text-center text-xs text-ink-2">or</p>
         )}
 
