@@ -515,29 +515,31 @@ touching a hash. Nothing else about passwords changes on the server.
 
 ## Checklist
 
-1. Write the new backend assertions below that go through HTTP and the live fake relay, and run
-   them against the unfixed tree. Record how each fails. Expected: the code and invite routes
-   answer `401` (the edge refuses an unknown `/api/v1/` path before routing), `/auth/modes` has
-   no `email_code`, the fake relay receives nothing, and the startup-refusal tests find
-   `load_settings()` accepting what they expect refused. A test that fails on an import is
-   rewritten until it fails on behaviour.
-2. Migration and the two repositories, with the manifest line.
-3. Settings, startup refusals, `.env.example`.
-4. `httpx2` declared as a runtime dependency (P8), then the relay driver
-   (`build_relay_request`, `RelaySender`) and its outcome mapping. Its unit
+1. **Done** (`aa03c78`). Write the new backend assertions below that go through HTTP and the live
+   fake relay, and run them against the unfixed tree. Record how each fails. Expected: the code
+   and invite routes answer `401` (the edge refuses an unknown `/api/v1/` path before routing),
+   `/auth/modes` has no `email_code`, the fake relay receives nothing, and the startup-refusal
+   tests find `load_settings()` accepting what they expect refused. A test that fails on an
+   import is rewritten until it fails on behaviour. Recorded under "Build record" below.
+2. **Done** (`41d96b3`). Migration and the two repositories, with the manifest line.
+3. **Done** (`0fae5d2`). Settings, startup refusals, `.env.example`.
+4. **Done** (`6022992`, `b7ebd2e`). `httpx2` declared as a runtime dependency (P8), then the relay
+   driver (`build_relay_request`, `RelaySender`) and its outcome mapping. Its unit
    tests use `httpx2.MockTransport`; each is measured by a mutation that builds and runs (drop
    one status branch, add one body key) and recorded.
-5. `SignInCodeService`, then the two routes, the pinned path sets, and `modes`.
-6. `InviteService`, then its three routes.
-7. Password sign-in off with codes on (DQ1).
-8. The durable relay definition in `docs/DEPLOYMENT.md` (new section 5a), the golden requests
-   under `docs/relay/`, and the structural tests: section 5a names exactly the templates and
-   fields the fake relay's models define, and the golden files are byte-identical to what
-   `build_relay_request` produces. Then the operator command `clear-sign-in-codes` (DQ4).
-9. Frontend: API types, sign-in page, People & agents, hidden password controls, with Vitest
-   cases.
-10. Playwright: fake relay and relay-mode servers, `email-code.spec.ts`.
-11. Run the whole Accept block and record the output below.
+5. **Done** (`5e6478e`, with step 6; D2). `SignInCodeService`, then the two routes, the pinned
+   path sets, and `modes`.
+6. **Done** (`5e6478e`). `InviteService`, then its three routes.
+7. **Done** (`f66a50d`). Password sign-in off with codes on (DQ1).
+8. **Done** (`ee82c39`, `5f1c6ee`). The durable relay definition in `docs/DEPLOYMENT.md` (new
+   section 5a), the golden requests under `docs/relay/`, and the structural tests: section 5a
+   names exactly the templates and fields the fake relay's models define, and the golden files
+   are byte-identical to what `build_relay_request` produces. Then the operator command
+   `clear-sign-in-codes` (DQ4).
+9. **Done** (`135ac3a`). Frontend: API types, sign-in page, People & agents, hidden password
+   controls, with Vitest cases.
+10. **Done** (`aa5e222`). Playwright: fake relay and relay-mode servers, `email-code.spec.ts`.
+11. **Done.** Run the whole Accept block and record the output below.
 
 The new backend tests, by file, each tied to the issue's clauses:
 
@@ -586,6 +588,45 @@ The new backend tests, by file, each tied to the issue's clauses:
 - Removal (P3): the two existing tests are fences; the new "removed after a code was sent"
   test is the coverage this change adds.
 
+## Build record
+
+**Step 1, the new assertions against the unfixed tree** (`f190c1a` plus the test commit only,
+`uv run pytest -q tests/test_sign_in_codes.py tests/test_invites.py tests/test_email_code_off.py
+tests/test_relay_driver.py tests/test_auth_routes.py::test_auth_modes_reports_each_configured_mode`,
+exit 1, 88 failed, 19 passed). Every failure is behaviour, apart from the driver's own unit tests,
+which step 4 measures by mutation:
+
+| Failure | Count | Where |
+| --- | --- | --- |
+| `401 invalid_token` JSON where a `202`, a `401 invalid_credentials` or a `409 feature_disabled` was expected | 18 | every code route test and `test_email_code_off.py`'s two route cases |
+| `405 Method Not Allowed` on `POST /api/v1/invites` with a valid admin token (D1) | 27 | `test_invites.py`, every case that invites |
+| `404 Not Found` on `DELETE /api/v1/invites/{id}` | 1 | the codes-off invite case |
+| `modes` without `email_code` | 4 | the two modes tests, the failed-insert test's opening check, and the amended `test_auth_modes_reports_each_configured_mode` (F1) |
+| A password sign-in answered `200` where `feature_disabled` was expected | 1 | DQ1's test |
+| `load_settings()` accepted what it should refuse (`DID NOT RAISE ConfigError`) | 10 | the settings refusals |
+| `Settings` has no `email_codes_enabled` | 5 | the settings acceptances, one of them the blank-is-unset fence |
+| `glosswork.services.relay` cannot be imported | 22 | the driver unit tests, measured by mutation instead (below) |
+
+The 19 that passed are the fake relay's own enforcement cases (a guard on the enforcer, which
+exists before the driver does) and the labelled fence "no relay client is constructed".
+
+**Step 4, the driver's tests measured by mutation**, each on a tree that builds and runs:
+
+- Drop the `429` branch of `outcome_for`: `test_each_answer_maps_to_one_outcome[429-...]` fails
+  (1 failed, 14 passed).
+- Add a `workspace_name` key to the body: `test_the_driver_sends_exactly_the_documented_request_for_each_template`
+  fails on the key list, and `test_a_scripted_refusal_from_the_live_fake_round_trips` fails with
+  `unavailable`, because the live fake relay refused the request as outside the definition.
+
+**Step 8, the structural tests measured by mutation:** deleting the `invite` row from section 5a's
+template table fails `test_section_5a_names_exactly_the_templates_and_fields_the_fake_relay_enforces`,
+and doubling a space in `docs/relay/invite.http` fails `test_the_golden_request_is_what_the_driver_produces[invite]`.
+
+**Step 9, the new Vitest cases against the unfixed components** (the seven changed component and
+API files restored to `f190c1a`, the new test files kept): 9 of the 10 new cases fail, and the
+tenth, "is unchanged with codes off", passes by construction and is the labelled control for the
+absences the others assert.
+
 ## Accept
 
 Each command is run bare and its exit code read on its own.
@@ -609,10 +650,29 @@ Each command is run bare and its exit code read on its own.
 - **AC10** `git rev-list --max-parents=0 HEAD` prints exactly `e5a047bb647709814716b7c56a71a6c97d11e266`, one line, and
   `git log --format='%ae %ce' main..HEAD | sort -u` prints only `hello@glosswork.dev hello@glosswork.dev`.
 
+**Accept output**, run by the build session on 2026-09-29 against `aa5e222`, macOS arm64, each
+command bare and its exit code read on its own:
+
+```
+AC1  exit 0   111 passed
+AC2  exit 0   2159 passed, 3 xfailed
+AC3  exit 0   169 passed; git diff --stat main -- tests/test_local_accounts.py tests/test_sessions.py
+              prints nothing; git diff main -- tests/test_auth_routes.py is one hunk, the two
+              expected dicts of test_auth_modes_reports_each_configured_mode gaining
+              "email_code": False
+AC4  exit 0   101 passed, 2061 deselected
+AC5  ruff check exit 0; ruff format --check exit 0 (259 files already formatted); mypy src exit 0
+AC6  lint exit 0; typecheck exit 0; test exit 0 (102 files, 1084 tests)
+AC7  exit 0   77 passed, email-code.spec.ts's three among them
+AC8  exit 0   49 passed; git status --short web/e2e prints nothing (no baseline repainted)
+AC9  exit 1   (a fence: no mail library or SMTP setting in src, before or after)
+AC10 one root, e5a047bb647709814716b7c56a71a6c97d11e266; identities: hello@glosswork.dev hello@glosswork.dev
+```
+
 ## Baseline repaint
 
 Expected 0: every visual scenario runs against the server without a relay, where the sign-in page
-and People & agents are unchanged.
+and People & agents are unchanged. Actual 0 (AC8).
 
 ## Adversarial pass
 
@@ -677,7 +737,41 @@ concurrent verifies; the access model, filter compiler and schema engine are unt
 
 ## Deviations from the approved plan
 
-None yet.
+- **D1. Step 1's invite routes did not answer `401` on the unfixed tree.** With a valid admin
+  token the edge lets the request through, and with `web/dist` present locally the SPA's `GET`
+  catch-all matches the path, so `POST` answered `405` and `DELETE` `404`. Both are failures on
+  behaviour, which is what step 1 requires; without `web/dist` (CI) both are `404`.
+- **D2. Steps 5 and 6 landed in one commit.** Verification resolves an invited address through
+  `InviteService.accept_in_txn` and eligibility through `InviteService.live_invite`, so the code
+  service could not be built and tested without the invite service. The order inside the commit
+  followed the checklist.
+- **D3. An open invite that is no longer live is revoked when its address is invited again.** The
+  unique index on open invites (neither accepted nor revoked) would otherwise block an expired
+  invite's address, or one whose inviter was removed, for good. The revocation is audited as
+  `invite update revoked_at`, noted `superseded`. A live invite is still refused `409`.
+- **D4. The `409` refusals carry a new code, `conflict`.** The plan named the status; no existing
+  code meant "this already exists" (`validation_failed` is "fix the named field"). `ConflictError`
+  joins `errors.py` and `STATUS_BY_CODE`; it is REST-only, so docs/MCP_TOOLS.md section 6 does not
+  list it.
+- **D5. `RELAY_TIMEOUT_SECONDS` lives in `services/relay.py`**, beside the deadline it bounds;
+  every other named constant is in `services/sign_in_codes.py` (`INVITE_LIFETIME` in
+  `services/invites.py`).
+- **D6. Acceptance reactivates only a removed `local` person.** The plan said an inactive
+  principal with the address is reactivated; a removed person from an identity provider (only
+  possible in `both` mode) is not, because reactivating them would make an `oidc` account sign in
+  by code. Their invite stays open and verification fails.
+- **D7. More superseded assertions than F1 named.** Seven existing tests pin the list of
+  migrations (`[1, ..., 12]`), `tests/test_one_usage_counter.py` pins the modules that make a
+  constant-time comparison, and `tests/test_rest_scope_enforcement.py` pins the role-declaring
+  routes (twelve, now fifteen). Each gained change 9's entry and nothing else.
+- **D8. The test servers leave logging as they found it.** A uvicorn server started in-process
+  reconfigures the process's `uvicorn` loggers unless `log_config=None`, which turned
+  `tests/test_logs_and_host_allowlist.py` red when it ran after the new tests; and the driver's
+  tests bind structlog to their own stdout, as `create_app` does for an app test.
+- **D9. `POST /api/v1/invites` answers `{"invite": {...}, "email": {"outcome", "message"}}`.** The
+  plan said "the invite and `email`" without fixing the nesting.
+- **D10. `httpx2` moved from 2.12.0 to 2.13.1**, the version current on PyPI at step 4 (P8), and
+  `httpcore2` with it. Nothing else in `uv.lock` changed (compared package by package).
 
 ## Durable content moved out of this plan
 
