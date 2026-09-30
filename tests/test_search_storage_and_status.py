@@ -177,10 +177,10 @@ def test_rows_from_another_model_id_are_invisible_to_the_vector_arm(
 def test_migration_six_is_numbered_six_and_idempotent(tmp_path: Path) -> None:
     database = Database.connect(tmp_path / "idempotent.sqlite3")
     try:
-        assert run_migrations(database) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert run_migrations(database) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         assert run_migrations(database) == []
         assert 6 in applied_migrations(database)
-        assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+        assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
     finally:
         database.close()
 

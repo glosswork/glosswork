@@ -66,7 +66,7 @@ def test_an_upgraded_database_ends_with_the_new_description(tmp_path: Path) -> N
     try:
         seeded = _description(db)
         assert seeded != NEW_DESCRIPTION
-        assert run_migrations(db) == [12]
+        assert run_migrations(db) == [12, 13]
         assert _description(db) == NEW_DESCRIPTION
     finally:
         db.close()
@@ -76,7 +76,7 @@ def test_an_administrators_own_description_is_kept(tmp_path: Path) -> None:
     db = _db_at_migration_eleven(tmp_path)
     try:
         _set_description(db, "Runs the nightly import.")
-        assert run_migrations(db) == [12]
+        assert run_migrations(db) == [12, 13]
         assert _description(db) == "Runs the nightly import."
     finally:
         db.close()
@@ -89,7 +89,7 @@ def test_an_edit_that_keeps_the_seeded_first_words_is_kept(tmp_path: Path) -> No
     try:
         edited = "Seeded bootstrap principal, kept for the import job."
         _set_description(db, edited)
-        assert run_migrations(db) == [12]
+        assert run_migrations(db) == [12, 13]
         assert _description(db) == edited
     finally:
         db.close()

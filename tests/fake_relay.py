@@ -279,7 +279,9 @@ def serve(relay: FakeRelay, port: int = 0) -> Iterator[LiveRelay]:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
-    config = uvicorn.Config(relay.app, host="127.0.0.1", port=port, log_level="warning")
+    # ``log_config=None``: uvicorn otherwise reconfigures the process's ``uvicorn`` loggers,
+    # which other tests assert the shape of.
+    config = uvicorn.Config(relay.app, host="127.0.0.1", port=port, log_config=None)
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()

@@ -401,7 +401,7 @@ def test_the_request_answers_before_the_relay_does(
     live_relay.relay.answer_always(Scripted(delay=2.0))
     app = create_app(relay_settings(tmp_path / "data", live_relay))
     port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     deadline = time.monotonic() + 20

@@ -47,10 +47,10 @@ def _sql_for(db: Database, name: str) -> str:
 def test_migration_seven_is_numbered_seven_and_idempotent(tmp_path: Path) -> None:
     database = Database.connect(tmp_path / "idempotent.sqlite3")
     try:
-        assert run_migrations(database) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert run_migrations(database) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         assert run_migrations(database) == []
-        assert applied_migrations(database) == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
-        assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+        assert applied_migrations(database) == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+        assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
     finally:
         database.close()
 

@@ -31,6 +31,16 @@ from tests.fake_relay import FakeRelay, LiveRelay, Scripted, new_token, serve
 GOOD_URL = "https://api.glosswork.dev/v1/relay/send"
 
 
+@pytest.fixture(autouse=True)
+def _logging_to_this_tests_stdout() -> None:
+    """Bind structlog to this test's stdout, as ``create_app`` does for an app test. The
+    driver logs every send, and these tests build no app, so without this a send would
+    write to whatever stream an earlier test's app bound, which pytest may have closed."""
+    from glosswork.logging import configure_logging
+
+    configure_logging("info")
+
+
 def _token() -> str:
     return new_token()
 

@@ -96,6 +96,8 @@ def test_every_constant_time_comparison_in_the_product_is_named() -> None:
         "src/glosswork/routes/auth.py",
         "src/glosswork/services/bootstrap.py",
         "src/glosswork/services/sessions.py",
+        # Change 9: an emailed sign-in code against each live code's stored hash.
+        "src/glosswork/services/sign_in_codes.py",
         "src/glosswork/services/usage.py",
     }, comparing
 

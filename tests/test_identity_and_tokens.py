@@ -152,8 +152,8 @@ def test_the_seeded_bootstrap_principal_survives_the_new_migration(db: Database)
     touching it."""
     from glosswork.migrations import MIGRATIONS, applied_migrations, run_migrations
 
-    assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
-    assert applied_migrations(db) == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+    assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+    assert applied_migrations(db) == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
     assert run_migrations(db) == []  # idempotent
     with db.read() as conn:
         row = (
