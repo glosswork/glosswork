@@ -81,8 +81,8 @@ def _login(client: TestClient, email: str = "dana@example.com", password: str = 
 
 def test_auth_modes_reports_each_configured_mode(tmp_path: Path) -> None:
     for mode, expected in (
-        ("standalone", {"standalone": True, "oidc": False}),
-        ("both", {"standalone": True, "oidc": True}),
+        ("standalone", {"standalone": True, "oidc": False, "email_code": False}),
+        ("both", {"standalone": True, "oidc": True, "email_code": False}),
     ):
         settings = Settings(
             data_dir=tmp_path / mode,
