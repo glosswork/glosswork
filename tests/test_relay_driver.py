@@ -315,6 +315,9 @@ def test_no_complete_answer_within_the_deadline_is_unavailable() -> None:
     result = _mock_sender(handler, timeout_seconds=0.2).send(_invite())
     assert result.outcome == "unavailable"
     assert time.monotonic() - started < 0.5
+    # Let the abandoned exchange finish inside this test, so its client's log line is not
+    # written after pytest has closed this test's capture.
+    time.sleep(0.6)
 
 
 def test_the_relay_timeout_is_five_seconds_in_total() -> None:
@@ -334,12 +337,13 @@ def test_the_driver_never_retries() -> None:
     assert calls == [1]
 
 
-def test_a_refusal_body_is_read_for_field_names_only(capfd: pytest.CaptureFixture[str]) -> None:
+def test_a_refusal_body_is_read_for_field_names_only() -> None:
     """The workspace reads ``fields`` from exactly the defined shape and logs the names,
-    never a value (the relay may echo nothing, but a misbehaving one might)."""
-    from glosswork.logging import configure_logging
+    never a value (the relay echoes nothing, but a misbehaving one might).
 
-    configure_logging("debug")
+    ``capture_logs`` rather than stdout: reconfiguring the process's logging inside one
+    test would leave every later test writing to this test's captured stream."""
+    from structlog.testing import capture_logs
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(
@@ -350,11 +354,14 @@ def test_a_refusal_body_is_read_for_field_names_only(capfd: pytest.CaptureFixtur
             },
         )
 
-    result = _mock_sender(handler).send(_invite())
+    with capture_logs() as logs:
+        result = _mock_sender(handler).send(_invite())
     assert result.refused_fields == ["inviter_name"]
-    out, _ = capfd.readouterr()
-    assert "inviter_name" in out
-    assert "christopher.scheidel" not in out
+    (line,) = [entry for entry in logs if entry["event"] == "relay_send"]
+    assert line["refused_fields"] == ["inviter_name"], line
+    assert line["outcome"] == "refused_fields", line
+    assert "christopher.scheidel" not in str(logs)
+    assert "lin@example.com" not in str(logs)
 
 
 def test_a_scripted_refusal_from_the_live_fake_round_trips(live: LiveRelay) -> None:
