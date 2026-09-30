@@ -686,6 +686,123 @@ administrator, a fifth entry added to that list would not run *without* a creden
 run as a full administrator, satisfying both the scope and role checks. Both allowlists are pinned
 by exact equality in the test suite.
 
+## 5a. Sign-in by emailed code, for a hosted workspace
+
+A workspace run by a hosting control plane signs people in with a six-digit code sent to their
+email address, and its administrators invite people by email. The workspace never sends email
+itself: it asks the control plane's **relay** to, with a request naming one of two templates and
+typed fields, so a workspace cannot send free text. There is no SMTP setting and no other sender,
+deliberately and for good. A self-hosted workspace leaves this off and keeps passwords, or its own
+OIDC provider, exactly as sections 3 and 5 describe.
+
+| Variable | Meaning |
+| --- | --- |
+| `GW_RELAY_URL` | The absolute URL the workspace posts each message to. `https`, except a loopback host (`127.0.0.1`, `::1`, `localhost`) may be `http`, for tests and local development. No user part, query or fragment |
+| `GW_RELAY_TOKEN` | The workspace's relay credential, sent as a bearer token. At least 32 characters |
+
+**Codes are on exactly when both are set**, and blank counts as unset. Startup refuses, naming the
+variable and never echoing a value, when only one is set, when the URL or the token breaks the rules
+above, or when `GW_AUTH_MODE` is `oidc` (codes sign local accounts in). With codes on:
+
+- `GET /api/v1/auth/modes` reports `email_code: true` and `standalone: false`, and the sign-in page
+  shows an email field and a code field rather than a password form.
+- `POST /api/v1/auth/login` answers `409 feature_disabled` (`details.feature` is
+  `password_sign_in`), without counting an attempt. The bootstrap claim (section 3) still takes a
+  password; nobody needs to know it.
+- `POST /api/v1/auth/code/request {email}` always answers `202` with one sentence, whatever the
+  address, and does the rest after answering. `POST /api/v1/auth/code/verify {email, code}` answers
+  exactly as `/login` does, or `401 invalid_credentials` with one message for every failure.
+- `GET`, `POST /api/v1/invites` and `DELETE /api/v1/invites/{invite_id}` let an administrator
+  invite a person by email and role, list the pending invites, and revoke one.
+
+With codes off, all five of those routes answer `409 feature_disabled` and nothing else changes.
+
+**The per-source limit depends on `GW_TRUSTED_PROXY_IPS`** (section 4). Code requests and
+verifications are counted in the login limiter's two windows (section 5), and the source address is
+the client only when the proxy is trusted. Set it to the platform's proxy range before giving a
+workspace `GW_RELAY_URL`, or every person shares one budget.
+
+### The relay request
+
+This is the definition the control plane's relay builds to. One request per message:
+
+```
+POST <GW_RELAY_URL>
+Authorization: Bearer <GW_RELAY_TOKEN>
+Content-Type: application/json
+```
+
+The workspace appends nothing to the URL; the hosted value is
+`https://api.glosswork.dev/v1/relay/send`. The body is one JSON object with exactly these keys and
+no others:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `message_id` | string | A UUID (version 4, lowercase, hyphenated) the workspace makes per message. A trace id, not an idempotency key: the workspace logs it when it sends, and the relay stores it so one message can be followed across both logs |
+| `template` | string | `sign_in_code` or `invite` |
+| `to` | string | One email address, trimmed and lowercased: at most 254 characters, exactly one `@` with text on both sides, no whitespace, and none of `,;<>"` |
+| `fields` | object | Exactly the template's fields below, and no others |
+
+| Template | Field | Type and rule |
+| --- | --- | --- |
+| `sign_in_code` | `code` | String of exactly six ASCII digits, leading zeros kept |
+| `sign_in_code` | `code_expires_at` | RFC 3339 UTC with a `Z` and whole seconds, such as `2026-09-29T15:25:00Z`: the moment the code stops working, ten minutes after it was made |
+| `invite` | `inviter_name` | The inviting administrator's display name exactly as stored. The workspace sets no bound beyond non-empty; the relay may refuse one, answering `refused_fields` |
+
+The request carries neither the workspace's name nor its sign-in address. The relay fills both in
+from its own record of the workspace, so a compromised workspace cannot choose them.
+
+**The golden requests.** `docs/relay/sign_in_code.http` and `docs/relay/invite.http` are the exact
+requests the workspace's driver produces for a fixed message, clock and id, with a placeholder
+token. A test regenerates them and compares bytes, so they cannot drift from the code. The control
+plane's tests send copies of these files, taken at a pinned commit of this repository, rather than a
+hand-written copy of the definition.
+
+**What the relay must also hold for this to work:**
+
+- The bearer token alone identifies the workspace. The control plane generates it with at least 32
+  characters, or the workspace refuses to start.
+- A workspace frozen read-only (section 6a) is still accepted, because sign-in keeps working while
+  frozen. Only a deleted workspace's credential is refused.
+- A refusal of fields is `422` with exactly the body
+  `{"error": {"code": "refused_fields", "fields": ["<field name>", ...]}}`: field names, never
+  values. The workspace reads `fields` from exactly that shape and treats any other `4xx` body as
+  unparsed.
+- Success is any `2xx`; `202` is expected.
+
+### What the workspace does with each answer
+
+It never retries: a person can ask for another code, and an administrator sees an invite's outcome
+on screen. The whole exchange has one 5-second deadline.
+
+| Answer | Outcome | Code request | Invite |
+| --- | --- | --- | --- |
+| Any `2xx` | `accepted` | Done | "Invite sent." |
+| `401` or `403` | `refused_credential` | Logged at `error` | Kept; "saved, but the email could not be sent" |
+| `422` | `refused_fields` | Logged at `error` with the relay's field names | Kept; the same, plus "your display name may be the reason" when `inviter_name` is named |
+| `429` | `rate_limited` | Logged at `warning` | Kept; "the email service is busy" |
+| Anything else, a connection error, or no complete answer in 5 seconds | `unavailable` | Logged at `error` | Kept; "the email could not be sent" |
+
+Every send logs one `relay_send` line with the `message_id`, the template and the outcome. No log
+line, audit row or error carries a code, a code hash, the relay token or a request body.
+
+### Codes, limits and recovery
+
+A code works for **10 minutes**, once. Five wrong guesses for an address spend every live code it
+has. An address can be sent at most **5 codes an hour and 20 a day**, counted in the database, so a
+restart does not reset them; asking again does not cancel the code a person is already typing.
+
+That leaves one thing a stranger can do with only a person's address: spend its allowance and keep
+that person out until the window rolls off, up to a day. The recovery is a person at the hosting
+operator running, against that workspace's volume:
+
+```bash
+python -m glosswork.admin clear-sign-in-codes --email <address>
+```
+
+It deletes the address's code rows, which resets its count, prints how many it deleted, and touches
+nothing else.
+
 ## 6. Backup and restore
 
 ### Taking a backup

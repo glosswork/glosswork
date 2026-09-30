@@ -51,6 +51,7 @@ MARKED = {
     "test_display_vocabulary.py",
     "test_documentation_structure.py",
     "test_migrations_are_forward_only.py",
+    "test_relay_definition.py",
     "test_release_workflow.py",
     "test_retired_names.py",
     "test_structural_lane.py",
