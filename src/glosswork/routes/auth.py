@@ -180,6 +180,7 @@ def login(
     limiter itself an account-existence oracle and undo the login's dummy-hash branch.
     A success clears the window.
     """
+    services.authn.require_password_sign_in()
     ip = source_ip(request)
     services.login_limiter.check_and_record(body.email, ip)
     principal = services.authn.login_with_password(body.email, body.password)

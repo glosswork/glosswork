@@ -17,7 +17,7 @@ from datetime import datetime
 
 from glosswork.actor import ActorContext
 from glosswork.config import Settings
-from glosswork.errors import AuthenticationFailedError
+from glosswork.errors import AuthenticationFailedError, FeatureDisabledError
 from glosswork.repositories.models import PrincipalRow
 from glosswork.services.oidc import OidcVerifier, VerifiedIdentity
 from glosswork.services.principals import PrincipalService
@@ -37,6 +37,22 @@ class AuthService:
     @property
     def oidc(self) -> OidcVerifier:
         return self._oidc
+
+    def require_password_sign_in(self) -> None:
+        """Refuse password sign-in on a workspace that signs people in by emailed code
+        (change 9, DQ1). Called by the login route **before** the attempt is counted or
+        any hash is touched: the refusal is a statement about the deployment, the same for
+        every address, so it spends nobody's budget.
+
+        A hosted workspace's only password is the one the bootstrap claim made up and
+        nobody holds, so the password form would be an attack surface with no user."""
+        if self._settings.email_codes_enabled:
+            raise FeatureDisabledError(
+                "This workspace signs people in with an emailed code, not a password. "
+                "Ask for a code on the sign-in page.",
+                feature="password_sign_in",
+                setting="GW_RELAY_URL",
+            )
 
     def login_with_password(
         self, email: str, password: str, now: datetime | None = None
