@@ -164,6 +164,17 @@ class InviteService:
             existing = self._principals.get_by_email(conn, address)
             if existing is not None and existing.is_active:
                 raise ConflictError(f"{address} already has an account here.", email=address)
+            if existing is not None and (
+                existing.type != "user" or existing.auth_provider != "local"
+            ):
+                # A removed person from an identity provider comes back through that
+                # provider, not by code: acceptance would refuse them, so an invite here
+                # would send an email and codes that can never work.
+                raise ConflictError(
+                    f"{address} belongs to an account that signs in through an identity "
+                    "provider, so it cannot be invited by email.",
+                    email=address,
+                )
             open_invite = self._invites.get_open_by_email(conn, address)
             if open_invite is not None:
                 if self._is_live(conn, open_invite, moment):

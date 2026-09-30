@@ -171,6 +171,7 @@ def _in(minutes: float) -> str:
         lambda: _valid_body(extra="x"),
         lambda: _valid_body(fields={"code": "01234", "code_expires_at": _in(10)}),
         lambda: _valid_body(fields={"code": "0123456", "code_expires_at": _in(10)}),
+        lambda: _valid_body(fields={"code": "012345\n", "code_expires_at": _in(10)}),
         lambda: _valid_body(fields={"code": 123456, "code_expires_at": _in(10)}),
         lambda: _valid_body(fields={"code": "012345", "code_expires_at": _in(31)}),
         lambda: _valid_body(fields={"code": "012345", "code_expires_at": _in(2)}),

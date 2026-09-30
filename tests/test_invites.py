@@ -247,6 +247,28 @@ def test_inviting_a_removed_person_reactivates_the_same_principal(
     assert back.role == "creator"
 
 
+def test_a_removed_identity_provider_account_cannot_be_invited(
+    code_app: FastAPI,  # noqa: F811
+    code_client: TestClient,  # noqa: F811
+    admin_headers: dict[str, str],
+    live_relay: LiveRelay,  # noqa: F811
+) -> None:
+    """Acceptance never reactivates an ``oidc`` account (D6), so the invite is refused at
+    once rather than sending an email and codes that could never work."""
+    services = services_of(code_app)
+    okta = services.principals.create_user(
+        make_actor(),
+        email=INVITEE,
+        display_name="Okta Lin",
+        auth_provider="oidc",
+        external_id="00u-lin",
+    )
+    services.principals.deactivate_principal(make_actor(), okta.id)
+    _refused(_invite(code_client, admin_headers), 409, "conflict")
+    assert live_relay.relay.messages() == []
+    assert _live_invites(code_client, admin_headers) == []
+
+
 @pytest.mark.parametrize("change", ["removed", "demoted"])
 def test_an_invite_from_an_administrator_since_removed_or_demoted_lets_no_one_in(
     code_app: FastAPI,  # noqa: F811

@@ -78,14 +78,14 @@ class SignInCodeFields(_Strict):
     @field_validator("code")
     @classmethod
     def _six_digits(cls, value: str) -> str:
-        if not _SIX_DIGITS.match(value):
+        if not _SIX_DIGITS.fullmatch(value):
             raise ValueError("code must be exactly six ASCII digits")
         return value
 
     @field_validator("code_expires_at")
     @classmethod
     def _expiry_window(cls, value: str) -> str:
-        if not _EXPIRY.match(value):
+        if not _EXPIRY.fullmatch(value):
             raise ValueError("code_expires_at must be RFC 3339 UTC with a Z and whole seconds")
         moment = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
         now = datetime.now(UTC)
@@ -128,7 +128,7 @@ class RelayMessage(_Strict):
     @field_validator("message_id")
     @classmethod
     def _uuid4(cls, value: str) -> str:
-        if not _UUID4.match(value):
+        if not _UUID4.fullmatch(value):
             raise ValueError("message_id must be a lowercase hyphenated version-4 UUID")
         return value
 
