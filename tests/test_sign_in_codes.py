@@ -352,7 +352,7 @@ def test_clear_sign_in_codes_resets_an_address_count(
     capsys.readouterr()
     assert admin.main(["clear-sign-in-codes", "--email", KNOWN_EMAIL.upper()]) == 0
     out = capsys.readouterr().out
-    assert "5" in out, out
+    assert "Deleted 5 sign-in code rows for ada@example.com" in out, out
 
     code = _one_code(live_relay, code_client, KNOWN_EMAIL)
     _signed_in_as(verify_code(code_client, KNOWN_EMAIL, code), KNOWN_EMAIL)
