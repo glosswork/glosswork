@@ -680,6 +680,50 @@ _BOOTSTRAP_DESCRIPTION_SCHEMA: tuple[str, ...] = (
     """,
 )
 
+_SIGN_IN_CODES_AND_INVITES_SCHEMA: tuple[str, ...] = (
+    # -- email-code sign-in and invites (docs/DATA_MODEL.md section 2, change 9)
+    #
+    # One row per code a person asked for, written whether or not the address can sign in,
+    # so what verification does next cannot tell a known address from an unknown one. The
+    # code itself is never stored: ``code_hash`` is the sha256 of "<id>:<code>". Rows older
+    # than a day are deleted when a new code is written, so the table stays small without a
+    # timer. The per-address limits are counted from this table, which survives a restart.
+    """
+    CREATE TABLE sign_in_codes (
+      id           TEXT PRIMARY KEY,
+      email        TEXT NOT NULL,
+      code_hash    TEXT NOT NULL,
+      created_at   TEXT NOT NULL,
+      expires_at   TEXT NOT NULL,
+      attempts     INTEGER NOT NULL DEFAULT 0,
+      consumed_at  TEXT,
+      sent         INTEGER NOT NULL
+    )
+    """,
+    "CREATE INDEX ix_sign_in_codes_email ON sign_in_codes(email, created_at)",
+    # An invite is its own list: no person exists until the invited address proves itself
+    # with a code. At most one open invite per address, where open is neither accepted nor
+    # revoked; an open invite that has expired is revoked when the address is invited again.
+    """
+    CREATE TABLE invites (
+      id            TEXT PRIMARY KEY,
+      email         TEXT NOT NULL,
+      display_name  TEXT NOT NULL,
+      role          TEXT NOT NULL CHECK (role IN ('admin', 'creator', 'member')),
+      invited_by    TEXT NOT NULL REFERENCES principals(id),
+      created_at    TEXT NOT NULL,
+      accepted_at   TEXT,
+      principal_id  TEXT REFERENCES principals(id),
+      revoked_at    TEXT,
+      revoked_by    TEXT REFERENCES principals(id)
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX ix_invites_live_email ON invites(email)
+      WHERE accepted_at IS NULL AND revoked_at IS NULL
+    """,
+)
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_schema", _INITIAL_SCHEMA),
     Migration(2, "attachments", _ATTACHMENTS_SCHEMA),
@@ -693,6 +737,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(10, "agent_label_on_token", _AGENT_LABEL_ON_TOKEN_SCHEMA),
     Migration(11, "usage_counters", _USAGE_COUNTERS_SCHEMA),
     Migration(12, "bootstrap_description", _BOOTSTRAP_DESCRIPTION_SCHEMA),
+    Migration(13, "sign_in_codes_and_invites", _SIGN_IN_CODES_AND_INVITES_SCHEMA),
 )
 
 

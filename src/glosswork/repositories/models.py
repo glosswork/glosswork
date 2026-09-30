@@ -286,6 +286,41 @@ class AccessTokenRow:
 
 
 @dataclass(slots=True)
+class SignInCodeRow:
+    """One emailed sign-in code (docs/DATA_MODEL.md section 2, change 9). Shaped like
+    :class:`SessionRow`: the code is never stored, only ``code_hash``, the sha256 of
+    ``"<id>:<code>"``. ``sent`` records whether the address could sign in when the code
+    was made, so the unsent rows an unknown address leaves can be bounded."""
+
+    id: str
+    email: str
+    code_hash: str
+    created_at: str
+    expires_at: str
+    attempts: int
+    consumed_at: str | None
+    sent: bool
+
+
+@dataclass(slots=True)
+class InviteRow:
+    """One invitation to a workspace (docs/DATA_MODEL.md section 2, change 9). No person
+    exists until the invited address signs in with a code; ``principal_id`` then names
+    the person the acceptance created or reactivated."""
+
+    id: str
+    email: str
+    display_name: str
+    role: str
+    invited_by: str
+    created_at: str
+    accepted_at: str | None
+    principal_id: str | None
+    revoked_at: str | None
+    revoked_by: str | None
+
+
+@dataclass(slots=True)
 class SessionRow:
     """One browser session (docs/DATA_MODEL.md section 2, FR-A3, DD-9). Shaped
     like :class:`AccessTokenRow`: the plaintext cookie value is never stored, only its

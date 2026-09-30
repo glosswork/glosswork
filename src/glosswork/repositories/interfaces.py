@@ -31,6 +31,7 @@ from glosswork.repositories.models import (
     GrantRow,
     IndexCounts,
     IndexSource,
+    InviteRow,
     KeywordHit,
     LinkRow,
     ObjectType,
@@ -39,6 +40,7 @@ from glosswork.repositories.models import (
     RecordRow,
     SavedViewRow,
     SessionRow,
+    SignInCodeRow,
     VectorPool,
 )
 
@@ -392,6 +394,34 @@ class SessionRepository(Protocol):
     def delete_by_hash(self, conn: Connection, session_hash: str) -> None: ...
     def list_live_for_principal(self, conn: Connection, principal_id: str) -> list[SessionRow]: ...
     def touch_last_seen(self, conn: Connection, session_id: str, now: str) -> None: ...
+
+
+class SignInCodeRepository(Protocol):
+    """``sign_in_codes`` (docs/DATA_MODEL.md section 2, change 9). The code itself never
+    reaches this layer, only its hash. Every count is per address or per day, because the
+    limits it serves are counted here rather than in memory, so a restart keeps them."""
+
+    def insert(self, conn: Connection, row: SignInCodeRow) -> None: ...
+    def count_for_email_since(self, conn: Connection, email: str, since: str) -> int: ...
+    def count_unsent_since(self, conn: Connection, since: str) -> int: ...
+    def list_live_for_email(
+        self, conn: Connection, email: str, now: str
+    ) -> list[SignInCodeRow]: ...
+    def update_row(self, conn: Connection, code_id: str, changes: dict[str, Any]) -> None: ...
+    def delete_created_before(self, conn: Connection, cutoff: str) -> int: ...
+    def delete_for_email(self, conn: Connection, email: str) -> int: ...
+
+
+class InviteRepository(Protocol):
+    """``invites`` (docs/DATA_MODEL.md section 2, change 9). An open invite is one neither
+    accepted nor revoked; whether it is also live (young enough, and its inviter still an
+    active administrator) is the service's rule, not this layer's."""
+
+    def insert(self, conn: Connection, row: InviteRow) -> None: ...
+    def get(self, conn: Connection, invite_id: str) -> InviteRow | None: ...
+    def get_open_by_email(self, conn: Connection, email: str) -> InviteRow | None: ...
+    def list_open(self, conn: Connection) -> list[InviteRow]: ...
+    def update_row(self, conn: Connection, invite_id: str, changes: dict[str, Any]) -> None: ...
 
 
 class SearchRepository(Protocol):
