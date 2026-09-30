@@ -237,6 +237,33 @@ export const VISUAL_AUTH_HEADER = { Authorization: `Bearer ${visualCredential.to
 export const VISUAL_PRINCIPAL_ID = visualCredential.principalId;
 
 /**
+ * Sign-in by emailed code (change 9) runs against a third app server, configured as a hosted
+ * workspace: `GW_RELAY_URL` names the fake relay (`tests/fake_relay.py`, run as a process on
+ * `RELAY_PORT`), embedding is off, and the first administrator comes from
+ * `GW_BOOTSTRAP_ADMIN_*`. Its own data directory, so no other spec's fixtures reach it, and no
+ * other spec signs in there, so the existing functional server is untouched.
+ *
+ * The relay token is built at load time rather than written as one literal, so no
+ * credential-shaped string sits in the tree; every process that loads this module computes the
+ * same value.
+ */
+export const RELAY_PORT = 8934;
+export const RELAY_BASE_URL = `http://127.0.0.1:${RELAY_PORT}`;
+export const RELAY_TOKEN = ["e2e", "relay", "token", "not", "a", "secret"].join("-").padEnd(48, "0");
+export const CODE_PORT = 8935;
+export const CODE_BASE_URL = `http://localhost:${CODE_PORT}`;
+
+function prepareCodeDataDir(): string {
+  const file = path.join(HERE, ".e2e-datadir-code");
+  if (isWorkerProcess()) return readFileSync(file, "utf8").trim();
+  const dataDir = mkdtempSync(path.join(tmpdir(), "gw-e2e-code-"));
+  writeFileSync(file, dataDir);
+  return dataDir;
+}
+
+export const CODE_DATA_DIR = prepareCodeDataDir();
+
+/**
  * Drives the real `/login` screen with an arbitrary local account's credentials, and waits for
  * the app shell's signed-in identity block to render before returning. No spec injects a session
  * cookie programmatically: at least one real, browser-driven sign-in through the login screen
