@@ -546,7 +546,7 @@ HTTP exactly once, and the endpoint closes as soon as any user exists.
 ### DD-38: A workspace can be frozen read-only by configuration
 
 With read-only mode on, every write on both surfaces is refused with 409, naming a subscribe URL
-when one is configured. One predicate decides it. Reads, export and five named security and
+when one is configured. One predicate decides it. Reads, export and six named security and
 recovery writes stay open.
 
 **Why.** The same image serves a workspace its operator has paused and a self-hosted deployment
@@ -633,3 +633,22 @@ a default the server would have applied.
 **Held by.** `web/src/table-view/NewRecordDialog.test.tsx`, `web/e2e/table-create.spec.ts`.
 
 **See.** `docs/DESIGN.md` section 8.2; `PRD.md` FR-U1.
+
+### DD-45: A hosted workspace signs people in by emailed code, through the relay only
+
+With `GW_RELAY_URL` and `GW_RELAY_TOKEN` set, people sign in with a six-digit emailed code and
+password sign-in is off. The workspace asks the hosting control plane's relay to send each message,
+naming one of two templates with typed fields; there is no other sender. The request answers the
+same for every address, a row is written for every address, and the per-address limits are counted
+in the database so a restart keeps them. No request cancels a live code.
+
+**Why.** A hosted person holds no password, and a workspace that could send free text would be a
+spam relay. What remains is accepted: anyone who knows an address can spend its allowance and keep
+that person out for up to a day, recovered by an operator's `clear-sign-in-codes`, and the guessing
+odds are about 1 in 10,000 per targeted address per day.
+
+**Held by.** `tests/test_sign_in_codes.py`, `tests/test_invites.py`, `tests/test_relay_driver.py`,
+`tests/test_relay_definition.py`, `tests/test_email_code_off.py`, `web/e2e/email-code.spec.ts`.
+
+**See.** `docs/DEPLOYMENT.md` section 5a; `PRD.md` FR-I18, FR-I19.
+

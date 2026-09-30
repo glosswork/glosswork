@@ -673,14 +673,15 @@ door is the provider's.
 **Which paths answer without a credential.** Every route under `/api/` requires one, with a
 named set of exemptions in `scopes.py` (`SCOPE_EXEMPT_PATHS`): the health and readiness probes,
 `/openapi.json` and `/docs`, `/mcp` (which authenticates per call rather than per request), the
-static bundle, and **four pre-authentication routes that must be reachable to obtain a
+static bundle, and **six pre-authentication routes that must be reachable to obtain a
 credential at all** — `/api/v1/auth/login`, `/api/v1/auth/oidc/start`,
-`/api/v1/auth/oidc/callback`, and `/api/v1/auth/modes`, the last so the sign-in page can render
-the right form before anyone has signed in. A test walks every registered route against that
+`/api/v1/auth/oidc/callback`, `/api/v1/auth/modes`, the last so the sign-in page can render
+the right form before anyone has signed in, and `/api/v1/auth/code/request` and
+`/api/v1/auth/code/verify`, which answer `feature_disabled` unless section 5a's relay is set. A test walks every registered route against that
 allowlist, so the set cannot grow silently.
 
 **A credential-exempt request runs as a reader, never as an administrator** (DD-15).
-Those four routes each build their own actor for the write they attribute, and the edge actor that
+Those routes each build their own actor for the write they attribute, and the edge actor that
 labels the access log line carries `read` scope. Were it to carry `admin` and belong to the seeded
 administrator, a fifth entry added to that list would not run *without* a credential — it would
 run as a full administrator, satisfying both the scope and role checks. Both allowlists are pinned
@@ -713,7 +714,10 @@ above, or when `GW_AUTH_MODE` is `oidc` (codes sign local accounts in). With cod
   address, and does the rest after answering. `POST /api/v1/auth/code/verify {email, code}` answers
   exactly as `/login` does, or `401 invalid_credentials` with one message for every failure.
 - `GET`, `POST /api/v1/invites` and `DELETE /api/v1/invites/{invite_id}` let an administrator
-  invite a person by email and role, list the pending invites, and revoke one.
+  invite a person by email and role, list the pending invites, and revoke one. Inviting answers
+  `409 conflict` for an address that already has an active account, has a live invite, or belongs
+  to an account that signs in through an identity provider; revoking an invite already accepted
+  or revoked is `409 conflict` too. A malformed address is `422`.
 
 With codes off, all five of those routes answer `409 feature_disabled` and nothing else changes.
 
@@ -952,11 +956,14 @@ ticket minted before the restart is refused too.
 | `DELETE /api/v1/access-tokens/{token_id}` | Revoking a leaked token is security, which a freeze never blocks |
 | `POST /api/v1/me/password` | Changing your own password, from a browser session, is security too |
 | `DELETE /api/v1/principals/{principal_id}` | Removing someone who left |
+| `DELETE /api/v1/invites/{invite_id}` | Stopping an invite: accepting one is a sign-in, which stays open (section 5a) |
 
 Everything else that writes is refused, including an administrator resetting **another** person's
 password; deactivate that person instead if the account needs containing. Re-indexing, blob sweeps,
 saved views, CSV import and agent label renames wait until the deployment is writable. Sign-in,
-OIDC sign-in and `POST /api/v1/bootstrap` never reach a scope check, so they stay open. Reads, both
+OIDC sign-in, sign-in by emailed code (including an invite's first sign-in, which creates the
+person) and `POST /api/v1/bootstrap` never reach a scope check, so they stay open. Sending a new
+invite waits. Reads, both
 exports (`GET /api/v1/admin/export` and the per-type CSV), attachment downloads and MCP
 `resources/read` all work as before.
 

@@ -193,6 +193,58 @@ expired, or belonging to a deactivated principal — plus the idle bound, and re
 looks like. Role is never cached here: scope is derived from the principal's *current* `role`
 (`role_scope`) on every resolution, so a demotion takes effect with no re-login.
 
+### sign_in_codes
+
+Emailed sign-in codes (FR-I18, DD-45), migration 13. One row per code a person asked for, written
+whether or not the address can sign in, so verification cannot tell a known address from an
+unknown one. The code is never stored: `code_hash` is the sha256 of `"<id>:<code>"`.
+
+```sql
+CREATE TABLE sign_in_codes (
+  id           TEXT PRIMARY KEY,
+  email        TEXT NOT NULL,          -- trimmed, lowercased
+  code_hash    TEXT NOT NULL,          -- sha256 of "<id>:<code>"
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,          -- ten minutes after created_at
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  consumed_at  TEXT,                   -- set on success, and at the fifth wrong guess
+  sent         INTEGER NOT NULL        -- 1 when the address could sign in and a send was made
+);
+CREATE INDEX ix_sign_in_codes_email ON sign_in_codes(email, created_at);
+```
+
+The per-address limits (five an hour, twenty a day) are counted from this table. Rows older than a
+day are deleted when a new code is written, and rows for addresses that cannot sign in are capped
+at 10,000 a day. A sha256 rather than a slow hash: a six-digit code has a million values, so its
+protection is its lifetime, its attempt cap and the limits.
+
+### invites
+
+Invitations (FR-I19), migration 13. No person exists until the invited address signs in with a
+code; `principal_id` then names the person the acceptance created or reactivated.
+
+```sql
+CREATE TABLE invites (
+  id            TEXT PRIMARY KEY,
+  email         TEXT NOT NULL,         -- trimmed, lowercased
+  display_name  TEXT NOT NULL,
+  role          TEXT NOT NULL CHECK (role IN ('admin', 'creator', 'member')),
+  invited_by    TEXT NOT NULL REFERENCES principals(id),
+  created_at    TEXT NOT NULL,
+  accepted_at   TEXT,
+  principal_id  TEXT REFERENCES principals(id),
+  revoked_at    TEXT,
+  revoked_by    TEXT REFERENCES principals(id)
+);
+CREATE UNIQUE INDEX ix_invites_live_email ON invites(email)
+  WHERE accepted_at IS NULL AND revoked_at IS NULL;
+```
+
+An invite is live while it is neither accepted nor revoked, younger than fourteen days, and its
+`invited_by` is an active `admin`; all of it is checked inside the verifying transaction. An open
+invite that is no longer live is revoked when its address is invited again, so the unique index
+never blocks an address for good.
+
 ### agent_labels
 
 Per-principal registry, auto-populated on first use (FR-I6).
@@ -919,7 +971,7 @@ CREATE TABLE audit_events (
   entity_type    TEXT NOT NULL,                       -- 'record' | 'comment' | 'link'
                                                       -- | 'object_type' | 'field' | 'principal'
                                                       -- | 'access_token' | 'schema_proposal'
-                                                      -- | 'session'
+                                                      -- | 'session' | 'invite'
   entity_id      TEXT NOT NULL,
   record_id      TEXT,                                -- set for record/comment/link events
   object_type_id TEXT,
