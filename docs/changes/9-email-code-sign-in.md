@@ -539,7 +539,7 @@ touching a hash. Nothing else about passwords changes on the server.
 9. **Done** (`135ac3a`). Frontend: API types, sign-in page, People & agents, hidden password
    controls, with Vitest cases.
 10. **Done** (`aa5e222`). Playwright: fake relay and relay-mode servers, `email-code.spec.ts`.
-11. **Done.** Run the whole Accept block and record the output below.
+11. **Done**, twice: before and after the verification fixes. Run the whole Accept block and record the output below.
 
 The new backend tests, by file, each tied to the issue's clauses:
 
@@ -650,17 +650,17 @@ Each command is run bare and its exit code read on its own.
 - **AC10** `git rev-list --max-parents=0 HEAD` prints exactly `e5a047bb647709814716b7c56a71a6c97d11e266`, one line, and
   `git log --format='%ae %ce' main..HEAD | sort -u` prints only `hello@glosswork.dev hello@glosswork.dev`.
 
-**Accept output**, run by the build session on 2026-09-29 against `aa5e222`, macOS arm64, each
+**Accept output**, rerun by the build session on 2026-09-29 against `966980e`, after the verification fixes, macOS arm64, each
 command bare and its exit code read on its own:
 
 ```
-AC1  exit 0   111 passed
-AC2  exit 0   2159 passed, 3 xfailed
+AC1  exit 0   113 passed
+AC2  exit 0   2161 passed, 3 xfailed
 AC3  exit 0   169 passed; git diff --stat main -- tests/test_local_accounts.py tests/test_sessions.py
               prints nothing; git diff main -- tests/test_auth_routes.py is one hunk, the two
               expected dicts of test_auth_modes_reports_each_configured_mode gaining
               "email_code": False
-AC4  exit 0   101 passed, 2061 deselected
+AC4  exit 0   101 passed, 2063 deselected
 AC5  ruff check exit 0; ruff format --check exit 0 (259 files already formatted); mypy src exit 0
 AC6  lint exit 0; typecheck exit 0; test exit 0 (102 files, 1084 tests)
 AC7  exit 0   77 passed, email-code.spec.ts's three among them
@@ -756,10 +756,14 @@ concurrent verifies; the access model, filter compiler and schema engine are unt
 - **D5. `RELAY_TIMEOUT_SECONDS` lives in `services/relay.py`**, beside the deadline it bounds;
   every other named constant is in `services/sign_in_codes.py` (`INVITE_LIFETIME` in
   `services/invites.py`).
-- **D6. Acceptance reactivates only a removed `local` person.** The plan said an inactive
-  principal with the address is reactivated; a removed person from an identity provider (only
-  possible in `both` mode) is not, because reactivating them would make an `oidc` account sign in
-  by code. Their invite stays open and verification fails.
+- **D6. Acceptance reactivates only a removed `local` person, and such an address cannot be
+  invited.** The plan said an inactive principal with the address is reactivated; a removed person
+  from an identity provider (only possible in `both` mode) is not, because reactivating them would
+  make an `oidc` account sign in by code. As first built, the refusal came only at acceptance, so
+  the invite was sent and the person got codes that could never work; the verifier found this
+  (V1), and `POST /api/v1/invites` now refuses such an address `409 conflict`, with
+  `test_a_removed_identity_provider_account_cannot_be_invited` (measured failing, `201`, before
+  the fix).
 - **D7. More superseded assertions than F1 named.** Seven existing tests pin the list of
   migrations (`[1, ..., 12]`), `tests/test_one_usage_counter.py` pins the modules that make a
   constant-time comparison, and `tests/test_rest_scope_enforcement.py` pins the role-declaring
@@ -772,6 +776,37 @@ concurrent verifies; the access model, filter compiler and schema engine are unt
   plan said "the invite and `email`" without fixing the nesting.
 - **D10. `httpx2` moved from 2.12.0 to 2.13.1**, the version current on PyPI at step 4 (P8), and
   `httpcore2` with it. Nothing else in `uv.lock` changed (compared package by package).
+
+## Verification
+
+Run on 2026-09-29 by a separate Opus session in the `verify` role, which edited nothing, against
+`0938a16`. AC1 to AC10 all PASS, run bare with exit codes read one by one (AC2: 2159 passed, 3
+xfailed; AC7: 77 passed; AC8: 49 passed, no baseline repainted; AC9 a fence). Every done_when
+clause maps to a test it ran and saw pass. Seven mutations in a scratch worktree (the hourly cap's
+comparison, supersession of older codes, the live-invite inviter check and its role half, the
+single-use consumption, the active check on code eligibility, D3) each turned the matching test
+red; the eighth, removing D6, survived, which is V1. Its findings and their dispositions:
+
+- **V1 (D6 unpinned, and refused too late).** *Fixed:* see D6.
+- **V2. The fake relay matched with `re.match`, whose `$` accepts a trailing newline**, so it
+  accepted `"004217\n"` as a code. The product uses `fullmatch`. *Fixed:* the fake uses
+  `fullmatch` for the code, the expiry and the message id, with a refusal case for the newline.
+- **V3. Section 5a did not name the invite routes' `409 conflict`.** *Fixed at closeout* in
+  `docs/DEPLOYMENT.md` section 5a.
+- **V4. Reactivating a removed local person keeps an old password hash**, which would work again
+  if codes were later turned off. *Accepted:* with codes on no password is accepted, and a
+  workspace that turns codes off is back to administrators managing passwords, where a reset is
+  one action.
+- **V5. A non-string `code` answers `422`, not the single `401`.** *Accepted:* the answer does
+  not depend on the address, so it is not an enumeration channel.
+- **V6. `sent = 1` is recorded when a send is attempted, even if the relay then refuses it.**
+  *Accepted:* it only affects the unsent-row ceiling.
+- **V7. No test revokes a session that came from a code sign-in**, or exercises D3's
+  removed-inviter path. *Accepted:* the session comes from the same `SessionService.issue` the
+  removal fences cover, and D3's check is the same `_is_live` the tested expiry path uses.
+
+Not checked by anyone here: the real relay (CP-18), behaviour behind Fly's proxy with
+`GW_TRUSTED_PROXY_IPS`, and CI, which runs when the pull request opens.
 
 ## Durable content moved out of this plan
 
