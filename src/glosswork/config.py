@@ -29,6 +29,17 @@ BOOTSTRAP_SECRET_MIN_LENGTH = 32
 # deployment, which is the argument for a floor rather than against one.
 OPERATOR_TOKEN_MIN_LENGTH = 32
 
+# The length floor on ``GW_RELAY_TOKEN`` (change 9), beside its two siblings above and for
+# their reason: a floor, not an entropy check. The token alone identifies this workspace to
+# the hosting control plane's relay, so the control plane generates it at least this long,
+# and a shorter one refuses startup rather than a first sign-in.
+RELAY_TOKEN_MIN_LENGTH = 32
+
+# Hosts a relay URL may name over plain ``http``: loopback only, for tests and local
+# development. Anything else must be ``https``, because the relay token rides every
+# request in the ``Authorization`` header.
+RELAY_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GW_", extra="ignore")
@@ -204,6 +215,27 @@ class Settings(BaseSettings):
     # Independent of ``GW_READ_ONLY``: self-host has no subscribe page, and a trial banner
     # needs the link while the trial is still running.
     subscribe_url: str | None = None
+    # Email-code sign-in (change 9). The workspace never sends email itself: it asks the
+    # hosting control plane's relay to, with a request naming one of two templates and
+    # typed fields (docs/DEPLOYMENT.md section 5a). Codes are on exactly when both are set,
+    # and **blank counts as unset**, as ``GW_BOOTSTRAP_SECRET`` does, because
+    # ``.env.example`` ships every variable blank. There is no SMTP option and no other
+    # sender, deliberately and for good: a self-hosted workspace keeps passwords or its own
+    # OIDC provider, and a workspace without these behaves exactly as before.
+    relay_url: str | None = None
+    relay_token: str | None = None
+
+    @field_validator("relay_url", "relay_token")
+    @classmethod
+    def _blank_is_unset(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return value
+
+    @property
+    def email_codes_enabled(self) -> bool:
+        """Whether this workspace signs people in by emailed code (change 9)."""
+        return self.relay_url is not None and self.relay_token is not None
 
     @field_validator("subscribe_url")
     @classmethod
@@ -411,7 +443,61 @@ def load_settings() -> Settings:
             "keep the usage endpoint off."
         )
 
+    _check_relay(settings)
     return settings
+
+
+def _check_relay(settings: Settings) -> None:
+    """Refuse a half-configured or unsafe relay at startup (change 9).
+
+    Every refusal names the variable and none echoes a value: the token is a credential,
+    and a URL may carry one in its user part, which is exactly one of the things refused.
+    Startup rather than first use, for the bootstrap checks' reason: nobody at a sign-in
+    page can act on a diagnosis that was set at boot.
+    """
+    url, token = settings.relay_url, settings.relay_token
+    if url is None and token is None:
+        return
+    if url is None:
+        raise ConfigError(
+            "GW_RELAY_URL: required when GW_RELAY_TOKEN is set. Set both to turn on sign-in "
+            "by emailed code, or neither to keep it off."
+        )
+    if token is None:
+        raise ConfigError(
+            "GW_RELAY_TOKEN: required when GW_RELAY_URL is set. Set both to turn on sign-in "
+            "by emailed code, or neither to keep it off."
+        )
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    safe_scheme = parsed.scheme == "https" or (
+        parsed.scheme == "http" and host in RELAY_LOOPBACK_HOSTS
+    )
+    if (
+        not safe_scheme
+        or not parsed.netloc
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigError(
+            "GW_RELAY_URL: must be an absolute https URL with no user part, query or "
+            "fragment, such as https://api.glosswork.dev/v1/relay/send. Plain http is "
+            "accepted only for a loopback host (127.0.0.1, ::1 or localhost)."
+        )
+    if len(token) < RELAY_TOKEN_MIN_LENGTH:
+        raise ConfigError(
+            f"GW_RELAY_TOKEN: must be at least {RELAY_TOKEN_MIN_LENGTH} characters. The "
+            "hosting control plane generates it; ask it for this workspace's token."
+        )
+    if settings.auth_mode == "oidc":
+        raise ConfigError(
+            "GW_AUTH_MODE: cannot be 'oidc' when GW_RELAY_URL is set. Sign-in by emailed "
+            "code signs local accounts in, and 'oidc' mode refuses local accounts. Use "
+            "'standalone' or 'both'."
+        )
 
 
 def main() -> None:
