@@ -435,6 +435,21 @@ class FeatureDisabledError(GlossworkError):
         self.use_instead = use_instead
 
 
+class ConflictError(GlossworkError):
+    """A correct request that would duplicate something that already exists (change 9).
+
+    In the 409 "correct request, wrong state" family: inviting an address that already has
+    an account here, a second open invite for one address, or revoking an invite that is
+    already accepted or revoked. Not ``validation_failed``, whose remedy is "fix the named
+    field": the address is well formed, and what refuses it is the workspace's state.
+    """
+
+    code = "conflict"
+
+    def __init__(self, message: str, **details: Any) -> None:
+        super().__init__(message, dict(details))
+
+
 class BootstrapClaimedError(GlossworkError):
     """A second claim against a deployment that already has a user (DD-37).
 
@@ -669,6 +684,7 @@ STATUS_BY_CODE: dict[str, int] = {
     "impact_changed": 409,
     "proposal_state": 409,
     "feature_disabled": 409,
+    "conflict": 409,
     "bootstrap_claimed": 409,
     "workspace_read_only": 409,
     "insufficient_scope": 403,

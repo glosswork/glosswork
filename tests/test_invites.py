@@ -316,7 +316,11 @@ def test_an_invite_can_be_revoked_while_the_workspace_is_read_only(
     [
         (Scripted(status=401), "refused_credential", "could not be sent"),
         (Scripted(status=403), "refused_credential", "could not be sent"),
-        (Scripted(status=422, refused=["inviter_name"]), "refused_fields", "your display name"),
+        (
+            Scripted(status=422, refused=["inviter_name"]),
+            "refused_fields",
+            "display name may be the reason",
+        ),
         (Scripted(status=429), "rate_limited", "busy"),
         (Scripted(status=500), "unavailable", "could not be sent"),
         (Scripted(status=422, body={"detail": "not our shape"}), "refused_fields", "not be sent"),

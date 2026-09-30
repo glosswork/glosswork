@@ -202,7 +202,7 @@ class Settings(BaseSettings):
     # default and requiring an operator to name their real proxy explicitly.
     trusted_proxy_ips: str = "127.0.0.1"
     # Read-only mode (DD-38). When true, every REST and MCP write is refused with 409
-    # ``workspace_read_only`` except the five calls ``scopes.READ_ONLY_OPEN_ROUTES`` names,
+    # ``workspace_read_only`` except the six calls ``scopes.READ_ONLY_OPEN_ROUTES`` names,
     # and reads and full export keep working. A hosted workspace is frozen this way when
     # its trial ends; a self-hosted operator uses it for a migration window or a deployment
     # kept for reference. Read once at startup, so changing it is a restart.

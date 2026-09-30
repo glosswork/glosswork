@@ -24,6 +24,7 @@ from glosswork.repositories.sqlite import (
     SqliteBlobReferenceRepository,
     SqliteCommentRepository,
     SqliteGrantRepository,
+    SqliteInviteRepository,
     SqlitePrincipalRepository,
     SqliteRecordAttachmentRepository,
     SqliteRecordRepository,
@@ -31,6 +32,7 @@ from glosswork.repositories.sqlite import (
     SqliteSchemaRepository,
     SqliteSearchRepository,
     SqliteSessionRepository,
+    SqliteSignInCodeRepository,
     SqliteUsageRepository,
 )
 from glosswork.services.access import AccessService
@@ -45,6 +47,7 @@ from glosswork.services.comments import CommentService
 from glosswork.services.csv import CsvService
 from glosswork.services.embedding import EmbeddingProvider, build_provider
 from glosswork.services.export import ExportService
+from glosswork.services.invites import InviteService
 from glosswork.services.oidc import (
     JwksSource,
     OidcVerifier,
@@ -55,11 +58,13 @@ from glosswork.services.passwords import PasswordService
 from glosswork.services.principals import PrincipalService
 from glosswork.services.rate_limit import LoginRateLimiter
 from glosswork.services.records import RecordService
+from glosswork.services.relay import RelaySender
 from glosswork.services.saved_views import SavedViewService
 from glosswork.services.schema import SchemaService
 from glosswork.services.search import SearchService
 from glosswork.services.search_index import SearchIndexService
 from glosswork.services.sessions import SessionService
+from glosswork.services.sign_in_codes import SignInCodeService
 from glosswork.services.tokens import AccessTokenService
 from glosswork.services.usage import UsageService
 from glosswork.services.workspace import WorkspaceService
@@ -92,6 +97,12 @@ class ServiceBundle:
     workspace: WorkspaceService
     bootstrap: BootstrapService
     usage: UsageService
+    invites: InviteService
+    sign_in_codes: SignInCodeService
+    # The email relay's client (change 9): ``None`` unless GW_RELAY_URL and
+    # GW_RELAY_TOKEN are both set, which is what keeps a workspace without them exactly
+    # as it was. It is the only sender in the product.
+    relay: RelaySender | None
     embedding_provider: EmbeddingProvider | None
 
 
@@ -270,6 +281,15 @@ def build_services(
     # is called by tests that never start one, and a service that starts a thread on
     # construction would leak one per bundle.
     usage = UsageService(db, SqliteUsageRepository(), principal_repo, workspace, settings)
+    # Change 9. Built only when both relay settings are set; every code and invite route
+    # answers ``feature_disabled`` without it.
+    relay = RelaySender(settings) if settings.email_codes_enabled else None
+    invites = InviteService(
+        db, SqliteInviteRepository(), principal_repo, principals, audit_repo, relay
+    )
+    sign_in_codes = SignInCodeService(
+        db, SqliteSignInCodeRepository(), principal_repo, invites, relay
+    )
     return ServiceBundle(
         access=access,
         schema=schema,
@@ -294,5 +314,8 @@ def build_services(
         workspace=workspace,
         bootstrap=bootstrap,
         usage=usage,
+        invites=invites,
+        sign_in_codes=sign_in_codes,
+        relay=relay,
         embedding_provider=embedding_provider,
     )

@@ -228,9 +228,7 @@ def test_five_wrong_attempts_kill_the_live_codes_and_the_right_code_then_fails(
     seed_local_user(code_app)
     first = _one_code(live_relay, code_client, KNOWN_EMAIL)
     second = _one_code(live_relay, code_client, KNOWN_EMAIL)
-    wrong = next(
-        f"{n:06d}" for n in range(1_000_000) if f"{n:06d}" not in (first, second)
-    )
+    wrong = next(f"{n:06d}" for n in range(1_000_000) if f"{n:06d}" not in (first, second))
     for _ in range(5):
         _assert_verify_failure(verify_code(code_client, KNOWN_EMAIL, wrong))
     _assert_verify_failure(verify_code(code_client, KNOWN_EMAIL, first))

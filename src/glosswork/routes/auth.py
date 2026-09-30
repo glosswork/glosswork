@@ -19,9 +19,9 @@ from __future__ import annotations
 import hmac
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from glosswork.actor import ActorContext, anonymous_actor
 from glosswork.api_deps import get_actor, get_request_id, get_services, get_settings, source_ip
@@ -39,6 +39,8 @@ from glosswork.errors import AuthenticationFailedError
 from glosswork.scopes import require_scope
 from glosswork.services import ServiceBundle
 from glosswork.services.principals import role_scope
+from glosswork.services.relay import MAX_ADDRESS_LENGTH
+from glosswork.services.sign_in_codes import REQUEST_MESSAGE
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -51,6 +53,18 @@ RequestIdDep = Annotated[str, Depends(get_request_id)]
 class LoginBody(BaseModel):
     email: str
     password: str
+
+
+class CodeRequestBody(BaseModel):
+    email: str = Field(max_length=MAX_ADDRESS_LENGTH)
+
+
+class CodeVerifyBody(BaseModel):
+    email: str = Field(max_length=MAX_ADDRESS_LENGTH)
+    # Unbounded here on purpose: a code that is not six digits is the same failure as a
+    # wrong one, decided in the service before anything is looked up, and the edge's body
+    # cap (DD-18) bounds the string.
+    code: str
 
 
 def _login_actor(request_id: str, principal_id: str, role: str) -> ActorContext:
@@ -96,10 +110,58 @@ def auth_modes(settings: SettingsDep) -> dict[str, Any]:
     exemption, since it is a plain read with no session or provider round trip behind
     it.
     """
+    codes = settings.email_codes_enabled
     return {
-        "standalone": settings.auth_mode in ("standalone", "both"),
+        # With codes on, password sign-in is off (DQ1): the form is not offered.
+        "standalone": settings.auth_mode in ("standalone", "both") and not codes,
         "oidc": settings.auth_mode in ("oidc", "both"),
+        "email_code": codes,
     }
+
+
+# -------------------------------------------------------------------- email codes
+
+
+@router.post("/code/request", status_code=202)
+def request_sign_in_code(
+    body: CodeRequestBody,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    services: ServicesDep,
+    request_id: RequestIdDep,
+) -> dict[str, str]:
+    """Ask for a sign-in code (change 9). Always the same ``202`` and sentence, whatever
+    the address: the attempt is counted in the login limiter before anything is looked
+    up, and the rest runs after the answer is sent."""
+    services.sign_in_codes.require_enabled()
+    services.login_limiter.check_and_record(body.email, source_ip(request), attempt="sign-in code")
+    background_tasks.add_task(services.sign_in_codes.request_code, body.email, request_id)
+    return {"message": REQUEST_MESSAGE}
+
+
+@router.post("/code/verify")
+def verify_sign_in_code(
+    body: CodeVerifyBody,
+    request: Request,
+    settings: SettingsDep,
+    services: ServicesDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """Sign in with an emailed code (change 9), answering exactly as ``/login`` does. Every
+    failure is one ``401 invalid_credentials`` with one message."""
+    services.sign_in_codes.require_enabled()
+    ip = source_ip(request)
+    services.login_limiter.check_and_record(body.email, ip, attempt="sign-in code")
+    principal = services.sign_in_codes.verify_code(body.email, body.code, request_id)
+    services.login_limiter.reset(body.email, ip)
+    actor = _login_actor(request_id, principal.id, principal.role)
+    prior_cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    minted = services.sessions.issue(
+        actor, principal, replacing_cookie=prior_cookie, note="email code sign-in"
+    )
+    response = JSONResponse(me_doc(principal, actor))
+    _set_session_cookies(response, settings, minted.cookie_value, minted.csrf_value)
+    return response
 
 
 # ------------------------------------------------------------------------------ login

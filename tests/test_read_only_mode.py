@@ -1,7 +1,7 @@
 """A workspace frozen to read-only, over REST (DD-38).
 
 With ``GW_READ_ONLY`` on, every REST write is refused with 409 ``workspace_read_only``
-naming ``GW_SUBSCRIBE_URL``, except the five routes ``READ_ONLY_OPEN_ROUTES`` names,
+naming ``GW_SUBSCRIBE_URL``, except the six routes ``READ_ONLY_OPEN_ROUTES`` names,
 and reads and full export keep working. The MCP half, and the parity walk
 between the two surfaces, is ``tests/test_mcp_read_only.py``.
 
@@ -53,6 +53,7 @@ EXPECTED_OPEN_ROUTES = frozenset(
         ("DELETE", "/api/v1/access-tokens/{token_id}"),
         ("POST", "/api/v1/me/password"),
         ("DELETE", "/api/v1/principals/{principal_id}"),
+        ("DELETE", "/api/v1/invites/{invite_id}"),
     }
 )
 
