@@ -215,8 +215,9 @@ moves is the clocks. The container's monotonic clock (and its boot clock, and
 Measured on an Apple-silicon Mac (Docker 28.4.0, kernel 6.10.14-linuxkit): the container's
 monotonic clock read 566,833 s while the Docker VM had been running for 695,246 s by the
 host's clock, the difference being the host's sleeps, and the container's wall clock agreed
-with the host's to within a second. A suspended Fly machine shows the same, and Fly says the
-first request after a resume may be served before the guest's wall clock is updated.
+with the host's to within a second. A suspended Fly machine showed the same in one measurement
+(2026-09-19, not repeated), and Fly says the first request after a resume may be served before
+the guest's wall clock is updated.
 
 What that does to a running workspace:
 

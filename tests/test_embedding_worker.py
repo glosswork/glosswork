@@ -574,9 +574,10 @@ def test_a_pause_longer_than_the_timeout_inside_a_batch_charges_nothing(
     The idle reclaim runs only on this thread and only when it holds nothing, so
     nothing is charged an attempt and every source is embedded once.
 
-    It passes on a correct tree by design. What it guards is any reclaim that could
-    run while a batch is held, from this thread or any other writer: the trigger sees
-    every charge, and a ``reclaim_stale()`` after each source fails it.
+    It passes on a correct tree by design. What it guards is a reclaim reached from
+    inside ``tick()`` while a batch is held: the trigger sees every charge made during
+    it, and a ``reclaim_stale()`` after each source fails it. No other thread runs here,
+    so reclaimers elsewhere are ``test_only_the_worker_thread_reclaims``'s job.
     """
     bodies = [paragraph(f"paused{i}") for i in range(4)]
     for i, body in enumerate(bodies):
@@ -667,8 +668,11 @@ def test_only_the_worker_thread_reclaims() -> None:
     batch is the one thread that reclaims, and only between batches. A second
     reclaimer of any period, a sweeper thread or a second worker on the same
     database, would take back rows a paused batch still holds. A timed test can miss
-    a slow sweeper; this cannot. Annotations and imports name ``EmbeddingWorker``
-    without constructing it, so the construction count reads calls only.
+    a slow sweeper; this does not, because it reads the code rather than waiting. It
+    sees names, not intent: a ``getattr`` by string, a construction spelled
+    ``module.EmbeddingWorker(...)`` or a reclaim written as raw SQL would pass it.
+    Annotations and imports name ``EmbeddingWorker`` without constructing it, so the
+    construction count reads calls only.
     """
     found = _references_in_src()
     assert set(found["reclaim_stale"]) == RECLAIM_STALE_CALLERS, found["reclaim_stale"]
