@@ -270,7 +270,7 @@ Built 2026-10-01 on `11-frozen-clock`, in checklist order. Each step's command a
    the worker, as planned.
 3. Mutation, `self.reclaim_stale()` after each `_process` in `run_once`: exit 1,
    `AssertionError: a row the worker still held was charged an attempt`, the trigger recording
-   `(3, 1, 'reclaimed after exceeding the running timeout')` and one more. Reverted;
+   `(3, 1, 'reclaimed after exceeding the running timeout')` and two more. Reverted;
    `git diff -- src/ | wc -l` read 0.
 4. Mutation, a `_sweep` thread started in `start()` calling `self.reclaim_stale()` every 60 s
    (the module imports, exit 0): exit 1, the extra caller named,
@@ -292,6 +292,24 @@ Built 2026-10-01 on `11-frozen-clock`, in checklist order. Each step's command a
    `src/glosswork/repositories/sqlite.py` and `src/glosswork/services/embedding_worker.py`.
    AC2 and AC4 are steps 3, 4 and 8 above. The laptop-sleep probe was not run; it is evidence,
    not a gate.
+
+## Verification
+
+Run 2026-10-01 by a separate session at `4dd0b89`, which wrote none of this change: AC1 to AC9
+PASS, each by exit code. It reproduced both mutations and the unfixed entry point's failure in
+its own worktree, and ran AC4 on a fresh container (`embedding_worker_started=1
+started_server=1`). Findings and dispositions:
+
+- **V1. The pause test's docstring claimed it caught reclaimers on other threads.** It runs no
+  other thread. **Fixed:** the docstring now says it guards reclaims reached inside `tick()`,
+  and that other reclaimers are the call-site test's job.
+- **V2. The call-site test's docstring read as "cannot miss".** It sees names, not intent.
+  **Fixed:** the docstring names what passes it (`getattr` by string, `module.EmbeddingWorker`,
+  raw SQL). None exists today.
+- **V3. DEPLOYMENT stated the Fly measurement as settled.** **Fixed:** it says one measurement,
+  2026-09-19, not repeated.
+- **V4, V6.** No `src/` logic beyond `workers=1`; no dashes added to documents. No action.
+- **V5. Step 3's record said "one more" charge; there were two.** **Fixed** above.
 
 ## Deviations from the approved plan
 
@@ -319,4 +337,15 @@ Built 2026-10-01 on `11-frozen-clock`, in checklist order. Each step's command a
 
 ## Durable content moved out of this plan
 
-To be filled at closeout: DATA_MODEL section 10 rule 5, DD-35, DEPLOYMENT section 2a.
+- docs/DATA_MODEL.md section 10, rule 5: why the idle reclaim cannot take back held work, the
+  real abandonment example, what a `BaseException` does, and the two tests that hold it.
+- docs/DESIGN_DECISIONS.md DD-35, "Held by": the call-site test and the one-process test.
+- docs/DEPLOYMENT.md section 2a, "Pausing is not stopping": P1's measurement, P9's table as
+  operator guidance, and that the image runs one process and ignores `WEB_CONCURRENCY`.
+- The corrected docstrings in `src/glosswork/services/embedding_worker.py` and
+  `src/glosswork/repositories/sqlite.py`, and the comment on `workers=1` in
+  `src/glosswork/entrypoint.py`.
+
+Not moved, because they are about this change rather than the product: the premises' run-by-run
+measurements, the adversarial pass, the build record and the verification, which stay in this
+file's last commit and the pull request.
