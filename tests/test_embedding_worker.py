@@ -454,9 +454,10 @@ def test_reclaim_runs_on_the_idle_poll_of_a_worker_that_never_restarted(
 
     The restart test below starts a fresh worker, so it cannot catch a row stranded by
     a long-lived one, and a reclaim that only ran at startup would pass it. Here the
-    worker stays up: a batch is claimed and then abandoned without its failure handler
-    running -- an uncaught ``BaseException``, a thread stopped mid-write -- and
-    ``pending_jobs`` must still reach zero with no restart.
+    worker stays up: a batch is claimed and then abandoned while the thread survives
+    -- an ``Exception`` escaping ``run_once`` outside ``_process``'s handler, such as
+    ``fail_job``'s own write failing -- and ``pending_jobs`` must still reach zero with
+    no restart.
     """
     clock.advance(400)
     claimed = worker._claim(clock.now)
@@ -855,9 +856,10 @@ def test_a_restart_reclaims_a_running_row_of_any_age_and_counts_an_attempt(
 ) -> None:
     """DD-35: at the moment a process starts, every ``running`` row is residue.
 
-    The idle poll keeps the ten-minute threshold, because there a live worker may
-    genuinely hold the row; startup does not, because only the application lifespan
-    ever constructs a worker and the documented upgrade stops the old container first.
+    The idle poll keeps the ten-minute threshold as margin (it runs only between
+    batches, on the thread that would hold the row); startup has none, because only
+    the application lifespan ever constructs a worker and the documented upgrade stops
+    the old container first.
     """
     source = field_source(record, "summary")
     clock.advance(400)

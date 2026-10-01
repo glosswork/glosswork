@@ -122,8 +122,13 @@ class EmbeddingWorker:
         # killed mid-batch leaves ``running`` rows that nothing else will ever return
         # to the queue, and waiting out the ten-minute idle-poll threshold would leave
         # a workspace that scales to zero answering ``/readyz`` while carrying content
-        # it has already reported as indexed. The idle poll keeps that threshold,
-        # because there a live worker may genuinely hold the row.
+        # it has already reported as indexed. The idle poll keeps that threshold as
+        # margin, not as protection for a live holder: it runs only on this worker's
+        # own thread, between batches, while it holds nothing, so a row it finds
+        # ``running`` was abandoned by this same process, and a pause of any length
+        # (a suspended machine, a sleeping laptop) cannot make it take back its own
+        # work. A second process on one database would break that, which is why the
+        # entry point pins one (``workers=1``): unsupported, not impossible.
         self.reclaim_all()
         self._thread = threading.Thread(target=self._run, name="embedding-worker", daemon=True)
         self._thread.start()
@@ -167,9 +172,11 @@ class EmbeddingWorker:
 
         Reclaim runs on the idle poll, not only at startup (section 10, rule 5). A
         restart-only reclaim cannot be caught by a test that starts a fresh worker, so
-        it is reachable here on a worker that never restarted: a batch killed without
-        its failure handler running would otherwise strand rows in ``running`` for the
-        life of the process and ``pending_jobs`` would never reach zero.
+        it is reachable here on a worker that never restarted: an exception escaping
+        :meth:`run_once` outside ``_process``'s handler (``fail_job``'s own write
+        failing on ``busy_timeout``, say) leaves the rest of the batch ``running`` while
+        the thread survives, and those rows would otherwise stay stranded for the life
+        of the process and ``pending_jobs`` would never reach zero.
         """
         result = self.run_once(now)
         if result.claimed == 0:
