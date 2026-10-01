@@ -1160,9 +1160,19 @@ a test; rule 6 and part of rule 5 are DD-35's.
    failure and the sibling's own error is still the true one (rule 6).
 5. **Reclaim runs on the idle poll, and startup reclaims everything** (DD-35). On the **idle
    poll**, `running` rows whose `updated_at` is older than a
-   ten-minute timeout are reclaimed under rule 4: a batch abandoned without its failure handler
-   running (an uncaught `BaseException`, a thread stopped mid-write) would otherwise strand rows
-   in `running` for the life of the process and `pending_jobs` would never reach zero. A
+   ten-minute timeout are reclaimed under rule 4: an `Exception` escaping `run_once` outside
+   `_process`'s handler (`fail_job`'s own write failing on `busy_timeout`, say) leaves the rest
+   of the batch `running` while the thread survives, and those rows would otherwise stay
+   stranded for the life of the process and `pending_jobs` would never reach zero. A
+   `BaseException` kills the thread instead, so the idle reclaim never runs for it and only the
+   next startup recovers its rows. The idle reclaim runs only on the worker's own thread,
+   between batches, while it holds nothing, so a `running` row it finds was abandoned by that
+   same process: the ten-minute threshold is margin, not protection for a live holder, and a
+   pause of any length (a suspended machine, a sleeping laptop) cannot make the worker reclaim
+   its own work. `test_a_pause_longer_than_the_timeout_inside_a_batch_charges_nothing` holds
+   that, and `test_only_the_worker_thread_reclaims` holds that no other code reclaims. A second
+   process on one database would reclaim rows the first still holds; that is unsupported, not
+   impossible, and the entry point pins one process (`docs/DEPLOYMENT.md` section 2a). A
    restart-only reclaim cannot be caught by a test that starts a fresh worker, so the test
    reclaims on a worker that never restarted. At **startup** there is no age threshold at all:
    every `running` row is reclaimed, because only the application lifespan ever constructs a

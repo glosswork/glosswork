@@ -512,7 +512,9 @@ batch to the queue without charging an attempt. On start it reclaims every job l
 
 **Why.** A workspace that stops often must not spend its retry budget on stops.
 
-**Held by.** `tests/test_embedding_worker.py`, `container_tests/test_clean_shutdown.py`.
+**Held by.** `tests/test_embedding_worker.py` (with `test_only_the_worker_thread_reclaims`, which
+holds that the worker's own thread is the only reclaimer), `tests/test_infra.py` (one process
+whatever `WEB_CONCURRENCY` says), `container_tests/test_clean_shutdown.py`.
 
 **See.** `docs/DEPLOYMENT.md` section 2a.
 

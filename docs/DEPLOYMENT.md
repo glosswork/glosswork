@@ -205,6 +205,44 @@ says the stop was clean is the log: `Waiting for application shutdown`, then
 ones to watch for. `embedding_worker_stopped` appears only when embedding is enabled,
 because with it off no worker starts; `usage_counter_stopped` appears on every stop.
 
+### Pausing is not stopping
+
+A laptop that sleeps while Docker Desktop runs the container, or a hosting platform that
+suspends a machine rather than stopping it, **pauses** the process instead of stopping it.
+Nothing above runs: no signal arrives, and the process resumes exactly where it was. What
+moves is the clocks. The container's monotonic clock (and its boot clock, and
+`/proc/uptime`) does not advance while paused; its wall clock is set again on resume.
+Measured on an Apple-silicon Mac (Docker 28.4.0, kernel 6.10.14-linuxkit): the container's
+monotonic clock read 566,833 s while the Docker VM had been running for 695,246 s by the
+host's clock, the difference being the host's sleeps, and the container's wall clock agreed
+with the host's to within a second. A suspended Fly machine shows the same, and Fly says the
+first request after a resume may be served before the guest's wall clock is updated.
+
+What that does to a running workspace:
+
+- **The indexing queue is unaffected.** The worker's idle reclaim compares wall-clock times,
+  and it runs only on the worker's own thread, between batches, while that thread holds
+  nothing, so a pause of any length cannot make it take back a batch it is still holding.
+  A batch that straddles a pause finishes normally after it.
+- **Expiry is by wall clock, so it ages across a pause**, as a person expects: sessions,
+  tokens, upload tickets, sign-in codes, invites and retry backoff. In the window where the
+  first request after a resume is served before the wall clock is set, an expiry that fell
+  during the pause can read as not yet passed for that request, and a sign-in through an
+  identity provider can be refused as "not yet valid". Both last only until the clock is
+  set.
+- **A login lockout does not age while paused.** The login and password-change limiters
+  count on the monotonic clock, so a lockout in force when the machine paused lasts its
+  full window of running time after it. That errs toward refusing, and `Retry-After` stays
+  true.
+- **Logged durations exclude the pause.** A batch, request, backup or export that straddles
+  one logs its running time, not the time a person waited.
+
+**The image runs one process, and `WEB_CONCURRENCY` is ignored.** The entry point passes
+`workers=1` to uvicorn, which otherwise reads `WEB_CONCURRENCY` and would start a second
+process on the same database. That second process would run a second indexing worker,
+whose reclaim takes back rows the first still holds, and a second, separate login limiter.
+One process per database is a requirement (FR-P1), and the image enforces it.
+
 ## 3. Creating the first credential
 
 **A fresh deployment has no accounts and no tokens, and refuses every request with 401.**
