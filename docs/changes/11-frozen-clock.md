@@ -258,9 +258,64 @@ single-process claim; it found that the single-process premise rests on an ungua
   repeated embedding" held only in sequence (folded); P2 is inherited (already said); DD-35 is the
   less natural home than rule 5 (folded: DD-35 gets only "Held by").
 
+## Build record
+
+Built 2026-10-01 on `11-frozen-clock`, in checklist order. Each step's command and result:
+
+1. `uv run pytest -q tests/test_infra.py -k web_concurrency` on the unfixed entry point: exit 1,
+   `assert config.workers == 1`, `assert 2 == 1`. uvicorn's own `Config` read
+   `WEB_CONCURRENCY=2`. Re-measured after D3 with the same result.
+2. `uv run pytest -q tests/test_embedding_worker.py -k "pause_longer_than_the_timeout or
+   only_the_worker_thread_reclaims"` on the unfixed tree: exit 0, 2 passed. Both are fences for
+   the worker, as planned.
+3. Mutation, `self.reclaim_stale()` after each `_process` in `run_once`: exit 1,
+   `AssertionError: a row the worker still held was charged an attempt`, the trigger recording
+   `(3, 1, 'reclaimed after exceeding the running timeout')` and one more. Reverted;
+   `git diff -- src/ | wc -l` read 0.
+4. Mutation, a `_sweep` thread started in `start()` calling `self.reclaim_stale()` every 60 s
+   (the module imports, exit 0): exit 1, the extra caller named,
+   `['EmbeddingWorker.start._sweep', 'EmbeddingWorker.tick', 'EmbeddingWorker.reclaim_stale']`.
+   Reverted; `git diff -- src/ | wc -l` read 0.
+5. `workers=1` in `src/glosswork/entrypoint.py`; step 1's test exit 0.
+6. Comments and docstrings corrected in `EmbeddingWorker.start`, `EmbeddingWorker.tick` and
+   `SqliteSearchRepository.reclaim_stale` (and see D2).
+7. DATA_MODEL section 10 rule 5, DD-35's "Held by", and DEPLOYMENT section 2a's new "Pausing is
+   not stopping".
+8. `docker build -t glosswork:prod44-11-17b47f1 .`, exit 0. `docker run -d -e WEB_CONCURRENCY=2`
+   on it: `Started server process` 1, `embedding_worker_started` 1, each compared to 1 with
+   `[ "$n" -eq 1 ]`, exit 0. Control on the `main` image (`glosswork:prod44-before-5988eef`),
+   same variable: 2 and 2. Both containers removed with `docker rm -f -v`, exit 0, and neither
+   anonymous volume remains (`docker volume ls -q | grep`, exit 1).
+9. Accept, run 2026-10-01 at `568eb9e`: AC1 exit 0 (2 passed); AC3 exit 0; AC5 exit 0 (2,164
+   passed, 3 xfailed); AC6 exit 0 (101 passed); AC7 `ruff check .` exit 0 and, separately,
+   `ruff format --check .` exit 0; AC8 exit 0 (88 source files); AC9 exit 0, listing only
+   `src/glosswork/repositories/sqlite.py` and `src/glosswork/services/embedding_worker.py`.
+   AC2 and AC4 are steps 3, 4 and 8 above. The laptop-sleep probe was not run; it is evidence,
+   not a gate.
+
 ## Deviations from the approved plan
 
-None yet.
+- **D1. The plan's two citations of standup documents are prose here.** Backticked, they name
+  `.md` files outside this repository and fail `tests/test_documentation_structure.py`. The
+  draft's preamble about the unknown issue number became the approval line; nothing else in the
+  approved text changed.
+- **D2. Two test docstrings repeated the false premise, and were corrected too.**
+  `test_reclaim_runs_on_the_idle_poll_of_a_worker_that_never_restarted` gave the
+  `BaseException` example, and `test_a_restart_reclaims_a_running_row_of_any_age_and_counts_an_attempt`
+  said a live worker may hold the row. Retiring a superseded claim is part of the change
+  (`AGENTS.md`, Traps); docstrings only.
+- **D3. The `workers=1` test first broke two logging tests that ran after it.** Building
+  uvicorn's `Config` with its default `log_config` installed uvicorn's own handlers, so
+  `test_each_named_third_party_logger_emits_json[uvicorn]` and `[uvicorn.error]` failed in the
+  full suite (2 failed, 2,162 passed) and passed alone. The test now passes `log_config` as the
+  entry point does (`None`); step 1 was re-measured failing on the unfixed entry point.
+- **D4. The call-site test allows each worker reclaim method to call the repository's
+  same-named method.** "`reclaim_stale` only from `EmbeddingWorker.tick`" read literally would
+  forbid the worker's own wrapper, which is the one delegation the design has. The allowed sets
+  are `{tick, reclaim_stale}` and `{start, reclaim_all}`, matched exactly and counted, and the
+  walk counts every load of the name rather than only calls, so a bound method handed to a thread
+  counts too.
+- **D5. DD-35's "Held by" also names `tests/test_infra.py`**, for the one-process test.
 
 ## Durable content moved out of this plan
 
