@@ -20,6 +20,12 @@ def main() -> None:
         "glosswork.app:app",
         host="0.0.0.0",  # noqa: S104
         port=8000,
+        # One process per database, by design: startup reclaims every `running`
+        # embedding job (DD-35), and the login limiter and usage counter live in
+        # memory. Left unset, uvicorn reads WEB_CONCURRENCY and would start a second
+        # process whose embedding worker reclaims rows the first still holds, so the
+        # count is pinned and that variable is ignored.
+        workers=1,
         log_config=None,
         log_level=settings.log_level,
         # The application middleware emits JSON access logs; uvicorn's own access
