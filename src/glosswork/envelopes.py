@@ -19,6 +19,7 @@ from glosswork.repositories.models import (
     AgentLabelRow,
     AttachmentRow,
     FieldDef,
+    InviteRow,
     ObjectType,
     PrincipalRow,
     Proposal,
@@ -37,7 +38,9 @@ from glosswork.services.audit import AuditSearchResult
 from glosswork.services.base import display_field
 from glosswork.services.changes import ChangesResult
 from glosswork.services.comments import CommentPage
+from glosswork.services.invites import invite_expires_at, outcome_message
 from glosswork.services.records import BulkUpdateResult, HistoryPage, QueryResult
+from glosswork.services.relay import RelayResult
 from glosswork.services.schema import FieldUpdateResult, ProposalPage
 from glosswork.services.search import SearchResult
 from glosswork.services.search_index import IndexStatus
@@ -193,6 +196,29 @@ def agent_label_directory_doc(label: AgentLabelRow) -> dict[str, Any]:
         "label": label.label,
         "display_name": label.display_name,
     }
+
+
+def invite_doc(invite: InviteRow) -> dict[str, Any]:
+    """One ``invites`` row (change 9). ``expires_at`` is derived, 14 days after
+    ``created_at``; ``invited_by`` is a principal id, resolved by the client like any
+    other."""
+    return {
+        "id": invite.id,
+        "email": invite.email,
+        "display_name": invite.display_name,
+        "role": invite.role,
+        "invited_by": invite.invited_by,
+        "created_at": invite.created_at,
+        "expires_at": invite_expires_at(invite),
+        "accepted_at": invite.accepted_at,
+        "revoked_at": invite.revoked_at,
+    }
+
+
+def invite_email_doc(result: RelayResult) -> dict[str, str]:
+    """What became of an invite's email: the relay's outcome, and the sentence an
+    administrator reads (docs/DEPLOYMENT.md section 5a)."""
+    return {"outcome": result.outcome, "message": outcome_message(result)}
 
 
 def principal_directory_doc(principal: PrincipalRow) -> dict[str, Any]:

@@ -24,6 +24,11 @@ dependencies = [
     # OIDC ID-token validation (FR-I1/FR-I2). Present transitively via mcp==2.0.0;
     # declared directly so an mcp upgrade cannot silently remove the project's JWT library.
     "pyjwt[crypto]==2.13.0",
+    # The outbound HTTP client for the OIDC code exchange and the email relay (change 9).
+    # Present transitively via mcp==2.0.0; declared directly, as pyjwt is, so an mcp
+    # upgrade cannot silently remove the client a runtime path depends on. Verified as
+    # the latest stable on PyPI on 2026-09-29 with `uv run --with pip pip index versions`.
+    "httpx2==2.13.1",
     # Semantic and hybrid search (DD-31, DD-32).
     # Each verified as the latest stable on PyPI on 2026-08-24 with
     # `uv run --with pip pip index versions <pkg>`, not carried over from an earlier note.
@@ -47,7 +52,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
-    "httpx2==2.12.0",
     "ruff==0.16.4",
     "mypy==2.3.1",
 ]

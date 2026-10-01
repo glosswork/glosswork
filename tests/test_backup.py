@@ -111,7 +111,7 @@ def test_snapshot_is_a_working_database_carrying_the_virtual_tables(
     assert _snapshot_query(snapshot, "SELECT count(*) FROM records")[0][0] == 1
     # Migration state travels with it, which is what makes the restored deployment
     # start without re-running anything (FR-P6).
-    assert _snapshot_query(snapshot, "SELECT count(*) FROM schema_migrations")[0][0] == 12
+    assert _snapshot_query(snapshot, "SELECT count(*) FROM schema_migrations")[0][0] == 13
 
 
 # ---------------------------------------------------------- the DD-36 ordering

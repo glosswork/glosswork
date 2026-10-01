@@ -122,6 +122,8 @@ def test_the_exemption_allowlist_is_exactly_the_named_entries() -> None:
             "/api/v1/auth/oidc/start",
             "/api/v1/auth/oidc/callback",
             "/api/v1/auth/modes",
+            "/api/v1/auth/code/request",
+            "/api/v1/auth/code/verify",
             "/api/v1/bootstrap",
             "/api/v1/usage",
         }
@@ -156,6 +158,8 @@ def test_the_credential_exempt_allowlist_is_exactly_the_named_paths() -> None:
             "/api/v1/auth/oidc/start",
             "/api/v1/auth/oidc/callback",
             "/api/v1/auth/modes",
+            "/api/v1/auth/code/request",
+            "/api/v1/auth/code/verify",
             "/api/v1/bootstrap",
             "/api/v1/usage",
         }
@@ -228,7 +232,7 @@ def test_a_path_drifting_into_the_credential_exempt_set_fails_closed(
     assert refused.json()["error"]["code"] == "insufficient_scope", refused.text
 
 
-def test_route_roles_is_exactly_the_twelve_system_routes(app: FastAPI) -> None:
+def test_route_roles_is_exactly_the_fifteen_system_routes(app: FastAPI) -> None:
     """Asserted as an exact set, by the same argument
     `SCOPE_EXEMPT_PATHS` is: a pattern would silently absorb a future route, and a list
     has to be edited in a diff a reviewer sees.
@@ -250,6 +254,9 @@ def test_route_roles_is_exactly_the_twelve_system_routes(app: FastAPI) -> None:
         "PATCH /api/v1/principals/{principal_id}",
         "DELETE /api/v1/principals/{principal_id}",
         "POST /api/v1/principals/{principal_id}/password",
+        "GET /api/v1/invites",
+        "POST /api/v1/invites",
+        "DELETE /api/v1/invites/{invite_id}",
     }
     assert {entry.role for entry in route_roles(app)} == {"admin"}
 

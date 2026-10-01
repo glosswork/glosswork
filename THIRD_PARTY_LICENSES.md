@@ -6807,11 +6807,11 @@ File: httpcore-1.0.9.dist-info/licenses/LICENSE.md
     OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
     OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-## `httpcore2` 2.12.0
+## `httpcore2` 2.13.1
 
-Ecosystem: python. Declared licence: BSD-3-Clause. Source: https://files.pythonhosted.org/packages/d2/74/d370e55600d9bcfa0d9794b0166126d49291a3d2b20c268fc98c453a4948/httpcore2-2.12.0-py3-none-any.whl
+Ecosystem: python. Declared licence: BSD-3-Clause. Source: https://files.pythonhosted.org/packages/09/ba/a4568248771ce81957bfb7cc600264a40fbcda092391ee1c415c50be4bea/httpcore2-2.13.1-py3-none-any.whl
 
-File: httpcore2-2.12.0.dist-info/licenses/LICENSE.md
+File: httpcore2-2.13.1.dist-info/licenses/LICENSE.md
 
     Copyright © 2026 to present Pydantic Services Inc. and individual contributors.
     Copyright © 2020, [Encode OSS Ltd](https://www.encode.io/).
@@ -6936,11 +6936,11 @@ File: httpx-0.28.1.dist-info/licenses/LICENSE.md
 
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-## `httpx2` 2.12.0
+## `httpx2` 2.13.1
 
-Ecosystem: python. Declared licence: BSD-3-Clause. Source: https://files.pythonhosted.org/packages/c8/95/411ba65569158e862368917aaf56597f3e5fa3b91b0502919638465a08f3/httpx2-2.12.0-py3-none-any.whl
+Ecosystem: python. Declared licence: BSD-3-Clause. Source: https://files.pythonhosted.org/packages/d8/9c/6fe8931fd9f381042a9e4c7d5a7b4cbf7016b252bec0c99a49fce42c3326/httpx2-2.13.1-py3-none-any.whl
 
-File: httpx2-2.12.0.dist-info/licenses/LICENSE.md
+File: httpx2-2.13.1.dist-info/licenses/LICENSE.md
 
     Copyright © 2026 to present Pydantic Services Inc. and individual contributors.
     Copyright © 2019, [Encode OSS Ltd](https://www.encode.io/).

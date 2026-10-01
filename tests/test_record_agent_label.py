@@ -240,10 +240,10 @@ def test_the_label_sidecar_withholds_the_operational_keys(
 def test_migration_nine_is_numbered_nine_and_idempotent(tmp_path: Path) -> None:
     database = Database.connect(tmp_path / "idempotent.sqlite3")
     try:
-        assert run_migrations(database) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert run_migrations(database) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         assert run_migrations(database) == []
-        assert applied_migrations(database) == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
-        assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+        assert applied_migrations(database) == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+        assert {m.number for m in MIGRATIONS} == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
     finally:
         database.close()
 
@@ -354,7 +354,7 @@ def test_the_backfill_attributes_a_pre_existing_agent_write(tmp_path: Path) -> N
             entity_type="record",
             action="update",
         )
-        assert run_migrations(db) == [9, 10, 11, 12]
+        assert run_migrations(db) == [9, 10, 11, 12, 13]
         assert _mark(db, rid) == label_id
     finally:
         db.close()
@@ -386,7 +386,7 @@ def test_the_backfill_ignores_a_comment_by_a_different_hand(tmp_path: Path) -> N
             entity_type="comment",
             action="create",
         )
-        assert run_migrations(db) == [9, 10, 11, 12]
+        assert run_migrations(db) == [9, 10, 11, 12, 13]
         assert _mark(db, rid) is None
     finally:
         db.close()
@@ -417,7 +417,7 @@ def test_the_backfill_ignores_a_link_and_a_delete(tmp_path: Path) -> None:
                 entity_type=entity_type,
                 action=action,
             )
-        assert run_migrations(db) == [9, 10, 11, 12]
+        assert run_migrations(db) == [9, 10, 11, 12, 13]
         assert _mark(db, rid) is None
     finally:
         db.close()
@@ -445,7 +445,7 @@ def test_the_backfill_takes_the_newest_field_write_not_the_first(tmp_path: Path)
             entity_type="record",
             action="update",
         )
-        assert run_migrations(db) == [9, 10, 11, 12]
+        assert run_migrations(db) == [9, 10, 11, 12, 13]
         assert _mark(db, rid) is None
     finally:
         db.close()

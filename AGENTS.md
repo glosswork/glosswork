@@ -44,6 +44,7 @@ Operator CLI:
 | Set a principal's role | `uv run python -m glosswork.admin set-role --principal <email> --role creator` |
 | Grant access to one type | `uv run python -m glosswork.admin grant --type <key> --principal <email> --level <none\|read\|write\|admin>` |
 | Revoke / list grants | `uv run python -m glosswork.admin revoke --type <key> --principal <email>`, `list-grants --type <key>` |
+| Reset an address's emailed sign-in codes | `uv run python -m glosswork.admin clear-sign-in-codes --email <address>` |
 
 Performance measurement (see `docs/PERFORMANCE.md` for the order; `measure_fanout.py` is
 destructive, and a perf corpus seeded before `object_types.display_field_key` existed cannot be

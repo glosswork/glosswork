@@ -30,6 +30,7 @@ from glosswork.repositories.models import (
     GrantRow,
     IndexCounts,
     IndexSource,
+    InviteRow,
     KeywordHit,
     LinkRow,
     ObjectType,
@@ -38,6 +39,7 @@ from glosswork.repositories.models import (
     RecordRow,
     SavedViewRow,
     SessionRow,
+    SignInCodeRow,
     VectorHit,
     VectorPool,
 )
@@ -1973,6 +1975,170 @@ class SqliteSessionRepository:
             expires_at=row["expires_at"],
             last_seen_at=row["last_seen_at"],
             revoked_at=row["revoked_at"],
+        )
+
+
+class SqliteSignInCodeRepository:
+    """``sign_in_codes`` (docs/DATA_MODEL.md section 2, change 9)."""
+
+    def insert(self, conn: Connection, row: SignInCodeRow) -> None:
+        conn.execute(
+            text(
+                "INSERT INTO sign_in_codes (id, email, code_hash, created_at, expires_at, "
+                "attempts, consumed_at, sent) VALUES (:id, :email, :code_hash, :created_at, "
+                ":expires_at, :attempts, :consumed_at, :sent)"
+            ),
+            {
+                "id": row.id,
+                "email": row.email,
+                "code_hash": row.code_hash,
+                "created_at": row.created_at,
+                "expires_at": row.expires_at,
+                "attempts": row.attempts,
+                "consumed_at": row.consumed_at,
+                "sent": 1 if row.sent else 0,
+            },
+        )
+
+    def count_for_email_since(self, conn: Connection, email: str, since: str) -> int:
+        count = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM sign_in_codes WHERE email = :email AND created_at >= :since"
+            ),
+            {"email": email, "since": since},
+        ).scalar_one()
+        return int(count)
+
+    def count_unsent_since(self, conn: Connection, since: str) -> int:
+        count = conn.execute(
+            text("SELECT COUNT(*) FROM sign_in_codes WHERE sent = 0 AND created_at >= :since"),
+            {"since": since},
+        ).scalar_one()
+        return int(count)
+
+    def list_live_for_email(self, conn: Connection, email: str, now: str) -> list[SignInCodeRow]:
+        """Unconsumed codes for one address that have not expired, oldest first."""
+        rows = conn.execute(
+            text(
+                "SELECT * FROM sign_in_codes WHERE email = :email AND consumed_at IS NULL "
+                "AND expires_at > :now ORDER BY created_at, id"
+            ),
+            {"email": email, "now": now},
+        ).mappings()
+        return [self._code(dict(r)) for r in rows]
+
+    def update_row(self, conn: Connection, code_id: str, changes: dict[str, Any]) -> None:
+        if not changes:
+            return
+        assignments = ", ".join(f"{column} = :{column}" for column in changes)
+        params: dict[str, Any] = dict(changes)
+        params["id"] = code_id
+        conn.execute(text(f"UPDATE sign_in_codes SET {assignments} WHERE id = :id"), params)
+
+    def delete_created_before(self, conn: Connection, cutoff: str) -> int:
+        result = conn.execute(
+            text("DELETE FROM sign_in_codes WHERE created_at < :cutoff"), {"cutoff": cutoff}
+        )
+        return int(result.rowcount or 0)
+
+    def delete_for_email(self, conn: Connection, email: str) -> int:
+        result = conn.execute(
+            text("DELETE FROM sign_in_codes WHERE email = :email"), {"email": email}
+        )
+        return int(result.rowcount or 0)
+
+    @staticmethod
+    def _code(row: dict[str, Any]) -> SignInCodeRow:
+        return SignInCodeRow(
+            id=row["id"],
+            email=row["email"],
+            code_hash=row["code_hash"],
+            created_at=row["created_at"],
+            expires_at=row["expires_at"],
+            attempts=int(row["attempts"]),
+            consumed_at=row["consumed_at"],
+            sent=bool(row["sent"]),
+        )
+
+
+class SqliteInviteRepository:
+    """``invites`` (docs/DATA_MODEL.md section 2, change 9)."""
+
+    def insert(self, conn: Connection, row: InviteRow) -> None:
+        conn.execute(
+            text(
+                "INSERT INTO invites (id, email, display_name, role, invited_by, created_at, "
+                "accepted_at, principal_id, revoked_at, revoked_by) VALUES (:id, :email, "
+                ":display_name, :role, :invited_by, :created_at, :accepted_at, :principal_id, "
+                ":revoked_at, :revoked_by)"
+            ),
+            {
+                "id": row.id,
+                "email": row.email,
+                "display_name": row.display_name,
+                "role": row.role,
+                "invited_by": row.invited_by,
+                "created_at": row.created_at,
+                "accepted_at": row.accepted_at,
+                "principal_id": row.principal_id,
+                "revoked_at": row.revoked_at,
+                "revoked_by": row.revoked_by,
+            },
+        )
+
+    def get(self, conn: Connection, invite_id: str) -> InviteRow | None:
+        row = (
+            conn.execute(text("SELECT * FROM invites WHERE id = :id"), {"id": invite_id})
+            .mappings()
+            .first()
+        )
+        return None if row is None else self._invite(dict(row))
+
+    def get_open_by_email(self, conn: Connection, email: str) -> InviteRow | None:
+        row = (
+            conn.execute(
+                text(
+                    "SELECT * FROM invites WHERE email = :email AND accepted_at IS NULL "
+                    "AND revoked_at IS NULL"
+                ),
+                {"email": email},
+            )
+            .mappings()
+            .first()
+        )
+        return None if row is None else self._invite(dict(row))
+
+    def list_open(self, conn: Connection) -> list[InviteRow]:
+        """Open invites, newest first."""
+        rows = conn.execute(
+            text(
+                "SELECT * FROM invites WHERE accepted_at IS NULL AND revoked_at IS NULL "
+                "ORDER BY created_at DESC, id"
+            )
+        ).mappings()
+        return [self._invite(dict(r)) for r in rows]
+
+    def update_row(self, conn: Connection, invite_id: str, changes: dict[str, Any]) -> None:
+        if not changes:
+            return
+        assignments = ", ".join(f"{column} = :{column}" for column in changes)
+        params: dict[str, Any] = dict(changes)
+        params["id"] = invite_id
+        conn.execute(text(f"UPDATE invites SET {assignments} WHERE id = :id"), params)
+
+    @staticmethod
+    def _invite(row: dict[str, Any]) -> InviteRow:
+        return InviteRow(
+            id=row["id"],
+            email=row["email"],
+            display_name=row["display_name"],
+            role=row["role"],
+            invited_by=row["invited_by"],
+            created_at=row["created_at"],
+            accepted_at=row["accepted_at"],
+            principal_id=row["principal_id"],
+            revoked_at=row["revoked_at"],
+            revoked_by=row["revoked_by"],
         )
 
 

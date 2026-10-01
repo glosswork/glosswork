@@ -1,0 +1,5 @@
+POST https://api.glosswork.dev/v1/relay/send
+Authorization: Bearer RELAY_TOKEN_PLACEHOLDER_NOT_A_CREDENTIAL
+Content-Type: application/json
+
+{"message_id":"3f1c2a9e-7b4d-4e8a-9c1f-5d6e7a8b9c0d","template":"sign_in_code","to":"ada@example.com","fields":{"code":"004217","code_expires_at":"2026-09-29T15:25:00Z"}}

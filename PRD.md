@@ -402,7 +402,8 @@ Full tool catalog: [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
   the **source address alone** (DD-14), because varying the email would otherwise buy a fresh
   bucket and a full Argon2id verification on every request. Both are counted before
   the credential is looked up, so neither can become an account-existence oracle; a successful
-  login clears the pair window only.
+  login clears the pair window only. A hosted workspace may sign people in by emailed code instead
+  (FR-I18); password sign-in is then off, and the bootstrap claim's password is one nobody holds.
 - **FR-I2.** OIDC group-to-role mapping is configurable, so Okta group membership can grant the
   administrator role (`GW_OIDC_ADMIN_GROUPS`) and the creator role
   (`GW_OIDC_CREATOR_GROUPS`); `admin` wins when an identity is in both, and an unmatched identity
@@ -476,6 +477,21 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
   active local account's from its row on `/people`, never their own. Every change revokes every token
   and every other session the account holds, and a self-change loses a race with a reset (DD-13). An
   identity-provider account sees a sentence instead of a form.
+- **FR-I18.** **A hosted workspace signs people in by emailed code** (DD-45). With `GW_RELAY_URL`
+  and `GW_RELAY_TOKEN` set, a person enters an email address on the sign-in page and signs in with
+  a six-digit code the workspace asks the hosting control plane's relay to email. A code works for
+  ten minutes, once; five wrong guesses spend an address's live codes; an address is sent at most
+  five codes an hour and twenty a day, counted in the database; requests and verifications count
+  in the login limiter's two windows. The request answers the same whether or not the address can
+  sign in. The relay is the only sender: there is no SMTP option, and a workspace without the two
+  settings behaves exactly as before. `clear-sign-in-codes` resets an address's count.
+- **FR-I19.** **An administrator invites a person by email and role** from People & agents, on a
+  workspace that signs people in by code. An invite is its own list: no person exists until the
+  address first signs in with a code, which creates them (or reactivates the same principal, for a
+  removed local person) with the invited role. An invite lives fourteen days and only while its
+  inviter is an active administrator, and can be revoked, including while the workspace is
+  read-only. Removing a person ends their sessions and revokes their tokens at once, and a code
+  sent before the removal no longer signs them in.
 
 ### 6.10 Audit
 

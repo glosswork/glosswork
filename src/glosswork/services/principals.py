@@ -402,7 +402,12 @@ class PrincipalService:
         )
 
     def create_user_in_txn(
-        self, conn: Connection, actor: ActorContext, row: PrincipalRow
+        self,
+        conn: Connection,
+        actor: ActorContext,
+        row: PrincipalRow,
+        *,
+        source: str | None = None,
     ) -> PrincipalRow:
         """The insert and its audit row, on a transaction the caller owns (DD-22).
 
@@ -410,21 +415,70 @@ class PrincipalService:
         been refused already and nothing here can raise a validation error with the
         writer lock held. A nested ``db.write()`` would take a second connection and
         deadlock on that lock, which is why this takes ``conn`` rather than opening one.
+
+        ``source`` joins the audit row's note when the person was made by something other
+        than an administrator's direct act: ``invite accepted`` for a first code sign-in.
         """
         self._insert(conn, row)
+        details: dict[str, Any] = {"type": "user", "role": row.role}
+        if source is not None:
+            details["source"] = source
         self._audit.append(
             conn,
-            [
-                self._event(
-                    actor,
-                    row.created_at,
-                    row,
-                    "create",
-                    {"type": "user", "role": row.role},
-                )
-            ],
+            [self._event(actor, row.created_at, row, "create", details)],
         )
         return row
+
+    def reactivate_in_txn(
+        self,
+        conn: Connection,
+        actor: ActorContext,
+        principal: PrincipalRow,
+        *,
+        role: str,
+        ts: str,
+        source: str,
+    ) -> PrincipalRow:
+        """Bring a removed person back, on a transaction the caller owns (change 9).
+
+        The one way back from ``deactivate_principal``: an administrator invites the
+        removed person's address, and their first code sign-in reactivates this same
+        principal with the invite's role, so their history stays theirs. Audited as
+        ``principal update`` of ``is_active`` and, when it changes, ``role``, each noted
+        with ``source``. Nothing was left to revoke: removal already revoked every token
+        and session."""
+        self._require_role(role)
+        changes: dict[str, Any] = {"is_active": 1}
+        note = {"source": source}
+        events = [
+            self._event(
+                actor,
+                ts,
+                principal,
+                "update",
+                note,
+                field_key="is_active",
+                old_value=False,
+                new_value=True,
+            )
+        ]
+        if role != principal.role:
+            changes["role"] = role
+            events.append(
+                self._event(
+                    actor,
+                    ts,
+                    principal,
+                    "update",
+                    note,
+                    field_key="role",
+                    old_value=principal.role,
+                    new_value=role,
+                )
+            )
+        self._principals.update_row(conn, principal.id, changes)
+        self._audit.append(conn, events)
+        return self._require(conn, principal.id)
 
     def create_service_account(
         self,

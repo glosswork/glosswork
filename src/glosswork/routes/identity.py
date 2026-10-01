@@ -16,13 +16,15 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from glosswork.actor import ActorContext
 from glosswork.api_deps import get_actor, get_services, source_ip
 from glosswork.cookies import SESSION_COOKIE_NAME
 from glosswork.envelopes import (
     access_token_doc,
+    invite_doc,
+    invite_email_doc,
     me_doc,
     principal_directory_doc,
     principal_doc,
@@ -32,6 +34,7 @@ from glosswork.errors import ValidationFailedError
 from glosswork.scopes import require_role, require_scope
 from glosswork.services import ServiceBundle
 from glosswork.services.principals import DIRECTORY_DEFAULT_LIMIT
+from glosswork.services.relay import MAX_ADDRESS_LENGTH
 from glosswork.services.sessions import hash_session_value
 
 router = APIRouter(prefix="/api/v1", tags=["identity"])
@@ -62,6 +65,12 @@ class SetPasswordBody(BaseModel):
 class ChangeOwnPasswordBody(BaseModel):
     current_password: str
     new_password: str
+
+
+class CreateInviteBody(BaseModel):
+    email: str = Field(max_length=MAX_ADDRESS_LENGTH)
+    display_name: str
+    role: str = "member"
 
 
 class MintAccessTokenBody(BaseModel):
@@ -286,6 +295,33 @@ def set_principal_password(
         actor, principal_id, body.password, keep_session_hash=keep_session_hash
     )
     return principal_doc(principal)
+
+
+# --------------------------------------------------------------------------- invites
+#
+# Change 9. All three answer ``feature_disabled`` unless the relay is configured, which
+# ``InviteService`` decides (DD-3). Revoking stays open while the workspace is read-only
+# (``scopes.READ_ONLY_OPEN_ROUTES``), beside removing a person and for the same reason.
+
+
+@router.get("/invites", dependencies=[require_scope("admin"), require_role("admin")])
+def list_invites(services: ServicesDep) -> dict[str, Any]:
+    return {"invites": [invite_doc(i) for i in services.invites.list_live()]}
+
+
+@router.post(
+    "/invites", status_code=201, dependencies=[require_scope("admin"), require_role("admin")]
+)
+def create_invite(body: CreateInviteBody, actor: ActorDep, services: ServicesDep) -> dict[str, Any]:
+    invite, result = services.invites.create_invite(
+        actor, email=body.email, display_name=body.display_name, role=body.role
+    )
+    return {"invite": invite_doc(invite), "email": invite_email_doc(result)}
+
+
+@router.delete("/invites/{invite_id}", dependencies=[require_scope("admin"), require_role("admin")])
+def revoke_invite(invite_id: str, actor: ActorDep, services: ServicesDep) -> dict[str, Any]:
+    return invite_doc(services.invites.revoke_invite(actor, invite_id))
 
 
 # --------------------------------------------------------------------- access tokens

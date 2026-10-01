@@ -26,9 +26,17 @@ export interface CurrentPrincipal {
   auth_provider: "local" | "oidc" | null;
 }
 
+/** `GET /api/v1/auth/modes`. `email_code` is true on a hosted workspace that signs people in
+ * by emailed code (change 9); `standalone` is then false, because password sign-in is off. */
 export interface AuthModes {
   standalone: boolean;
   oidc: boolean;
+  email_code: boolean;
+}
+
+/** `POST /api/v1/auth/code/request`: always the same sentence, whatever the address. */
+export interface CodeRequestAnswer {
+  message: string;
 }
 
 export function getCurrentPrincipal(): Promise<CurrentPrincipal> {
@@ -43,6 +51,22 @@ export function login(email: string, password: string): Promise<CurrentPrincipal
   return apiRequest<CurrentPrincipal>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
+  });
+}
+
+/** Ask for a sign-in code. The answer never says whether the address can sign in. */
+export function requestSignInCode(email: string): Promise<CodeRequestAnswer> {
+  return apiRequest<CodeRequestAnswer>("/auth/code/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Sign in with an emailed code; answers exactly as `login` does. */
+export function verifySignInCode(email: string, code: string): Promise<CurrentPrincipal> {
+  return apiRequest<CurrentPrincipal>("/auth/code/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
   });
 }
 

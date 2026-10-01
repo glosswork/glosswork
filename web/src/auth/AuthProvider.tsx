@@ -12,6 +12,7 @@ import {
   getCurrentPrincipal,
   login as loginRequest,
   logout as logoutRequest,
+  verifySignInCode,
   type CurrentPrincipal,
 } from "../api/auth";
 import { AuthContext, type AuthContextValue, type AuthStatus } from "./authContext";
@@ -64,6 +65,12 @@ export function AuthProvider({ children, initialPrincipal }: AuthProviderProps) 
     setStatus("authenticated");
   }, []);
 
+  const loginWithCode = useCallback(async (email: string, code: string) => {
+    const me = await verifySignInCode(email, code);
+    setPrincipal(me);
+    setStatus("authenticated");
+  }, []);
+
   const logout = useCallback(async () => {
     await logoutRequest();
     setPrincipal(null);
@@ -71,8 +78,8 @@ export function AuthProvider({ children, initialPrincipal }: AuthProviderProps) 
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, principal, login, logout }),
-    [status, principal, login, logout],
+    () => ({ status, principal, login, loginWithCode, logout }),
+    [status, principal, login, loginWithCode, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -46,14 +46,14 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
     database = Database.connect(tmp_path / "fresh.sqlite3")
     try:
         first_run = run_migrations(database)
-        assert first_run == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert first_run == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
         second_run = run_migrations(database)
         assert second_run == []
 
         with database.read() as conn:
             rows = conn.execute(text("SELECT number FROM schema_migrations")).all()
-        assert [row[0] for row in rows] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert [row[0] for row in rows] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     finally:
         database.close()
 
@@ -71,7 +71,7 @@ def test_readyz_reports_pending_migrations_then_ready(tmp_path: Path) -> None:
     with TestClient(unmigrated_app) as client:
         response = client.get("/readyz")
     assert response.status_code == 503
-    assert response.json()["pending_migrations"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    assert response.json()["pending_migrations"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
     migrated_app = create_app(settings)
     with TestClient(migrated_app) as client:

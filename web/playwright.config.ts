@@ -6,6 +6,12 @@ import {
   E2E_DATA_DIR,
   E2E_WORKSPACE_NAME,
   E2E_MODEL_DIR,
+  CODE_BASE_URL,
+  CODE_DATA_DIR,
+  CODE_PORT,
+  RELAY_BASE_URL,
+  RELAY_PORT,
+  RELAY_TOKEN,
   E2E_PORT,
   OIDC_ADMIN_GROUP,
   OIDC_CLIENT_ID,
@@ -195,6 +201,41 @@ export default defineConfig({
         GW_OIDC_CLIENT_ID: OIDC_CLIENT_ID,
         GW_OIDC_CLIENT_SECRET: OIDC_CLIENT_SECRET,
         GW_OIDC_ADMIN_GROUPS: OIDC_ADMIN_GROUP,
+      },
+    },
+    {
+      // The fake relay (change 9), the one enforcer of the relay request's definition, run as a
+      // process. `GET /sent` is its test-only record of every message it accepted, which is
+      // how `email-code.spec.ts` reads the code a person would read in their inbox.
+      command: `bash -c "cd .. && uv run python -m tests.fake_relay --port ${RELAY_PORT} --token ${RELAY_TOKEN}"`,
+      url: `${RELAY_BASE_URL}/sent`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      // A hosted workspace: sign-in by emailed code through the fake relay above. Embedding is
+      // off because nothing here searches, and this server's only spec is
+      // `email-code.spec.ts`. The visual project never reaches it, so no baseline repaints.
+      command: `bash -c "npm run build && cd .. && uv run uvicorn glosswork.app:app --port ${CODE_PORT}"`,
+      url: `${CODE_BASE_URL}/healthz`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        GW_DATA_DIR: CODE_DATA_DIR,
+        GW_LOGIN_IP_MAX_ATTEMPTS: "1000",
+        GW_EMBEDDING_ENABLED: "false",
+        GW_BOOTSTRAP_ADMIN_EMAIL: E2E_ADMIN_EMAIL,
+        GW_BOOTSTRAP_ADMIN_PASSWORD: E2E_ADMIN_PASSWORD,
+        GW_COOKIE_SECURE: "false",
+        GW_AUTH_MODE: "standalone",
+        GW_BASE_URL: CODE_BASE_URL,
+        GW_WORKSPACE_NAME: E2E_WORKSPACE_NAME,
+        GW_RELAY_URL: `${RELAY_BASE_URL}/v1/relay/send`,
+        GW_RELAY_TOKEN: RELAY_TOKEN,
       },
     },
   ],

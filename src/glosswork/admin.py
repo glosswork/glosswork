@@ -29,6 +29,7 @@ Usage::
     python -m glosswork.admin grant --type task --principal you@example.com --level admin
     python -m glosswork.admin revoke --type task --principal you@example.com
     python -m glosswork.admin list-grants --type task
+    python -m glosswork.admin clear-sign-in-codes --email person@example.com
 
 Delegating an object type to a colleague is **two** steps, not one::
 
@@ -316,6 +317,20 @@ def _resolve_principal(services: ServiceBundle, ref: str) -> Any:
 
 _Command = Callable[[argparse.Namespace, Settings], int]
 
+
+def _cmd_clear_sign_in_codes(args: argparse.Namespace, settings: Settings) -> int:
+    """The recovery for a person locked out of sign-in by emailed code (change 9, DQ4):
+    someone spent their address's hourly or daily allowance. Deleting the address's code
+    rows resets its count; nothing else is touched."""
+    db, services = _open_services(settings)
+    try:
+        deleted = services.sign_in_codes.clear_codes(args.email)
+        print(f"Deleted {deleted} sign-in code rows for {args.email.strip().lower()}")
+        return 0
+    finally:
+        db.close()
+
+
 _COMMANDS: dict[str, _Command] = {
     "create-admin": _cmd_create_admin,
     "mint-token": _cmd_mint_token,
@@ -325,6 +340,7 @@ _COMMANDS: dict[str, _Command] = {
     "grant": _cmd_grant,
     "revoke": _cmd_revoke,
     "list-grants": _cmd_list_grants,
+    "clear-sign-in-codes": _cmd_clear_sign_in_codes,
 }
 
 
@@ -427,6 +443,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "list-grants", help="List every grant on one object type, and its default."
     )
     list_grants.add_argument("--type", required=True, help="Object type key.")
+
+    clear_codes = subparsers.add_parser(
+        "clear-sign-in-codes",
+        help=(
+            "Delete an address's emailed sign-in codes, which resets how many it may be "
+            "sent. The recovery for a person locked out by someone asking for codes."
+        ),
+    )
+    clear_codes.add_argument("--email", required=True)
 
     return parser
 

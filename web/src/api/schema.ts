@@ -795,6 +795,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Invites */
+        get: operations["list_invites_api_v1_invites_get"];
+        put?: never;
+        /** Create Invite */
+        post: operations["create_invite_api_v1_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Invite */
+        delete: operations["revoke_invite_api_v1_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/access-tokens": {
         parameters: {
             query?: never;
@@ -853,6 +888,49 @@ export interface paths {
         get: operations["auth_modes_api_v1_auth_modes_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/code/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Sign In Code
+         * @description Ask for a sign-in code (change 9). Always the same ``202`` and sentence, whatever
+         *     the address: the attempt is counted in the login limiter before anything is looked
+         *     up, and the rest runs after the answer is sent.
+         */
+        post: operations["request_sign_in_code_api_v1_auth_code_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/code/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Sign In Code
+         * @description Sign in with an emailed code (change 9), answering exactly as ``/login`` does. Every
+         *     failure is one ``401 invalid_credentials`` with one message.
+         */
+        post: operations["verify_sign_in_code_api_v1_auth_code_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1308,6 +1386,18 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** CodeRequestBody */
+        CodeRequestBody: {
+            /** Email */
+            email: string;
+        };
+        /** CodeVerifyBody */
+        CodeVerifyBody: {
+            /** Email */
+            email: string;
+            /** Code */
+            code: string;
+        };
         /** CommentBody */
         CommentBody: {
             /**
@@ -1315,6 +1405,18 @@ export interface components {
              * @description Markdown comment body (FR-C3).
              */
             body: string;
+        };
+        /** CreateInviteBody */
+        CreateInviteBody: {
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Role
+             * @default member
+             */
+            role: string;
         };
         /** CreateObjectTypeBody */
         CreateObjectTypeBody: {
@@ -3573,6 +3675,96 @@ export interface operations {
             };
         };
     };
+    list_invites_api_v1_invites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    create_invite_api_v1_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInviteBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invite_api_v1_invites__invite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_access_tokens_api_v1_access_tokens_get: {
         parameters: {
             query?: {
@@ -3692,6 +3884,74 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    request_sign_in_code_api_v1_auth_code_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_sign_in_code_api_v1_auth_code_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeVerifyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

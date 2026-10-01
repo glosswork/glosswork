@@ -17,7 +17,8 @@ import { DEFAULT_TEST_PRINCIPAL } from "./renderWithProviders";
 import type { AgentLabelDoc } from "../api/agentLabels";
 import type { PrincipalDoc, PrincipalRole } from "../api/principals";
 import type { AccessTokenDoc, MintedAccessTokenDoc } from "../api/accessTokens";
-import type { CurrentPrincipal } from "../api/auth";
+import type { AuthModes, CurrentPrincipal } from "../api/auth";
+import type { CreatedInvite, InviteDoc, InviteEmailResult } from "../api/invites";
 import type { SearchIndexStatus } from "../api/searchIndex";
 
 export const TEST_PRINCIPAL_ID = DEFAULT_TEST_PRINCIPAL.id;
@@ -171,6 +172,11 @@ export const stores = {
   accessTokens: [] as AccessTokenDoc[],
   searchIndexStatus: defaultSearchIndexStatus,
   reindexEnqueued: 42,
+  /** `GET /api/v1/auth/modes`. A password workspace unless a test turns `email_code` on. */
+  modes: { standalone: true, oidc: false, email_code: false } as AuthModes,
+  /** Pending invites, and what the next invite's email comes to (change 9). */
+  invites: [] as InviteDoc[],
+  inviteEmail: { outcome: "accepted", message: "Invite sent." } as InviteEmailResult,
   /** Every path a handler answered this test, in order. `AgentLabelsTable` is the reason: one
    * assertion is about which requests a role does NOT make, and the only way to assert an absence
    * is to record the presences. */
@@ -187,10 +193,40 @@ export function resetIdentityStores(): void {
     failed_jobs: defaultSearchIndexStatus.failed_jobs.map((job) => ({ ...job })),
   };
   stores.reindexEnqueued = 42;
+  stores.modes = { standalone: true, oidc: false, email_code: false };
+  stores.invites = [];
+  stores.inviteEmail = { outcome: "accepted", message: "Invite sent." };
   stores.requests = [];
 }
 
 export const identityHandlers = [
+  http.get("/api/v1/auth/modes", () => HttpResponse.json(stores.modes)),
+  http.get("/api/v1/invites", () => {
+    stores.requests.push("/invites");
+    return HttpResponse.json({ invites: stores.invites });
+  }),
+  http.post("/api/v1/invites", async ({ request }) => {
+    const body = (await request.json()) as { email: string; display_name: string; role: string };
+    const invite: InviteDoc = {
+      id: `invite-${stores.invites.length + 1}`,
+      email: body.email,
+      display_name: body.display_name,
+      role: body.role as PrincipalRole,
+      invited_by: TEST_PRINCIPAL_ID,
+      created_at: "2026-09-29T15:00:00Z",
+      expires_at: "2026-10-13T15:00:00Z",
+      accepted_at: null,
+      revoked_at: null,
+    };
+    stores.invites = [invite, ...stores.invites];
+    const created: CreatedInvite = { invite, email: stores.inviteEmail };
+    return HttpResponse.json(created, { status: 201 });
+  }),
+  http.delete("/api/v1/invites/:id", ({ params }) => {
+    const target = stores.invites.find((invite) => invite.id === params.id);
+    stores.invites = stores.invites.filter((invite) => invite.id !== params.id);
+    return HttpResponse.json({ ...target, revoked_at: "2026-09-29T16:00:00Z" });
+  }),
   http.get("/api/v1/principals", ({ request }) => {
     stores.requests.push("/principals");
     const url = new URL(request.url);

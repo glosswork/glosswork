@@ -71,6 +71,9 @@ CAPABILITY_CREDENTIAL_STATE = "gw_capability_credential_id"
 #   (``DELETE /api/v1/auth/session``) is not here: it runs only once a real credential
 #   (session or PAT) has resolved and declares ``read`` like any other authenticated
 #   route.
+# - /api/v1/auth/code/request, /api/v1/auth/code/verify (change 9): sign-in by emailed
+#   code, the same pre-authentication case as ``/login``. Both answer ``feature_disabled``
+#   unless the relay is configured.
 # - /api/v1/bootstrap (DD-37): exchanges ``GW_BOOTSTRAP_SECRET`` for the first
 #   administrator's account and token. The first exemption here that is not an
 #   auth-flow route, and the argument is the same one: on a deployment with no user in
@@ -98,6 +101,8 @@ SCOPE_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/api/v1/auth/oidc/start",
         "/api/v1/auth/oidc/callback",
         "/api/v1/auth/modes",
+        "/api/v1/auth/code/request",
+        "/api/v1/auth/code/verify",
         "/api/v1/bootstrap",
         "/api/v1/usage",
     }
@@ -117,6 +122,9 @@ SCOPE_EXEMPT_PATHS: frozenset[str] = frozenset(
 # - Changing one's own password, and deactivating a principal, for the same reason.
 #   An administrator resetting *another* person's password stays refused; deactivating
 #   that person is the containment action that stays open.
+# - Revoking an invite (change 9), for that same containment reason: accepting an invite
+#   is a sign-in, and sign-in stays open while frozen, so an administrator must be able
+#   to stop one.
 #
 # Every other non-GET route that declares above ``read`` is refused. Credential-exempt
 # routes (sign-in, OIDC, bootstrap, ``/mcp`` itself) never reach a scope dependency and
@@ -128,6 +136,7 @@ READ_ONLY_OPEN_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("DELETE", "/api/v1/access-tokens/{token_id}"),
         ("POST", "/api/v1/me/password"),
         ("DELETE", "/api/v1/principals/{principal_id}"),
+        ("DELETE", "/api/v1/invites/{invite_id}"),
     }
 )
 
@@ -148,7 +157,7 @@ class RouteScope:
 class RouteRole:
     """One route's declared system role. Separate from
     :class:`RouteScope` because a role declaration is optional on every route and
-    present on exactly twelve, where a scope declaration is required on all of them."""
+    present on exactly fifteen, where a scope declaration is required on all of them."""
 
     method: str
     path: str

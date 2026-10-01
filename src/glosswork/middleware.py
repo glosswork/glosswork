@@ -187,12 +187,17 @@ class McpPayloadEnvelope:
 # accepts is deliberately not one the edge can resolve. It reads `X-Operator-Token` and
 # compares it with `GW_OPERATOR_TOKEN`, so a workspace `admin` PAT -- the highest thing a
 # tenant can mint -- is refused exactly as an anonymous caller is.
+#
+# `/api/v1/auth/code/request` and `/api/v1/auth/code/verify` (change 9) are sign-in by
+# emailed code: auth-flow routes like `/login`, with no credential yet by design.
 AUTH_PUBLIC_PATHS = frozenset(
     {
         "/api/v1/auth/login",
         "/api/v1/auth/oidc/start",
         "/api/v1/auth/oidc/callback",
         "/api/v1/auth/modes",
+        "/api/v1/auth/code/request",
+        "/api/v1/auth/code/verify",
         "/api/v1/bootstrap",
         "/api/v1/usage",
     }
