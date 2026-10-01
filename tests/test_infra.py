@@ -348,6 +348,11 @@ def test_entrypoint_serves_one_process_even_when_web_concurrency_asks_for_two(
 
     entrypoint.main()
 
-    config = uvicorn.Config("glosswork.app:app", workers=captured.get("workers"))
+    # ``log_config=None`` as the entry point passes it: uvicorn's default would install
+    # its own handlers on the ``uvicorn`` loggers and break the JSON-logging tests after
+    # this one.
+    config = uvicorn.Config(
+        "glosswork.app:app", workers=captured.get("workers"), log_config=captured["log_config"]
+    )
     assert config.workers == 1
     assert captured["workers"] == 1
