@@ -100,8 +100,9 @@ as written: the scratch clone and its image were at that number.
 Customers read it. It is under "The changelog entry" below, in full, and it is the text
 the build writes, byte for byte. Three choices are inside it:
 
-- **It opens with an Upgrading paragraph although the number it is written for is a
-  `Z`.** The paragraph says a deployment set up as documented has nothing to do, and then
+- **It opens with an Upgrading paragraph. When this was written the number was 0.1.1, a
+  `Z`, which is what made the paragraph a choice; the number is now 0.2.0, a `Y`
+  (area 1).** The paragraph says a deployment set up as documented has nothing to do, and then
   names what to check (area 1). The alternative is no Upgrading paragraph, with the
   stray-name refusal folded into line 22. Recommended as written: an operator looks under
   Upgrading, and "nothing else to do" is itself worth saying.
@@ -686,7 +687,8 @@ changing what is proposed. The rest confirm, or record what is not established.
   changed, with an unapproved line appended under 0.1.0, and with an unapproved sentence
   added above the entry, all of AC3 passed. It did fail, as it should, on a missing
   line, a changed word, an extra space, the entry twice, the entry below 0.1.0, and a
-  heading reading `0.2.0`. *Disposition: the last check is replaced with
+  heading reading `0.2.0`, which was the wrong heading when this was measured: the plan
+  was then written for 0.1.1. *Disposition: the last check is replaced with
   `git diff --numstat`, whose added count must equal the entry's own line count and
   whose removed count must be 0. On the same copies it fails all three cases that
   passed before (one added line more than the entry has, or 1 removed) and passes the
@@ -747,6 +749,128 @@ changing what is proposed. The rest confirm, or record what is not established.
 Hub credential still works, which only a tag run exercises; how many included Actions
 minutes are left this month; and who, outside this project, runs 0.1.0.
 
+## Verification
+
+A separate session that wrote none of the plan and made none of the build's edits verified
+the branch at `b9fc533` on 2026-10-02, on this machine (arm64), with `GW_IMAGE` unset and
+a clean tree before, between and after. It ran the Accept block as the verification of
+record and changed nothing in the repository. **All ten criteria passed.** Its output is
+under "Final Accept output".
+
+What it checked beyond the block:
+
+- **The changelog entry is the approved text.** Compared with this plan as approved, at
+  `23ab7e3`, and not only with the plan on the branch: the fence there and the entry in
+  `CHANGELOG.md` are both 28 lines and 1885 bytes, `diff` shows one line, the heading
+  (`## 0.1.1` there, `## 0.2.0` here), and everything after the heading has the same
+  SHA-256 (`42ee5c66...`). The 0.1.0 entry and the lines above the first heading hash the
+  same as on `main`.
+- **The version is 0.2.0 everywhere a release sets it**, in `pyproject.toml`, the
+  `glosswork` entry of `uv.lock`, the changelog heading and the README's run line, and no
+  file outside this plan names 0.1.1. The Accept block at `b9fc533` is the approved one
+  with only area 1's substitution applied, so the build changed no check.
+- **`uv.lock` differs from `main` by its one line**, and 70 of 70 registry lines are PyPI.
+- **The dry run.** Actions run 37044863460, read from the API: `preflight`, `build-arm64`
+  and `build-amd64` `success`, `publish` `skipped`, the `container_tests` and notices
+  steps `success` in both builds, the sign-in and push steps `skipped`. Both registries
+  still hold only `0.1.0`.
+- **The preflight would accept `v0.2.0`, as far as can be shown before the merge.** The
+  workflow's two CI queries return 1 at `ac1b349` and 0 at `b9fc533`, so they can fail,
+  and a tag on the branch head would be refused.
+- **The Accept block fails on a wrong release.** In a scratch clone the block passed
+  unmodified and then failed on each of thirteen wrong releases: a wrong version in
+  `pyproject.toml`, in the lock line or in both; a wrong README tag; a wrong changelog
+  heading; an entry line removed; an entry sentence reworded; a word of the 0.1.0 entry
+  changed; a line appended under 0.1.0; a sentence above the entry; the 0.1.0 entry
+  deleted; a registry line pointed at another index; an extra committed file.
+
+**Two sentences of this plan read wrong under 0.2.0, and the verification raised both.**
+Area 2's first bullet called the number the entry is written for a `Z`, and 0.2.0 is a
+`Y`. F5 listed "a heading reading `0.2.0`" among the cases AC3 rightly failed on, which
+under 0.2.0 reads as if the correct heading fails. Neither changed a check or the release.
+Both are corrected in place at closeout, to say what was true when each was written.
+
+**Two limits of the Accept block, neither a fault in this release.** AC3 compares the
+changelog with the plan on the same branch, so it passes if both are reworded the same
+way; the comparison with `23ab7e3` above closes that here. Once this file is deleted, AC3's
+`diff` and its line count have nothing to read, and the comparison to repeat is the one
+with the fence at `23ab7e3`. And AC1's `uv run` re-locks a stale lockfile before AC2 reads
+it, so on a wrong version AC2 fails by reporting the rewrite, not the wrong number.
+
+**Not established by the verification.** CI on the pull request and on `main` for the
+merge commit, neither of which existed. The 0.2.0 tree on `linux/amd64` and on the release
+runners: the dry run tested `ac1b349`, which differs from this tree in the version string
+and documents only, and the tag run tests it again before it publishes. That the Docker
+Hub credential still works. AC6's after-closeout form, which the closeout runs.
+
+## Final Accept output
+
+The verifying session's run at `b9fc533`, 2026-10-02, from the repository root. AC7 to AC9
+are its saved output. AC1 to AC6 and AC10 are as its report gives them. Every exit code is
+the command's own, read with no pipe.
+
+```
+HEAD b9fc53353283e25756c8aa378868e34dc97fc72e      git status --short: (prints nothing)
+--- AC1   uv run python -c '...tomllib...["project"]["version"]'
+0.2.0
+exit=0
+--- AC2   uv lock --check
+Resolved 71 packages
+exit=0
+          added lines 1, removed lines 1, the added line: +version = "0.2.0"
+          registry lines naming PyPI 70, registry lines 70
+--- AC3   first heading: ## 0.2.0      lines for 7, 9, 11, 20 and 22: 5
+          diff of the changelog's entry against this plan's fence: exit=0
+          git diff --numstat origin/main -- CHANGELOG.md: 28 0 CHANGELOG.md
+          lines in the fence: 28
+--- AC4   1 and 0
+--- AC5   v0.2.0 matches the workflow's pattern in bash; ${TAG#v} is 0.2.0
+--- AC6   git diff --name-only origin/main...HEAD      (the before-closeout form)
+CHANGELOG.md
+README.md
+docs/changes/24-release-after-0-1-0.md
+pyproject.toml
+uv.lock
+exit=0
+--- AC7   uv run pytest -q -m structural
+101 passed, 2117 deselected in 16.61s
+exit=0
+          uv run pytest -q tests/test_supply_chain.py tests/test_third_party_licenses.py
+11 passed in 0.12s
+exit=0
+--- AC8   uv run pytest -q
+2215 passed, 3 xfailed, 2 warnings in 288.99s (0:04:48)
+exit=0
+          uv run ruff check .            All checks passed!            exit=0
+          uv run ruff format --check .   263 files already formatted   exit=0
+--- AC9   uv run pytest -q -rs container_tests      (GW_IMAGE unset, clean tree)
+41 passed in 276.55s (0:04:36)      (no skip line under -rs)
+exit=0
+          docker run --rm --entrypoint python glosswork:container-test -c '...m.version("glosswork")'
+0.2.0
+exit=0
+          uv run python scripts/notices_coverage.py --image glosswork:container-test
+| Ecosystem | Packages | Covered | Not covered |
+| --- | --- | --- | --- |
+| python | 57 | 57 | 0 |
+| npm | 107 | 107 | 0 |
+exit=0
+          the image's revision label: b9fc53353283e25756c8aa378868e34dc97fc72e
+--- AC10  docker buildx imagetools inspect docker.io/glosswork/glosswork:0.2.0   (empty DOCKER_CONFIG)
+not found
+exit=1
+          gh api orgs/glosswork/packages/container/glosswork/versions --jq '... any(. == "0.2.0")'
+false
+exit=0
+```
+
+Fences, which cannot fail on a tree without this change and are not counted as coverage:
+AC7, AC8 and AC10. AC5 restates AC1 (F6).
+
+The closeout runs the block again on the branch's final head, with AC6 in its
+after-closeout form and AC3's comparison made against `23ab7e3`. That output is in the
+pull request, since this file is gone by then.
+
 ## Deviations from the approved plan
 
 - **The version is 0.2.0, not the 0.1.1 this plan was written for.** The maintainer's
@@ -765,6 +889,15 @@ minutes are left this month; and who, outside this project, runs 0.1.0.
   AC2 has no command that prints the lock line on an unchanged lockfile: what it showed
   on the unfixed tree is counts of 0 and 0 and an empty third command. Recorded above as
   observed.
+- **Two sentences of this plan were corrected at closeout.** The verification raised them:
+  area 2's first bullet and F5's list, as "Verification" sets out. Each now says what was
+  true when it was written. No command, criterion or line of the changelog entry changed.
+- **The `CONTRIBUTING.md` clause is added to the sentence that is already there.** "Durable
+  content" gives the whole sentence, with the changelog's name in backticks. The sentence
+  in "Releases" already reads that way word for word without the README clause, and its
+  mention of the changelog is a link. The closeout adds the clause, "names the new version
+  in the run line of `README.md`,", and leaves the link a link, so the words are the
+  approved ones and no link is removed that nobody asked to remove.
 
 No step was done out of order, and no step was changed.
 
@@ -775,3 +908,7 @@ paragraph: "It sets the new version in `pyproject.toml`, updates the `glosswork`
 in `uv.lock` to match, names the new version in the run line of `README.md`, and adds
 the version's entry to `CHANGELOG.md`." The changelog entry is itself durable and stays
 where the build puts it. Nothing else here outlives the change.
+
+The closeout's second commit makes that one edit to `CONTRIBUTING.md` and deletes this
+file. Its final text is the pull request's description, and the file stays readable in
+the commit before the one that deletes it.
