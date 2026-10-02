@@ -699,3 +699,23 @@ odds are about 1 in 10,000 per targeted address per day.
 
 **See.** `docs/DEPLOYMENT.md` section 5a; `PRD.md` FR-I18, FR-I19.
 
+
+### DD-46: A workspace's own TLS is all three settings or none, and it always carries the client-certificate lock
+
+With `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and `GW_TLS_CLIENT_CA_FILE` set, the entry point hands
+uvicorn the certificate, the key, the CA and `CERT_REQUIRED`, and a caller without a certificate
+chaining to that CA fails the TLS handshake before any request is read. With some set, or with any
+other name under `GW_TLS_` present, startup is refused. With none, the process serves plain HTTP
+as before, and nothing in the process can tell that from a lock that was meant and never arrived:
+whoever deploys it proves the lock from outside.
+
+**Why.** A workspace on a public address behind a proxy its operator does not run beside it needs
+to refuse everyone but that proxy, without a second process (FR-P1). The half states are silently
+open if passed through: a CA with no certificate serves plain HTTP to anyone, and a certificate
+with no CA serves TLS to anyone. A misspelt name is ignored by the settings loader, which is the
+same silence. A wide `GW_TRUSTED_PROXY_IPS` is safe only behind the lock, and `*` is not safe
+behind it either, because the lock decides who connects and not whose header is believed.
+
+**Held by.** `tests/test_config.py`, `tests/test_infra.py`, `container_tests/test_tls_lock.py`.
+
+**See.** `docs/DEPLOYMENT.md` section 4a.

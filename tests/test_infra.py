@@ -10,13 +10,21 @@ being disabled in favor of the application's JSON access log.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import ssl
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import uvicorn
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection, event, text
 
@@ -356,3 +364,315 @@ def test_entrypoint_serves_one_process_even_when_web_concurrency_asks_for_two(
     )
     assert config.workers == 1
     assert captured["workers"] == 1
+
+
+# ------------------------------------ the workspace's own TLS and its client lock
+#
+# Certificates are made here, at run time, and never committed. The container proof in
+# ``container_tests/test_tls_lock.py`` makes its own the same way: that directory runs
+# against a built image, at release and by hand, and stands on nothing in ``tests/``.
+
+TLS_VARIABLES = ("GW_TLS_CERT_FILE", "GW_TLS_KEY_FILE", "GW_TLS_CLIENT_CA_FILE")
+TLS_VERSIONS = (ssl.TLSVersion.TLSv1_3, ssl.TLSVersion.TLSv1_2)
+
+
+@dataclass(frozen=True)
+class Authority:
+    certificate: x509.Certificate
+    key: ec.EllipticCurvePrivateKey
+
+
+def _tls_authority(common_name: str) -> Authority:
+    """A self-signed certificate authority with a fresh key."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    now = datetime.now(UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    return Authority(certificate, key)
+
+
+def _tls_leaf(
+    authority: Authority, directory: Path, stem: str, *, server: bool = False
+) -> tuple[Path, Path]:
+    """A certificate signed by ``authority``, written with its key. Returns both paths."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    now = datetime.now(UTC)
+    usage = ExtendedKeyUsageOID.SERVER_AUTH if server else ExtendedKeyUsageOID.CLIENT_AUTH
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, stem)]))
+        .issuer_name(authority.certificate.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.ExtendedKeyUsage([usage]), critical=False)
+    )
+    if server:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName(
+                [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
+            critical=False,
+        )
+    certificate = builder.sign(authority.key, hashes.SHA256())
+    certificate_path = directory / f"{stem}.pem"
+    key_path = directory / f"{stem}.key"
+    certificate_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return certificate_path, key_path
+
+
+def _write_authority(authority: Authority, path: Path) -> Path:
+    path.write_bytes(authority.certificate.public_bytes(serialization.Encoding.PEM))
+    return path
+
+
+@dataclass(frozen=True)
+class TlsFiles:
+    """What a locked workspace is started with, and the clients that will call it."""
+
+    server_certificate: Path
+    server_key: Path
+    client_ca: Path
+    server_ca: Path
+    right_client: tuple[Path, Path]
+    other_ca_client: tuple[Path, Path]
+    same_name_client: tuple[Path, Path]
+
+
+def _tls_files(directory: Path) -> TlsFiles:
+    server_authority = _tls_authority("test server authority")
+    client_authority = _tls_authority("test client authority")
+    other_authority = _tls_authority("another client authority")
+    # A second authority carrying the first one's exact subject name and another key:
+    # a certificate it signs names the right issuer and must still be refused.
+    twin_authority = _tls_authority("test client authority")
+    server_certificate, server_key = _tls_leaf(server_authority, directory, "server", server=True)
+    return TlsFiles(
+        server_certificate=server_certificate,
+        server_key=server_key,
+        client_ca=_write_authority(client_authority, directory / "client-ca.pem"),
+        server_ca=_write_authority(server_authority, directory / "server-ca.pem"),
+        right_client=_tls_leaf(client_authority, directory, "right-client"),
+        other_ca_client=_tls_leaf(other_authority, directory, "other-ca-client"),
+        same_name_client=_tls_leaf(twin_authority, directory, "same-name-client"),
+    )
+
+
+def _run_entrypoint_capturing_uvicorn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[tuple[Any, ...]], dict[str, Any]]:
+    """Run ``entrypoint.main()`` with ``uvicorn.run`` replaced, and return what it was
+    called with: one positional tuple per call, and the keyword arguments."""
+    calls: list[tuple[Any, ...]] = []
+    captured: dict[str, Any] = {}
+
+    def fake_run(*args: Any, **kwargs: Any) -> None:
+        calls.append(args)
+        captured.update(kwargs)
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    entrypoint.main()
+    return calls, captured
+
+
+def _set_tls_environment(monkeypatch: pytest.MonkeyPatch, files: TlsFiles) -> None:
+    monkeypatch.setenv("GW_TLS_CERT_FILE", str(files.server_certificate))
+    monkeypatch.setenv("GW_TLS_KEY_FILE", str(files.server_key))
+    monkeypatch.setenv("GW_TLS_CLIENT_CA_FILE", str(files.client_ca))
+
+
+def test_entrypoint_with_all_three_tls_settings_hands_uvicorn_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the three settings, uvicorn receives the certificate, the key, the client CA
+    and ``CERT_REQUIRED`` together, and its own ``Config`` reads them as TLS on."""
+    files = _tls_files(tmp_path)
+    monkeypatch.setenv("GW_DATA_DIR", str(tmp_path))
+    _set_tls_environment(monkeypatch, files)
+
+    _, captured = _run_entrypoint_capturing_uvicorn(monkeypatch)
+
+    assert {key: value for key, value in captured.items() if key.startswith("ssl_")} == {
+        "ssl_certfile": str(files.server_certificate),
+        "ssl_keyfile": str(files.server_key),
+        "ssl_ca_certs": str(files.client_ca),
+        "ssl_cert_reqs": ssl.CERT_REQUIRED,
+    }
+    assert uvicorn.Config("glosswork.app:app", **captured).is_ssl is True
+
+
+async def _no_op_application(scope: Any, receive: Any, send: Any) -> None:
+    """An ASGI application that does nothing: the handshake test never serves a request."""
+
+
+@dataclass(frozen=True)
+class Handshake:
+    client_returned: bool
+    server_completed: bool
+    server_error: ssl.SSLError | None
+
+
+def _handshake_in_memory(
+    server_context: ssl.SSLContext,
+    files: TlsFiles,
+    version: ssl.TLSVersion,
+    client: tuple[Path, Path] | None,
+) -> Handshake:
+    """One TLS handshake between a client and ``server_context``, over memory buffers.
+
+    No socket, no thread and no wait. The two sides take turns, and the bytes one wrote
+    are handed to the other, until both have finished or the server's own
+    ``do_handshake()`` raises. A client that cannot verify the server raises out of here,
+    which is a test error and never a refusal.
+    """
+    client_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    client_context.minimum_version = version
+    client_context.maximum_version = version
+    client_context.load_verify_locations(files.server_ca)
+    if client is not None:
+        client_context.load_cert_chain(*client)
+
+    to_client, from_client = ssl.MemoryBIO(), ssl.MemoryBIO()
+    to_server, from_server = ssl.MemoryBIO(), ssl.MemoryBIO()
+    client_side = client_context.wrap_bio(to_client, from_client, server_hostname="localhost")
+    server_side = server_context.wrap_bio(to_server, from_server, server_side=True)
+
+    client_returned = server_completed = False
+    for _ in range(10):
+        if not client_returned:
+            try:
+                client_side.do_handshake()
+                client_returned = True
+            except ssl.SSLWantReadError:
+                pass
+        to_server.write(from_client.read())
+        if not server_completed:
+            try:
+                server_side.do_handshake()
+                server_completed = True
+            except ssl.SSLWantReadError:
+                pass
+            except ssl.SSLError as exc:
+                return Handshake(client_returned, False, exc)
+        to_client.write(from_server.read())
+        if client_returned and server_completed:
+            break
+    return Handshake(client_returned, server_completed, None)
+
+
+def test_the_tls_context_uvicorn_builds_refuses_in_its_own_handshake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The arguments the entry point passes, handed to uvicorn's own ``Config``, build a
+    context whose handshake refuses every client without a certificate from the named CA.
+
+    This is the direct measurement of "refused at the handshake", and it runs on every
+    pull request, which the container proof does not. On TLS 1.3 the client's handshake
+    call has already returned when the server's raises, because in that version the
+    client finishes before the server has checked its certificate; on TLS 1.2 it has not.
+    The exception type and which side raised are asserted. OpenSSL's reason is carried in
+    the assertion message and not asserted.
+    """
+    files = _tls_files(tmp_path)
+    monkeypatch.setenv("GW_DATA_DIR", str(tmp_path))
+    _set_tls_environment(monkeypatch, files)
+    _, captured = _run_entrypoint_capturing_uvicorn(monkeypatch)
+
+    config = uvicorn.Config(
+        _no_op_application,
+        log_config=None,
+        **{key: value for key, value in captured.items() if key.startswith("ssl_")},
+    )
+    config.load()
+    context = config.ssl
+    assert context is not None, "uvicorn built no TLS context from the entry point's arguments"
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    stats = context.cert_store_stats()
+    assert (stats["x509"], stats["x509_ca"]) == (1, 1), stats
+
+    refused = {
+        "no certificate": None,
+        "another CA's certificate": files.other_ca_client,
+        "a certificate from a second CA with the same name": files.same_name_client,
+    }
+    for version in TLS_VERSIONS:
+        accepted = _handshake_in_memory(context, files, version, files.right_client)
+        assert (accepted.client_returned, accepted.server_completed) == (True, True), (
+            f"{version.name}: the right certificate did not complete: {accepted}"
+        )
+        for what, client in refused.items():
+            outcome = _handshake_in_memory(context, files, version, client)
+            assert isinstance(outcome.server_error, ssl.SSLError), (
+                f"{version.name}, {what}: the server's handshake did not raise: {outcome}"
+            )
+            assert outcome.client_returned is (version is ssl.TLSVersion.TLSv1_3), (
+                f"{version.name}, {what}: the client's handshake call returned="
+                f"{outcome.client_returned} when the server raised {outcome.server_error!r}"
+            )
+
+
+def test_entrypoint_with_a_partial_tls_set_exits_before_uvicorn_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The client CA alone, handed to uvicorn as it is, serves plain HTTP to anyone with
+    no warning. The entry point exits 1 saying why, and uvicorn is never called."""
+    files = _tls_files(tmp_path)
+    monkeypatch.setenv("GW_DATA_DIR", str(tmp_path))
+    for name in TLS_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GW_TLS_CLIENT_CA_FILE", str(files.client_ca))
+    calls: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(SystemExit) as exc_info:
+        entrypoint.main()
+
+    assert exc_info.value.code == 1
+    assert capsys.readouterr().err.startswith("Configuration error: GW_TLS_")
+    assert calls == []
+
+
+def test_entrypoint_with_no_tls_setting_calls_uvicorn_exactly_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**A fence.** With none of the three settings the call uvicorn receives is the one
+    it received before they existed: the same eight keyword arguments, key for key and
+    value for value, and no ``ssl_*`` argument at all. It guards behaviour this change
+    does not alter, so it passes on a tree without the change by construction."""
+    monkeypatch.setenv("GW_DATA_DIR", str(tmp_path))
+    for name in (*TLS_VARIABLES, "GW_LOG_LEVEL", "GW_TRUSTED_PROXY_IPS"):
+        monkeypatch.delenv(name, raising=False)
+
+    calls, captured = _run_entrypoint_capturing_uvicorn(monkeypatch)
+
+    assert calls == [("glosswork.app:app",)]
+    assert captured == {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "workers": 1,
+        "log_config": None,
+        "log_level": "info",
+        "access_log": False,
+        "proxy_headers": True,
+        "forwarded_allow_ips": "127.0.0.1",
+    }
+    assert uvicorn.Config("glosswork.app:app", **captured).is_ssl is False

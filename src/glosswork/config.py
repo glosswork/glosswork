@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Literal
@@ -39,6 +40,11 @@ RELAY_TOKEN_MIN_LENGTH = 32
 # development. Anything else must be ``https``, because the relay token rides every
 # request in the ``Authorization`` header.
 RELAY_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+# The three variables that turn on the workspace's own TLS (DD-46), in the order a refusal
+# names them. They are the only names allowed under ``GW_TLS_``: see ``_check_tls``.
+TLS_VARIABLE_PREFIX = "GW_TLS_"
+TLS_VARIABLES = ("GW_TLS_CERT_FILE", "GW_TLS_KEY_FILE", "GW_TLS_CLIENT_CA_FILE")
 
 
 class Settings(BaseSettings):
@@ -236,6 +242,42 @@ class Settings(BaseSettings):
     # OIDC provider, and a workspace without these behaves exactly as before.
     relay_url: str | None = None
     relay_token: str | None = None
+    # The workspace's own TLS, locked to one client certificate (DD-46). With all three
+    # set, the entry point hands uvicorn the certificate, the key, the client CA and
+    # ``CERT_REQUIRED`` together, and a caller without a certificate chaining to that CA
+    # fails the TLS handshake before any request is read. With none, the process serves
+    # plain HTTP behind the operator's own proxy, as it always has.
+    #
+    # All three or none, and ``load_settings`` refuses anything between, because the half
+    # states are silently open when handed to uvicorn as they are: the CA alone serves
+    # plain HTTP to anyone, and the certificate and key alone serve TLS to anyone. There is
+    # no setting for TLS without the client certificate check.
+    #
+    # **Blank counts as unset**, because ``.env.example`` ships the three blank. That
+    # takes its own validator, below: a ``Path`` field given a blank value parses to the
+    # current directory, which reads as set.
+    tls_cert_file: Path | None = None
+    tls_key_file: Path | None = None
+    tls_client_ca_file: Path | None = None
+
+    @field_validator("tls_cert_file", "tls_key_file", "tls_client_ca_file", mode="before")
+    @classmethod
+    def _blank_path_is_unset(cls, value: object) -> object:
+        """Before parsing, unlike ``_blank_is_unset`` below: by the time a ``Path`` field
+        has been parsed, a blank value is already ``Path(".")``."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
+
+    @property
+    def tls_enabled(self) -> bool:
+        """Whether this process terminates TLS itself and requires a client certificate
+        (DD-46). The only thing the entry point reads to decide."""
+        return (
+            self.tls_cert_file is not None
+            and self.tls_key_file is not None
+            and self.tls_client_ca_file is not None
+        )
 
     @field_validator("relay_url", "relay_token")
     @classmethod
@@ -456,8 +498,71 @@ def load_settings() -> Settings:
         )
 
     _check_relay(settings)
+    _check_tls(settings)
     _check_operator_backup(settings)
     return settings
+
+
+def _check_tls(settings: Settings) -> None:
+    """Refuse a lock that is half on, misspelt, or named but unreadable (DD-46).
+
+    Three refusals, each naming a variable and none printing a value or anything read
+    from a file. Startup rather than first use, because there is no first use to refuse
+    at: every half state starts a listener that answers callers the lock was meant to
+    keep out, and says nothing.
+
+    A file that opens but that OpenSSL cannot use (a key for another certificate, a file
+    that is not a certificate) is left to uvicorn, which stops the process with OpenSSL's
+    own reason before it listens. Parsing certificates here would be a second
+    implementation of what uvicorn does a moment later.
+    """
+    # First, and over the process environment rather than the parsed settings: the
+    # settings loader ignores a name it does not know, so ``GW_TLS_CA_FILE`` for the
+    # client CA would otherwise start the workspace with no lock and no message. Names
+    # are compared upper-cased because the loader reads them without regard to case.
+    for name in sorted(os.environ):
+        upper = name.upper()
+        if upper.startswith(TLS_VARIABLE_PREFIX) and upper not in TLS_VARIABLES:
+            raise ConfigError(
+                f"{name}: not a setting. The three are GW_TLS_CERT_FILE, GW_TLS_KEY_FILE "
+                "and GW_TLS_CLIENT_CA_FILE. An unknown name is refused rather than "
+                "ignored, because ignoring it would start the workspace with no client "
+                "certificate check."
+            )
+
+    paths = dict(
+        zip(
+            TLS_VARIABLES,
+            (settings.tls_cert_file, settings.tls_key_file, settings.tls_client_ca_file),
+            strict=True,
+        )
+    )
+    present = [name for name, path in paths.items() if path is not None]
+    missing = [name for name, path in paths.items() if path is None]
+    if not present:
+        return
+    if missing:
+        raise ConfigError(
+            f"{', '.join(missing)}: required when {' and '.join(present)} "
+            f"{'is' if len(present) == 1 else 'are'} set. Set all three to make the "
+            "workspace terminate TLS and require a client certificate from that CA, or "
+            "none of them to serve plain HTTP behind your own proxy. There is no TLS "
+            "without the client certificate check."
+        )
+
+    # uvicorn's own failure for a file it cannot open is a traceback that names neither
+    # the variable nor the path. Opened and closed, never read.
+    for name, path in paths.items():
+        if path is None:
+            continue
+        try:
+            with path.open("rb"):
+                pass
+        except OSError as exc:
+            raise ConfigError(
+                f"{name}: cannot read {path} ({exc.strerror}). The process runs as uid "
+                "1000 in the published image, and the file must be readable by it."
+            ) from exc
 
 
 def _check_operator_backup(settings: Settings) -> None:
