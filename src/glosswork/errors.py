@@ -524,7 +524,9 @@ class AuthenticationFailedError(GlossworkError):
 
 class OperatorTokenRefusedError(GlossworkError):
     """The one answer ``GET /api/v1/usage`` gives anybody who is not the operator
-    (DD-39, FR-P10).
+    (DD-39, FR-P10), and the one answer ``POST /api/v1/operator/backup`` gives anybody
+    who may not take the operator backup, which includes the operator on a deployment
+    that has not turned that backup on.
 
     **One error for four different situations**, and that is the whole point: the
     variable is unset, or it is blank, or the header is absent, or the value is wrong.

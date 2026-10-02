@@ -6,16 +6,27 @@ it is asserted by a test rather than left to reading order. Because
 ``BackupService.stream`` is a generator, a test can sit between the snapshot and the
 blob walk and mutate the deployment from there, which is what turns the ordering from
 a comment into a fact.
+
+**Staging cleanup (change 20).** Two tests at the bottom are about the staged snapshot,
+not the artifact: an abandoned download leaves nothing behind on either backup route, and
+a restart removes what a killed process left. Expected passed counts
+(``uv run pytest -q tests/test_backup.py -k <selection>``): ``abandoned_download`` 2,
+``startup_clears_staging`` 1.
 """
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import io
+import os
+import socket
 import sqlite3
 import tarfile
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,10 +34,12 @@ import pytest
 from sqlalchemy import text
 
 from glosswork.actor import ActorContext
+from glosswork.app import create_app
+from glosswork.config import Settings
 from glosswork.db import Database
 from glosswork.services import ServiceBundle
 from glosswork.services.backup import BLOB_ARCNAME_ROOT, SNAPSHOT_ARCNAME
-from tests.conftest import make_actor
+from tests.conftest import make_actor, mint_scope_tokens
 
 
 def _extract(chunks: list[bytes], into: Path) -> dict[str, Any]:
@@ -361,3 +374,158 @@ def test_sweep_endpoint_requires_admin_scope(client: Any, api_tokens: dict[str, 
 @pytest.mark.parametrize("path", ["/api/v1/admin/backup", "/api/v1/admin/blobs/sweep"])
 def test_operator_routes_refuse_an_absent_credential(client: Any, path: str) -> None:
     assert client.post(path, headers={"Authorization": ""}).status_code == 401
+
+
+# ------------------------------------------------------- staging cleanup (change 20)
+
+# A fixture string, for the reason ``tests/test_operator_usage.py`` gives.
+OPERATOR_TOKEN = "operator-token-for-tests-0123456"
+
+#: How much the database is padded for the abandoned download. Far more than the socket
+#: buffers between a server and a client that has stopped reading can hold, so the server
+#: is still mid-artifact when the client leaves.
+PADDING_MIB = 48
+
+
+@contextmanager
+def _served(app: Any) -> Iterator[int]:
+    """The app under a real uvicorn on a loopback port, the way ``tests/fake_relay.serve``
+    runs one. ``TestClient`` cannot abandon a download: it drains every response."""
+    import uvicorn
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 20
+    while not server.started:
+        if time.monotonic() > deadline:  # pragma: no cover - a stuck server is a test failure
+            raise RuntimeError("the application did not start")
+        time.sleep(0.02)
+    try:
+        yield port
+    finally:
+        server.should_exit = True
+        thread.join(timeout=20)
+
+
+def _wait_for(condition: Any, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return bool(condition())
+
+
+@pytest.mark.parametrize("route", ["operator", "admin"])
+def test_an_abandoned_download_leaves_nothing_staged(tmp_path: Path, route: str) -> None:
+    """A client that reads the status line and hangs up must not leave a full copy of
+    the database on the volume, on either backup route.
+
+    The cycle collector is off for the test, so the staged file can only have been
+    removed by the response closing the generator. Without that, the generator is left
+    suspended inside its ``try`` and its ``finally`` runs whenever the collector next
+    happens to, which under a quiet server is not soon."""
+    data_dir = tmp_path / "data"
+    app = create_app(
+        Settings(
+            data_dir=data_dir,
+            embedding_enabled=False,
+            operator_token=OPERATOR_TOKEN,
+            operator_backup=True,
+        )
+    )
+    staging = data_dir / "backup-tmp"
+
+    def staged() -> list[Path]:
+        return sorted(staging.iterdir()) if staging.is_dir() else []
+
+    with _served(app) as port:
+        with app.state.db.write() as conn:
+            conn.execute(text("CREATE TABLE abandoned_download_padding (bytes BLOB)"))
+            for _ in range(PADDING_MIB):
+                conn.execute(
+                    text("INSERT INTO abandoned_download_padding (bytes) VALUES (:b)"),
+                    {"b": os.urandom(1024 * 1024)},
+                )
+        if route == "operator":
+            path, credential = "/api/v1/operator/backup", f"X-Operator-Token: {OPERATOR_TOKEN}"
+        else:
+            pat = mint_scope_tokens(app.state.services)["admin"]
+            path, credential = "/api/v1/admin/backup", f"Authorization: Bearer {pat}"
+        request = (
+            f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{credential}\r\n"
+            "Content-Length: 0\r\n\r\n"
+        ).encode()
+
+        gc.collect()
+        gc.disable()
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # A small receive buffer, so the server fills it and stops well short of the
+            # end of the artifact however generous the platform's defaults are.
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 * 1024)
+            client.settimeout(30)
+            client.connect(("127.0.0.1", port))
+            try:
+                client.sendall(request)
+                received = b""
+                while b"\r\n" not in received:
+                    chunk = client.recv(256)
+                    assert chunk, "the server closed before answering"
+                    received += chunk
+                status_line = received.split(b"\r\n", 1)[0]
+                assert status_line.startswith(b"HTTP/1.1 200"), received[:400]
+                # The test's own precondition: a download really was open, with its
+                # snapshot staged, when the client left. A run too fast to abandon
+                # anything fails here and does not pass.
+                assert _wait_for(staged, 10), "nothing was staged while the download was open"
+            finally:
+                client.close()
+            assert _wait_for(lambda: not staged(), 10), (
+                f"the abandoned download left its snapshot on the volume: {staged()}"
+            )
+        finally:
+            gc.enable()
+            gc.collect()
+
+
+def test_startup_clears_staging_left_by_a_killed_process(tmp_path: Path) -> None:
+    """A process killed mid-backup never runs the generator's ``finally``, so its file
+    stays until something removes it. Startup does, and touches nothing beside it."""
+    data_dir = tmp_path / "data"
+    settings = Settings(data_dir=data_dir, embedding_enabled=False)
+    first = create_app(settings)
+    from fastapi.testclient import TestClient
+
+    with TestClient(first):
+        first.state.services.attachments.upload(
+            make_actor(), "kept.txt", "text/plain", b"referenced bytes"
+        )
+    staging = data_dir / "backup-tmp"
+    staging.mkdir(exist_ok=True)
+    leftover = staging / "snapshot-0123456789abcdef0123456789abcdef.sqlite3"
+    leftover.write_bytes(b"left by a killed process" * 512)
+    blobs_before = {
+        path.relative_to(data_dir): path.read_bytes()
+        for path in sorted((data_dir / "attachments").rglob("*"))
+        if path.is_file()
+    }
+    assert blobs_before, "the test seeded no blob; it would prove nothing about the blob tree"
+
+    second = create_app(settings)
+    with TestClient(second):
+        assert not leftover.exists()
+        assert list(staging.iterdir()) == []
+        blobs_after = {
+            path.relative_to(data_dir): path.read_bytes()
+            for path in sorted((data_dir / "attachments").rglob("*"))
+            if path.is_file()
+        }
+        assert blobs_after == blobs_before
+        with second.state.db.read() as conn:
+            kept = conn.execute(text("SELECT filename FROM attachments")).scalars().all()
+        assert kept == ["kept.txt"]

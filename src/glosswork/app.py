@@ -280,6 +280,27 @@ def _sweep_orphan_blobs_at_startup(services: ServiceBundle, logger: Any) -> None
         logger.info("orphan_blob_sweep_startup", **result)
 
 
+def _clear_backup_staging_at_startup(services: ServiceBundle, logger: Any) -> None:
+    """Remove a staged backup snapshot a killed process left behind (DD-36).
+
+    A backup stages a full copy of the database under the data directory and removes it
+    when its response ends. A process that is killed mid-backup removes nothing, and
+    nothing else reads that directory, so this is the only thing that ever would. Here
+    and nowhere else, because before the lifespan has started no backup can be in
+    flight: the image runs one process.
+
+    Non-fatal, like the orphan blob sweep beside it: reclaiming disk is housekeeping,
+    not a precondition for serving.
+    """
+    try:
+        removed = services.backup.clear_staging()
+    except Exception as exc:  # pragma: no cover - defensive: never block startup
+        logger.warning("backup_staging_clear_failed", error=f"{type(exc).__name__}: {exc}")
+        return
+    if removed:
+        logger.info("backup_staging_cleared", removed=removed)
+
+
 def create_app(
     settings: Settings,
     migrate_on_startup: bool = True,
@@ -377,6 +398,8 @@ def create_app(
             _reconcile_indexes_at_startup(app.state.services, logger)
             _report_reserved_key_collisions_at_startup(app.state.services, logger)
             _sweep_orphan_blobs_at_startup(app.state.services, logger)
+        # Outside the migration guard too: it reads a directory and no table.
+        _clear_backup_staging_at_startup(app.state.services, logger)
         # Outside the migration guard: this reads configuration and no table, so it is
         # worth saying even to an operator starting against an unmigrated database.
         _report_missing_base_url_at_startup(settings, logger)

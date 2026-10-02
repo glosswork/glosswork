@@ -197,13 +197,16 @@ looks like. Role is never cached here: scope is derived from the principal's *cu
 
 Emailed sign-in codes (FR-I18, DD-45), migration 13. One row per code a person asked for, written
 whether or not the address can sign in, so verification cannot tell a known address from an
-unknown one. The code is never stored: `code_hash` is the sha256 of `"<id>:<code>"`.
+unknown one. The code is never stored: `code_hash` is HMAC-SHA256 over a fixed label and
+`"<id>:<code>"`, under a key derived from `GW_RELAY_TOKEN`, which is in no table (DD-45). The
+column's name and type are as migration 13 made them; a row holding the older unkeyed sha256 never
+verifies.
 
 ```sql
 CREATE TABLE sign_in_codes (
   id           TEXT PRIMARY KEY,
   email        TEXT NOT NULL,          -- trimmed, lowercased
-  code_hash    TEXT NOT NULL,          -- sha256 of "<id>:<code>"
+  code_hash    TEXT NOT NULL,          -- keyed digest of "<id>:<code>" (see above)
   created_at   TEXT NOT NULL,
   expires_at   TEXT NOT NULL,          -- ten minutes after created_at
   attempts     INTEGER NOT NULL DEFAULT 0,

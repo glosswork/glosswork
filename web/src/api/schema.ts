@@ -1224,6 +1224,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take Operator Backup
+         * @description Stream the backup artifact to the operator: a consistent database snapshot, then
+         *     the attachment blob tree (FR-P8, DD-36).
+         *
+         *     ``actor`` is the edge's anonymous actor, the deployment's own service account: no
+         *     tenant principal is behind this call, and the audit row has to be attributed to
+         *     something (DD-4). ``operator_triggered`` is what makes that row say so.
+         *
+         *     ``Cache-Control: no-store``, as the usage route sets for a far smaller disclosure.
+         *
+         *     A ``200`` means a backup started, not that the artifact is complete: the status line
+         *     is sent before the snapshot is taken, so a failure after it truncates the stream. A
+         *     reader checks the tar's end-of-archive and the snapshot's integrity.
+         */
+        post: operations["take_operator_backup_api_v1_operator_backup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -4264,6 +4295,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UsageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    take_operator_backup_api_v1_operator_backup_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-operator-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -288,9 +288,10 @@ class AccessTokenRow:
 @dataclass(slots=True)
 class SignInCodeRow:
     """One emailed sign-in code (docs/DATA_MODEL.md section 2, change 9). Shaped like
-    :class:`SessionRow`: the code is never stored, only ``code_hash``, the sha256 of
-    ``"<id>:<code>"``. ``sent`` records whether the address could sign in when the code
-    was made, so the unsent rows an unknown address leaves can be bounded."""
+    :class:`SessionRow`: the code is never stored, only ``code_hash``, a digest of
+    ``"<id>:<code>"`` keyed from the relay token (DD-45), which no row holds. ``sent``
+    records whether the address could sign in when the code was made, so the unsent rows
+    an unknown address leaves can be bounded."""
 
     id: str
     email: str

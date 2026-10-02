@@ -8,7 +8,6 @@ against a tree without the feature and fail on behaviour rather than on an impor
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -128,10 +127,6 @@ def execute(app: FastAPI, sql: str, params: dict[str, Any] | None = None) -> Non
 def rows(app: FastAPI, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     with app.state.db.read() as conn:
         return [dict(r) for r in conn.execute(text(sql), params or {}).mappings()]
-
-
-def code_hash(row_id: str, code: str) -> str:
-    return hashlib.sha256(f"{row_id}:{code}".encode()).hexdigest()
 
 
 def source(ip: str) -> tuple[str, int]:

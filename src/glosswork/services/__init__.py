@@ -64,7 +64,7 @@ from glosswork.services.schema import SchemaService
 from glosswork.services.search import SearchService
 from glosswork.services.search_index import SearchIndexService
 from glosswork.services.sessions import SessionService
-from glosswork.services.sign_in_codes import SignInCodeService
+from glosswork.services.sign_in_codes import SignInCodeService, derive_code_key
 from glosswork.services.tokens import AccessTokenService
 from glosswork.services.usage import UsageService
 from glosswork.services.workspace import WorkspaceService
@@ -283,12 +283,22 @@ def build_services(
     usage = UsageService(db, SqliteUsageRepository(), principal_repo, workspace, settings)
     # Change 9. Built only when both relay settings are set; every code and invite route
     # answers ``feature_disabled`` without it.
-    relay = RelaySender(settings) if settings.email_codes_enabled else None
+    #
+    # The key a sign-in code is stored under (DD-45) is derived from the relay token on
+    # the same line that builds the sender, so the two cannot disagree: a deployment that
+    # can issue a code always has the key, and one that cannot has neither. The key goes
+    # to ``SignInCodeService`` and nowhere else.
+    relay_token = settings.relay_token if settings.email_codes_enabled else None
+    relay, code_key = (
+        (RelaySender(settings), derive_code_key(relay_token))
+        if relay_token is not None
+        else (None, None)
+    )
     invites = InviteService(
         db, SqliteInviteRepository(), principal_repo, principals, audit_repo, relay
     )
     sign_in_codes = SignInCodeService(
-        db, SqliteSignInCodeRepository(), principal_repo, invites, relay
+        db, SqliteSignInCodeRepository(), principal_repo, invites, relay, code_key
     )
     return ServiceBundle(
         access=access,

@@ -108,7 +108,10 @@ def test_the_exemption_allowlist_is_exactly_the_named_entries() -> None:
     ``/api/v1/usage`` is the twelfth entry and the second non-auth-flow one (DD-39): its
     authority is ``GW_OPERATOR_TOKEN``, compared in one function in
     ``services/usage.py``, and a scope declaration on it would pass with no credential
-    presented at all."""
+    presented at all.
+
+    ``/api/v1/operator/backup`` is the next, exempt for the same reason and guarded by the
+    same credential plus ``GW_OPERATOR_BACKUP`` (DD-39)."""
     assert SCOPE_EXEMPT_PATHS == frozenset(
         {
             "/healthz",
@@ -126,6 +129,7 @@ def test_the_exemption_allowlist_is_exactly_the_named_entries() -> None:
             "/api/v1/auth/code/verify",
             "/api/v1/bootstrap",
             "/api/v1/usage",
+            "/api/v1/operator/backup",
         }
     )
 
@@ -151,6 +155,10 @@ def test_the_credential_exempt_allowlist_is_exactly_the_named_paths() -> None:
     headers, and the route can declare no scope at all: the exempt branch's anonymous
     actor carries ``read``, so ``require_scope("read")`` would pass for a caller
     presenting nothing.
+
+    ``POST /api/v1/operator/backup`` is the usage route's case again (DD-39): the same
+    operator credential, in the same header, and a tenant ``admin`` token refused. It
+    streams the deployment's backup, and only where ``GW_OPERATOR_BACKUP`` is on.
     """
     assert AUTH_PUBLIC_PATHS == frozenset(
         {
@@ -162,6 +170,7 @@ def test_the_credential_exempt_allowlist_is_exactly_the_named_paths() -> None:
             "/api/v1/auth/code/verify",
             "/api/v1/bootstrap",
             "/api/v1/usage",
+            "/api/v1/operator/backup",
         }
     )
 

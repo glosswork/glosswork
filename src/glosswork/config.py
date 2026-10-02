@@ -93,6 +93,18 @@ class Settings(BaseSettings):
     # Rotation is a restart. For a hosted machine that is seconds; for self-host it is a
     # ``docker run`` flag, and self-host sets it not at all.
     operator_token: str | None = None
+    # Whether ``GW_OPERATOR_TOKEN`` may also take a backup, at
+    # ``POST /api/v1/operator/backup`` (DD-39). Off by default, and that is the point: a
+    # deployment that set the token when it opened only the usage counts keeps exactly
+    # that through an upgrade, and the credential's reach grows only where somebody
+    # turned this on. Turning it on hands the holder of the token a full copy of the
+    # workspace: every record, attachment and audit row, and its password hashes.
+    #
+    # A boolean like ``read_only`` below, so a **blank value refuses startup** naming the
+    # variable and never reads as on, and ``.env.example`` ships it as ``false``. Two more
+    # refusals live in ``load_settings``: on with no token, and on with a token equal to
+    # ``GW_RELAY_TOKEN``. ``UsageService.require_operator_backup`` is its only reader.
+    operator_backup: bool = False
     embedding_model: str = "bge-small-en-v1.5"
     embedding_enabled: bool = True
     # Where the image baked the embedding model (DD-32). The model is never
@@ -444,7 +456,36 @@ def load_settings() -> Settings:
         )
 
     _check_relay(settings)
+    _check_operator_backup(settings)
     return settings
+
+
+def _check_operator_backup(settings: Settings) -> None:
+    """Refuse a backup setting that cannot work, or that undoes its own protection (DD-39).
+
+    Startup rather than first use, for the operator token's reason above: the caller of
+    the backup route is a scheduled job, and a nightly 401 for a reason set at boot is a
+    diagnosis nobody can act on from there. Each refusal names the variables and echoes
+    no value.
+    """
+    if not settings.operator_backup:
+        return
+    if not settings.operator_token:
+        raise ConfigError(
+            "GW_OPERATOR_BACKUP: cannot be on when GW_OPERATOR_TOKEN is unset or blank. "
+            "The operator backup is taken with that token, so with none every call would "
+            "be refused. Set the token, or set GW_OPERATOR_BACKUP=false."
+        )
+    if settings.relay_token is not None and settings.relay_token == settings.operator_token:
+        # The stored form of a sign-in code is keyed from the relay token (DD-45), which is
+        # what keeps a backup from carrying a usable code. A deployment whose relay token
+        # is also the credential the backup route accepts hands the holder of that
+        # credential the key.
+        raise ConfigError(
+            "GW_RELAY_TOKEN and GW_OPERATOR_TOKEN: must differ when GW_OPERATOR_BACKUP is "
+            "on. The relay token protects stored sign-in codes from whoever holds a "
+            "backup, and the operator token takes one. Generate a separate value for each."
+        )
 
 
 def _check_relay(settings: Settings) -> None:

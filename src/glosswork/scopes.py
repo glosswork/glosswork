@@ -42,6 +42,11 @@ from glosswork.errors import ForbiddenError, InsufficientScopeError
 SCOPE_ATTRIBUTE = "__gw_required_scope__"
 ROLE_ATTRIBUTE = "__gw_required_role__"
 CAPABILITY_ATTRIBUTE = "__gw_required_capability__"
+# Set on a route dependency that checks the **operator** credential (DD-39), which is a
+# deployment setting and not a tenant credential, so it has no scope to declare. The tag
+# exists for the same reason the three above do: so the set of routes guarded this way is
+# readable off the route table and pinned by a test (``route_operator_credentials``).
+OPERATOR_CREDENTIAL_ATTRIBUTE = "__gw_operator_credential__"
 # Where ``require_capability`` leaves the ticket's own ``access_tokens.id`` for the
 # handler to hand to the service. The handler reads *this*, never ``actor.capability``:
 # the capability is readable for authorization in one predicate only,
@@ -88,6 +93,11 @@ CAPABILITY_CREDENTIAL_STATE = "gw_capability_credential_id"
 #   path and must not open this one. Declaring ``read`` here would be worse than vacuous:
 #   the edge's anonymous actor carries ``read``, so the declaration would *pass* for a
 #   caller presenting nothing at all.
+# - /api/v1/operator/backup (DD-39): the operator's backup, guarded by the same
+#   ``X-Operator-Token`` and, in addition, by ``GW_OPERATOR_BACKUP``. Exempt for the usage
+#   route's reason exactly: a workspace ``admin`` PAT must not open it. Its check is a
+#   tagged route dependency (``OPERATOR_CREDENTIAL_ATTRIBUTE``), because it streams and a
+#   refusal has to be raised before the response starts.
 SCOPE_EXEMPT_PATHS: frozenset[str] = frozenset(
     {
         "/healthz",
@@ -105,6 +115,7 @@ SCOPE_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/api/v1/auth/code/verify",
         "/api/v1/bootstrap",
         "/api/v1/usage",
+        "/api/v1/operator/backup",
     }
 )
 
@@ -128,7 +139,9 @@ SCOPE_EXEMPT_PATHS: frozenset[str] = frozenset(
 #
 # Every other non-GET route that declares above ``read`` is refused. Credential-exempt
 # routes (sign-in, OIDC, bootstrap, ``/mcp`` itself) never reach a scope dependency and
-# so stay open by construction.
+# so stay open by construction. The operator's backup is one of those, so the nightly
+# backup of a frozen workspace keeps running; it is **not** an entry here, and adding it
+# would break the test that every entry is a route the rule selects.
 READ_ONLY_OPEN_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/api/v1/admin/backup"),
@@ -334,6 +347,36 @@ def route_capabilities(app: FastAPI) -> list[tuple[str, str, str]]:
             if method in ("HEAD", "OPTIONS"):
                 continue
             entries.append((method, path, capability))
+    return entries
+
+
+def route_operator_credentials(app: FastAPI) -> list[tuple[str, str]]:
+    """Every route guarded by a tagged operator-credential dependency, as
+    ``(method, path)``.
+
+    :func:`route_capabilities`' counterpart for the one credential that is not a tenant's
+    (DD-39), and pinned by equality the same way: the operator credential opening a
+    second route this way is a new decision, and a test that has to be edited is what
+    makes it deliberate. ``GET /api/v1/usage`` is not in it, because its check lives
+    inside ``UsageService.snapshot`` and not in a dependency; a call-site test pins that
+    one.
+    """
+    entries: list[tuple[str, str]] = []
+    for route in flatten_routes(app):
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        tagged = any(
+            getattr(getattr(dependency, "dependency", None), OPERATOR_CREDENTIAL_ATTRIBUTE, False)
+            for dependency in getattr(route, "dependencies", ()) or ()
+        )
+        if not tagged:
+            continue
+        methods: Iterable[str] = getattr(route, "methods", None) or ["GET"]
+        for method in sorted(methods):
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            entries.append((method, path))
     return entries
 
 
