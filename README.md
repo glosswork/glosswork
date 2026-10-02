@@ -25,9 +25,10 @@ docker run -d --name glosswork -p 8000:8000 -v gw-data:/data \
 
 One container, one process, one volume. Open <http://localhost:8000> and sign in with that
 email and password. Search runs on an embedding model baked into the image, so it needs no
-network and no API key. The image is published for `linux/amd64` and `linux/arm64`. There is
-no `latest` tag and a published version is never replaced, so a deployment names the version
-it runs; [CHANGELOG.md](CHANGELOG.md) says what each version changed. To build the image
+network and no API key. The image is published for `linux/amd64` and `linux/arm64`. A
+published version is never replaced, and each release also moves `latest` to the newest
+version, so a deployment that should stay put names the version it runs;
+[CHANGELOG.md](CHANGELOG.md) says what each version changed. To build the image
 from source instead, run `docker build -t glosswork .` in a clone and use `glosswork` in
 place of the image name. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has what a real
 deployment needs.

@@ -113,6 +113,34 @@ def _identity_check_softened(workflow: Workflow, job: str) -> None:
     step["run"] = softened
 
 
+def _latest_before_the_version_is_read_back(workflow: Workflow) -> None:
+    steps = _steps(workflow, "publish")
+    move = _named(workflow, "publish", "Move latest")
+    steps.remove(move)
+    steps.insert(1, move)
+
+
+def _latest_from_another_image(workflow: Workflow) -> None:
+    step = _named(workflow, "publish", "Move latest")
+    moved = step["run"].replace('"$GHCR_IMAGE@$AMD64"', '"$GHCR_IMAGE:$VERSION"')
+    assert moved != step["run"], "the mutation must change the step"
+    step["run"] = moved
+
+
+def _latest_read_back_softened(workflow: Workflow) -> None:
+    step = _named(workflow, "publish", "as latest")
+    softened = step["run"].replace("  exit 1\n", "  true\n")
+    assert softened != step["run"], "the mutation must change the step"
+    step["run"] = softened
+
+
+def _latest_in_a_build(workflow: Workflow, job: str) -> None:
+    step = _named(workflow, job, "Push")
+    step["run"] += (
+        'docker buildx imagetools create -t "$GHCR_IMAGE:latest" "$GHCR_IMAGE@$manifest"\n'
+    )
+
+
 MUTATIONS: dict[str, Callable[[Workflow], None]] = {
     "push moved before the tests": _each_build(_push_before_tests),
     "--push on the tested build": _each_build(_push_in_first_build),
@@ -129,6 +157,10 @@ MUTATIONS: dict[str, Callable[[Workflow], None]] = {
     "publish runs on a dry run": _publish_on_dispatch,
     "build jobs enter the environment": _each_build(_environment_on_build),
     "tested-equals-pushed check softened": _each_build(_identity_check_softened),
+    "latest moved before the version is read back": _latest_before_the_version_is_read_back,
+    "latest built from another image": _latest_from_another_image,
+    "latest read-back cannot fail": _latest_read_back_softened,
+    "a build job moves latest": _each_build(_latest_in_a_build),
 }
 
 

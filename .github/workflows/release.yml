@@ -1,7 +1,8 @@
 # Glosswork release.
 #
 # Pushing a tag vX.Y.Z publishes the image as ghcr.io/glosswork/glosswork:X.Y.Z and
-# docker.io/glosswork/glosswork:X.Y.Z, one tag covering linux/amd64 and linux/arm64.
+# docker.io/glosswork/glosswork:X.Y.Z, one tag covering linux/amd64 and linux/arm64, and
+# then moves `latest` to that build in both registries.
 # Nothing is pullable by name until every check has passed (CONTRIBUTING.md, "Releases"):
 #
 #   preflight   the tag is vX.Y.Z, X.Y.Z is pyproject.toml's version, the tagged commit
@@ -12,7 +13,8 @@
 #   publish     the only job that can read the Docker Hub credential. It refuses a
 #               version that already exists as anything other than exactly this build,
 #               writes X.Y.Z in the GitHub registry, copies the same index to Docker Hub,
-#               and reads both back
+#               and reads both back. Then it points `latest` at the same build in both
+#               and reads that back. `latest` is the one tag a release replaces
 #
 # Run by hand (workflow_dispatch) it is a dry run: preflight checks only that CI passed,
 # both builds are built and tested on their real runners, and nothing signs in, pushes or
@@ -294,4 +296,24 @@ jobs:
               exit 1
             fi
             echo "- \`$image:$VERSION\`: $platforms" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Move latest to this build in both registries
+        run: |
+          # `latest` is the one moving tag: every release replaces it, so this step is
+          # safe to repeat on a rerun. It is built from the same two digests as X.Y.Z,
+          # which is published and read back by now and is never replaced.
+          for image in "$GHCR_IMAGE" "$HUB_IMAGE"; do
+            docker buildx imagetools create -t "$image:latest" "$GHCR_IMAGE@$AMD64" "$GHCR_IMAGE@$ARM64"
+          done
+      - name: Both registries serve this build as latest
+        run: |
+          want="linux/amd64=$AMD64 linux/arm64=$ARM64"
+          for image in "$GHCR_IMAGE" "$HUB_IMAGE"; do
+            platforms=$(docker buildx imagetools inspect "$image:latest" --format '{{json .Manifest}}' \
+              | jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)=\(.digest)"] | sort | join(" ")')
+            if [ "$platforms" != "$want" ]; then
+              echo "::error::$image:latest serves '$platforms', not '$want'"
+              exit 1
+            fi
+            echo "- \`$image:latest\`: $platforms" >> "$GITHUB_STEP_SUMMARY"
           done

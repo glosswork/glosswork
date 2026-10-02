@@ -30,6 +30,10 @@ mean what it now does.
   certificate chains to a named authority, with `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and
   `GW_TLS_CLIENT_CA_FILE`, all three or none. With none it serves plain HTTP behind your
   own proxy, as before.
+- 26: each release also moves the `latest` tag to the newest version in both registries, so
+  `docker.io/glosswork/glosswork:latest` is this version until the next release. A
+  published version is still never replaced, and a deployment that should stay put names
+  the version it runs.
 
 ## 0.1.0
 

@@ -5,8 +5,8 @@ guards one way it could publish something it should not: a trigger other than a 
 tag or a manual dry run, a job holding more permission than it uses, the Docker Hub
 credential reachable outside the one step that signs in with it, the two architectures'
 build jobs drifting apart, a push before the tests and the notices check, a check that
-cannot fail, a dry run that pushes, a published version overwritten, or an unpinned
-action.
+cannot fail, a dry run that pushes, a published version overwritten, ``latest`` moved
+to anything but the build just published, or an unpinned action.
 
 The settings half of the credential rule (the ``release`` environment admits tags
 matching ``v*`` only) lives in ``scripts/github/configure.sh``, whose ``check`` reads
@@ -34,6 +34,8 @@ REVISION_BUILD_ARG = "--build-arg GW_REVISION=${{ github.sha }}"
 HUB_SECRET = "secrets.DOCKERHUB_TOKEN"
 ON_TAG = "github.event_name == 'push'"
 TESTS = "GW_IMAGE=glosswork:release uv run pytest -q container_tests"
+VERSION_READ_BACK = "Both registries serve both architectures, built from this commit"
+BOTH_REGISTRIES = 'for image in "$GHCR_IMAGE" "$HUB_IMAGE"; do'
 NOTICES = (
     "uv run python scripts/notices_coverage.py --image glosswork:release "
     '--summary "$GITHUB_STEP_SUMMARY"'
@@ -165,9 +167,43 @@ def test_publish_never_overwrites_a_version() -> None:
     assert run.count("imagetools create") == 1
     assert run.index('elif [ -n "$have" ]') < run.index("imagetools create")
     names = [step["name"] for step in _steps("publish")]
-    assert names.index(tag["name"]) < names.index(
-        "Both registries serve both architectures, built from this commit"
+    assert names.index(tag["name"]) < names.index(VERSION_READ_BACK)
+    assert "latest" not in run
+
+
+def test_publish_moves_latest_to_the_build_it_just_published() -> None:
+    """``latest`` is the one moving tag, written from the digests ``X.Y.Z`` was.
+
+    It moves only after ``X.Y.Z`` is published and read back in both registries, with no
+    condition, so repeating the step on a rerun is safe; and it is then read back.
+    """
+    names = [step["name"] for step in _steps("publish")]
+    move_at, move = _step("publish", "Move latest")
+    read_at, read = _step("publish", "as latest")
+    assert names.index(VERSION_READ_BACK) < move_at < read_at
+    assert BOTH_REGISTRIES in move["run"]
+    assert move["run"].count("imagetools create") == 1
+    assert (
+        'imagetools create -t "$image:latest" "$GHCR_IMAGE@$AMD64" "$GHCR_IMAGE@$ARM64"'
+        in move["run"]
     )
+    assert BOTH_REGISTRIES in read["run"]
+    assert 'want="linux/amd64=$AMD64 linux/arm64=$ARM64"' in read["run"]
+    assert 'imagetools inspect "$image:latest"' in read["run"]
+    assert re.search(
+        r'if \[ "\$platforms" != "\$want" \]; then\n\s+echo [^\n]+\n\s+exit 1', read["run"]
+    )
+    for step in _steps("publish"):
+        assert "if" not in step, step["name"]
+        assert "continue-on-error" not in step, step["name"]
+        assert "|| true" not in step["run"], step["name"]
+
+
+def test_only_publish_names_latest_so_a_dry_run_never_moves_it() -> None:
+    assert _jobs()["publish"]["if"] == ON_TAG
+    for name, job in _jobs().items():
+        if name != "publish":
+            assert "latest" not in yaml.safe_dump(job), name
 
 
 def test_preflight_checks_the_version_main_and_ci() -> None:
