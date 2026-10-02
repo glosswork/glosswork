@@ -87,6 +87,14 @@ changelog heading, the README tag, the Accept block and the tag command. That in
 escaped form in AC3's two `awk` programs, where `0\.1\.1` becomes `0\.2\.0` and
 `0\.1\.0` stays. Nothing else changes.
 
+**Decided: 0.2.0.** The maintainer chose 0.2.0 on 2026-10-02, and the substitution above
+is applied in this file: in area 3's recommendation, the changelog entry's heading, "What
+changes", checklist steps 2, 3, 6 and 7, the Accept block including AC3's two `awk`
+programs, and "After the merge". This area's own text, the sentence in the introduction
+above that names the four answers, the premises and the adversarial pass still name the
+planning run's number where they record what was argued or measured with it, and are left
+as written: the scratch clone and its image were at that number.
+
 ### 2. The changelog entry's text
 
 Customers read it. It is under "The changelog entry" below, in full, and it is the text
@@ -129,7 +137,7 @@ the build writes, byte for byte. Three choices are inside it:
 the version (P11). "Releases" lists three things a release sets, and the README is not
 one of them, so as the rule stands the README would go on naming 0.1.0.
 
-- **Recommended: this change sets it to 0.1.1, and "Releases" gains the clause that says
+- **Recommended: this change sets it to 0.2.0, and "Releases" gains the clause that says
   a release does so**, so the next release does not depend on someone remembering. The
   cost: from the merge until the maintainer's tag has published, the README on `main`
   names an image that does not exist yet. **That is 20 minutes at the least, not a few**
@@ -197,7 +205,7 @@ This block goes into `CHANGELOG.md` directly above `## 0.1.0`, followed by one b
 line. It is the only `markdown` fence in this file, which AC3 relies on.
 
 ```markdown
-## 0.1.1
+## 0.2.0
 
 **Upgrading.** Pull the new image and start it on the same volume. A deployment set up as
 0.1.0 documents has nothing else to do: the first start adds two tables and changes no
@@ -397,10 +405,10 @@ edited to establish a premise.
 
 ## What changes
 
-- `pyproject.toml`: `version = "0.1.1"`.
-- `uv.lock`: the `glosswork` entry's `version = "0.1.1"`, and no other line.
+- `pyproject.toml`: `version = "0.2.0"`.
+- `uv.lock`: the `glosswork` entry's `version = "0.2.0"`, and no other line.
 - `CHANGELOG.md`: the entry under "The changelog entry", above `## 0.1.0`.
-- `README.md`, "Run it": the run line names `docker.io/glosswork/glosswork:0.1.1`
+- `README.md`, "Run it": the run line names `docker.io/glosswork/glosswork:0.2.0`
   (area 3).
 - At closeout, `CONTRIBUTING.md` "Releases": the clause under "Durable content" (area 3).
 
@@ -436,13 +444,13 @@ None of these is a file that defines CI (`CONTRIBUTING.md`, "What CI runs").
 - [ ] 2. Run AC1 to AC5 against the unfixed tree and record how each failed. Measured
   while planning, on `main`: AC1 prints `0.1.0`; AC2's lock line reads `0.1.0`; AC3's
   first heading is `## 0.1.0` and its count is 0; AC4's counts are 0 and 1; AC5 compares
-  `0.1.1` with `0.1.0`.
-- [ ] 3. Set `version = "0.1.1"` in `pyproject.toml`.
+  `0.2.0` with `0.1.0`.
+- [ ] 3. Set `version = "0.2.0"` in `pyproject.toml`.
 - [ ] 4. `uv lock`, then the substitution from `AGENTS.md` non-negotiable 1, then confirm
   the diff is the one version line (AC2).
 - [ ] 5. Add the changelog entry, as written above.
-- [ ] 6. Set the README's run line to `docker.io/glosswork/glosswork:0.1.1`.
-- [ ] 7. Commit as `24: the version is 0.1.1, and the changelog says what it carries`.
+- [ ] 6. Set the README's run line to `docker.io/glosswork/glosswork:0.2.0`.
+- [ ] 7. Commit as `24: the version is 0.2.0, and the changelog says what it carries`.
 - [ ] 8. Run the Accept block and record its output.
 
 Verification, the two closeout commits, the one push and the one pull request follow as
@@ -454,17 +462,17 @@ Each exit code is read on its own line, never through a pipe.
 
 - **AC1.** The version is set, read the way the release workflow reads it:
   `uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'`
-  prints `0.1.1`.
+  prints `0.2.0`.
 - **AC2.** The lockfile changed by its one line. `uv lock --check` exits 0.
   `git diff --text origin/main -- uv.lock | grep -c '^[+][^+]'` prints 1, the same with
   `'^[-][^-]'` prints 1, and `git diff --text origin/main -- uv.lock | grep '^[+][^+]'`
-  prints `+version = "0.1.1"`. `grep -c 'registry = "https://pypi.org/simple"' uv.lock`
+  prints `+version = "0.2.0"`. `grep -c 'registry = "https://pypi.org/simple"' uv.lock`
   and `grep -c 'registry = ' uv.lock` print the same number.
 - **AC3.** The changelog carries the approved entry and has lost nothing.
-  `grep -m1 '^## ' CHANGELOG.md` prints `## 0.1.1`.
-  `awk '/^## 0\.1\.1$/{f=1} /^## 0\.1\.0$/{f=0} f' CHANGELOG.md | grep -c -E '^- (7|9|11|20|22): '`
+  `grep -m1 '^## ' CHANGELOG.md` prints `## 0.2.0`.
+  `awk '/^## 0\.2\.0$/{f=1} /^## 0\.1\.0$/{f=0} f' CHANGELOG.md | grep -c -E '^- (7|9|11|20|22): '`
   prints 5. That same `awk` output is identical to this plan's entry:
-  `diff <(awk '/^## 0\.1\.1$/{f=1} /^## 0\.1\.0$/{f=0} f' CHANGELOG.md) <(awk '/^```markdown$/{f=1;next} /^```$/{f=0} f' docs/changes/24-release-after-0-1-0.md)`
+  `diff <(awk '/^## 0\.2\.0$/{f=1} /^## 0\.1\.0$/{f=0} f' CHANGELOG.md) <(awk '/^```markdown$/{f=1;next} /^```$/{f=0} f' docs/changes/24-release-after-0-1-0.md)`
   exits 0. Every added line is the entry's and no line is removed:
   `git diff --numstat origin/main -- CHANGELOG.md` prints the number that
   `awk '/^```markdown$/{f=1;next} /^```$/{f=0} f' docs/changes/24-release-after-0-1-0.md | wc -l`
@@ -472,9 +480,9 @@ Each exit code is read on its own line, never through a pipe.
   `grep -c '^-[^-]'` over the diff, could not see a removed list line, because a removed
   `- 1: ...` line reads `-- 1: ...` in a diff, and it counted no added line at all: F5.)
 - **AC4.** The README names the version and no longer names the last one:
-  `sed -n '/^## Run it/,/^## Point/p' README.md | grep -c 'docker.io/glosswork/glosswork:0.1.1$'`
+  `sed -n '/^## Run it/,/^## Point/p' README.md | grep -c 'docker.io/glosswork/glosswork:0.2.0$'`
   prints 1, and `grep -c 'glosswork/glosswork:0.1.0' README.md` prints 0.
-- **AC5.** The tag the maintainer will push matches: with `TAG=v0.1.1`, the workflow's
+- **AC5.** The tag the maintainer will push matches: with `TAG=v0.2.0`, the workflow's
   pattern `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$` matches it in `bash`,
   and `${TAG#v}` equals AC1's output. This restates AC1 against the tag command below:
   it cannot fail unless AC1 does, and is not counted as separate coverage (F6).
@@ -491,12 +499,12 @@ Each exit code is read on its own line, never through a pipe.
   `uv run pytest -q -rs container_tests` exits 0 with nothing skipped, on a clean tree,
   so the image it builds is this commit's. Then
   `docker run --rm --entrypoint python glosswork:container-test -c 'import importlib.metadata as m; print(m.version("glosswork"))'`
-  prints `0.1.1`, and
+  prints `0.2.0`, and
   `uv run python scripts/notices_coverage.py --image glosswork:container-test` exits 0.
 - **AC10 (fence).** The version is free in both registries: with an empty
-  `DOCKER_CONFIG`, `docker buildx imagetools inspect docker.io/glosswork/glosswork:0.1.1`
+  `DOCKER_CONFIG`, `docker buildx imagetools inspect docker.io/glosswork/glosswork:0.2.0`
   exits 1 with `not found`, and
-  `gh api orgs/glosswork/packages/container/glosswork/versions --jq '[.[].metadata.container.tags[]] | any(. == "0.1.1")'`
+  `gh api orgs/glosswork/packages/container/glosswork/versions --jq '[.[].metadata.container.tags[]] | any(. == "0.2.0")'`
   prints `false`. The GitHub package is private, so it is read through the API with a
   token and not anonymously.
 
@@ -508,12 +516,12 @@ the merge commit (the same query as P7, returning 1), from a clone whose `user.e
 
 ```
 git fetch origin
-git tag -a v0.1.1 -m "0.1.1" <merge commit>
-git push origin v0.1.1
+git tag -a v0.2.0 -m "0.2.0" <merge commit>
+git push origin v0.2.0
 ```
 
 The release run's `preflight`, `build-amd64`, `build-arm64` and `publish` should all
-conclude `success`. Then `docker.io/glosswork/glosswork:0.1.1` pulls with no login for
+conclude `success`. Then `docker.io/glosswork/glosswork:0.2.0` pulls with no login for
 both architectures, and its revision label is the merge commit. That is the version the
 hosted control plane pins. Docker Hub is the only name that pulls without a login: the
 GitHub package is private, and `ghcr.io/glosswork/glosswork:0.1.0` refuses an anonymous
@@ -531,14 +539,14 @@ these was produced):
   job before either registry is tagged. A dry run cannot show this in advance, because
   it never signs in. Fix the credential and use "Re-run failed jobs".
 - *`publish` fails between the two registries.* It tags the GitHub registry first and
-  Docker Hub second, so the GitHub registry then holds `0.1.1` and Docker Hub does not,
+  Docker Hub second, so the GitHub registry then holds `0.2.0` and Docker Hub does not,
   and nobody outside can pull it. **Use "Re-run failed jobs", never "Re-run all jobs".**
   The first keeps the two build jobs' digests, finds the GitHub registry already holding
   exactly this build, and goes on to Docker Hub. The second builds again on fresh
   runners, and nothing makes a second build byte-identical to the first (the base images
   are named by tag, and Python in the image moved from 3.13.15 to 3.13.16 between the
   0.1.0 build and one made today from the same Dockerfile), so `publish` would find a
-  `0.1.1` in the GitHub registry that is not its own and refuse, every time. The way out
+  `0.2.0` in the GitHub registry that is not its own and refuse, every time. The way out
   of that is to delete the private GitHub package version by hand, or to release the
   next number.
 
