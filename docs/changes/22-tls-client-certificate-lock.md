@@ -879,7 +879,73 @@ re-created. The scripts and their output are attached to PROD-60 beside run 1's.
        was built. M1 to M3 ran before the disk filled; their container runs passed
        six, eight and six tests against a running container. The rerun of M4 is the
        row above.
-9. [ ] Run the whole Accept block and paste the output here.
+9. [x] Run the whole Accept block and paste the output here.
+
+       *Run by the build run (run 3, 2026-10-02) at `75d633e`, the commit before the one
+       that records this.* This is the build's own run. The verification of record is a
+       separate session's. AC8's three reading verdicts and AC12's reading of step 8
+       are that session's and are not claimed here. The image was built by AC2 with
+       `GW_IMAGE` unset, and AC3 reused it.
+
+       ```
+       HEAD 75d633e7020f5ff21167de3cd2e7a7613c272101
+       --- AC1   uv run pytest -q tests/test_config.py tests/test_infra.py -k tls
+       exit=0
+       16 passed, 33 deselected in 0.10s
+       --- AC2   env -u GW_IMAGE uv run pytest -q -rs container_tests/test_tls_lock.py
+       git status --short: []
+       exit=0
+       9 passed in 9.45s
+       image revision: 75d633e7020f5ff21167de3cd2e7a7613c272101
+       git rev-parse HEAD: 75d633e7020f5ff21167de3cd2e7a7613c272101
+       --- AC3   uv run pytest -q container_tests
+       exit=0
+       41 passed in 272.72s (0:04:32)
+       --- AC4   uv run pytest -q
+       exit=0
+       2215 passed, 3 xfailed, 2 warnings in 288.62s (0:04:48)
+       --- AC5
+       ruff check exit=0
+       ruff format --check exit=0
+       mypy exit=0
+       Success: no issues found in 90 source files
+       --- AC6   <path> <origin/main object id> <HEAD object id>
+       Dockerfile c4303b2f6c2543d9bbc2e3b0817e2ffa422606bd c4303b2f6c2543d9bbc2e3b0817e2ffa422606bd
+       pyproject.toml feecb0f199ee21ff9abe6d556d325ec353ddc473 feecb0f199ee21ff9abe6d556d325ec353ddc473
+       uv.lock 84a197533000a924d7ddd2763c627953d375f94f 84a197533000a924d7ddd2763c627953d375f94f
+       THIRD_PARTY_LICENSES.md 41104e462ab81280412cb34bc2c739b240371cd5 41104e462ab81280412cb34bc2c739b240371cd5
+       --- AC7   container_tests/test_tls_lock.py -k one_process, then the grep -c
+       one_process exit=0
+       1 passed, 8 deselected in 4.38s
+       0
+       --- AC8   grep -c of each of the three names in docs/DEPLOYMENT.md
+       2
+       2
+       2
+       --- AC9   uv run pytest -q -m structural
+       exit=0
+       101 passed, 2117 deselected in 21.16s
+       --- AC10  the semgrep command as written
+       exit=0
+       Ran 225 rules on 451 files: 0 findings.
+       --- AC11  git diff --name-only origin/main...HEAD
+       .env.example
+       container_tests/test_tls_lock.py
+       docs/DEPLOYMENT.md
+       docs/DESIGN_DECISIONS.md
+       docs/changes/22-tls-client-certificate-lock.md
+       src/glosswork/config.py
+       src/glosswork/entrypoint.py
+       tests/test_config.py
+       tests/test_infra.py
+       paths ending .pem, .key or .crt: 0
+       --- AC12
+       git status --short: []
+       ```
+
+       AC2's run printed no skip line under `-rs`, so no test was skipped. AC7's first
+       half is read from a run of that one test, because `-q` output does not name the
+       tests that pass.
 
 ## Accept
 
