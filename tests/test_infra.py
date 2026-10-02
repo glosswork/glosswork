@@ -323,3 +323,36 @@ def test_entrypoint_passes_trusted_proxy_ips_to_uvicorn(
 
     assert captured["forwarded_allow_ips"] == "10.0.0.5,10.0.0.6"
     assert captured["proxy_headers"] is True
+
+
+def test_entrypoint_serves_one_process_even_when_web_concurrency_asks_for_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The image runs one process per database (DD-35, FR-P1), and ``WEB_CONCURRENCY``
+    cannot change that.
+
+    uvicorn reads ``WEB_CONCURRENCY`` whenever ``workers`` is left unset, and a second
+    process on one database is a second embedding worker whose idle reclaim takes back
+    rows the first still holds, plus a second in-memory login limiter. The assertion
+    hands what the entry point passed to uvicorn's own ``Config``, so it measures the
+    worker count uvicorn would actually start rather than the presence of an argument.
+    """
+    monkeypatch.setenv("GW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    captured: dict[str, Any] = {}
+
+    def fake_run(*args: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    entrypoint.main()
+
+    # ``log_config=None`` as the entry point passes it: uvicorn's default would install
+    # its own handlers on the ``uvicorn`` loggers and break the JSON-logging tests after
+    # this one.
+    config = uvicorn.Config(
+        "glosswork.app:app", workers=captured.get("workers"), log_config=captured["log_config"]
+    )
+    assert config.workers == 1
+    assert captured["workers"] == 1

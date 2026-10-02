@@ -13,10 +13,12 @@ version of the test passes under the broken implementation too*:
 
 from __future__ import annotations
 
+import ast
 import inspect
 import json
 import threading
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -452,9 +454,10 @@ def test_reclaim_runs_on_the_idle_poll_of_a_worker_that_never_restarted(
 
     The restart test below starts a fresh worker, so it cannot catch a row stranded by
     a long-lived one, and a reclaim that only ran at startup would pass it. Here the
-    worker stays up: a batch is claimed and then abandoned without its failure handler
-    running -- an uncaught ``BaseException``, a thread stopped mid-write -- and
-    ``pending_jobs`` must still reach zero with no restart.
+    worker stays up: a batch is claimed and then abandoned while the thread survives
+    -- an ``Exception`` escaping ``run_once`` outside ``_process``'s handler, such as
+    ``fail_job``'s own write failing -- and ``pending_jobs`` must still reach zero with
+    no restart.
     """
     clock.advance(400)
     claimed = worker._claim(clock.now)
@@ -526,6 +529,167 @@ def test_a_restart_resumes_pending_work_and_does_not_double_embed_reclaimed_rows
     assert sorted(fake_provider.embedded_passages) == sorted(
         [paragraph("stranded"), paragraph("queued")]
     )
+
+
+def _record_every_charge(db: Database) -> None:
+    """Install a trigger that logs every update raising a job's ``attempts``.
+
+    A trigger sees every writer on the database, whatever repository instance or
+    thread it uses, which is the point: a counting repository sees only its own
+    instance's reclaims, and a sweeper built on a fresh ``SqliteSearchRepository()``
+    walked straight past one.
+    """
+    with db.write() as conn:
+        conn.execute(
+            text("CREATE TABLE prod_test_charges (job_id INTEGER, attempts INTEGER, error TEXT)")
+        )
+        conn.execute(
+            text(
+                "CREATE TRIGGER prod_test_record_charges AFTER UPDATE OF attempts "
+                "ON embedding_jobs WHEN NEW.attempts > OLD.attempts BEGIN "
+                "INSERT INTO prod_test_charges VALUES (NEW.id, NEW.attempts, NEW.last_error); "
+                "END"
+            )
+        )
+
+
+def _charges(db: Database) -> list[tuple[Any, ...]]:
+    with db.read() as conn:
+        return [tuple(r) for r in conn.execute(text("SELECT * FROM prod_test_charges"))]
+
+
+def test_a_pause_longer_than_the_timeout_inside_a_batch_charges_nothing(
+    db: Database,
+    worker: EmbeddingWorker,
+    clock: FakeClock,
+    search_services: ServiceBundle,
+    fake_provider: FakeEmbeddingProvider,
+) -> None:
+    """A pause of any length cannot make the worker reclaim the batch it is holding.
+
+    A paused machine (a laptop sleeping under Docker Desktop, a suspended VM) resumes
+    with its wall clock moved on and the worker's thread exactly where it was. Here the
+    injected wall clock jumps twice the running timeout *inside* the second of four
+    sources, which is the pause, and the worker then finishes the batch and goes idle.
+    The idle reclaim runs only on this thread and only when it holds nothing, so
+    nothing is charged an attempt and every source is embedded once.
+
+    It passes on a correct tree by design. What it guards is a reclaim reached from
+    inside ``tick()`` while a batch is held: the trigger sees every charge made during
+    it, and a ``reclaim_stale()`` after each source fails it. No other thread runs here,
+    so reclaimers elsewhere are ``test_only_the_worker_thread_reclaims``'s job.
+    """
+    bodies = [paragraph(f"paused{i}") for i in range(4)]
+    for i, body in enumerate(bodies):
+        search_services.records.create_record(
+            make_actor(), "artifact", {"title": f"Paused {i}", "summary": body}
+        )
+    _record_every_charge(db)
+    assert worker.reclaim_all() == 0  # what start() does first
+
+    original = fake_provider.embed_passages
+    calls: list[int] = []
+
+    def pausing(texts: Sequence[str]) -> list[list[float]]:
+        calls.append(1)
+        if len(calls) == 2:
+            clock.advance(2 * RUNNING_TIMEOUT_SECONDS)
+        return original(texts)
+
+    fake_provider.embed_passages = pausing  # type: ignore[method-assign]
+
+    clock.advance(10)  # past a new job's one-second claim backoff
+    assert worker.tick().claimed == 4
+    clock.advance(2)
+    idle = worker.tick()
+    assert (idle.claimed, idle.reclaimed) == (0, 0)
+
+    assert _charges(db) == [], "a row the worker still held was charged an attempt"
+    assert job_rows(db) == []
+    assert sorted(fake_provider.embedded_passages) == sorted(bodies)
+
+
+# Where each reclaim and the loop may be reached from, as ``Class.function``. The
+# worker's ``reclaim_stale`` and ``reclaim_all`` appear because each delegates to the
+# repository method of the same name, which is the one call it is allowed to make.
+RECLAIM_STALE_CALLERS = {"EmbeddingWorker.tick", "EmbeddingWorker.reclaim_stale"}
+RECLAIM_ALL_CALLERS = {"EmbeddingWorker.start", "EmbeddingWorker.reclaim_all"}
+TICK_CALLERS = {"EmbeddingWorker._run"}
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "glosswork"
+
+
+def _references_in_src() -> dict[str, list[str]]:
+    """Every reference to a reclaim and to ``tick`` in ``src/``.
+
+    Keyed by name, each value lists the enclosing ``Class.function`` path of one
+    reference. References rather than calls, so a bound method handed to a thread
+    (``Thread(target=self.reclaim_stale)``) counts as much as a call does.
+    """
+    names = {"reclaim_stale", "reclaim_all", "tick"}
+    found: dict[str, list[str]] = {name: [] for name in names}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self, module: str) -> None:
+            self.stack: list[str] = []
+            self.module = module
+
+        def _scoped(self, node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            self.stack.append(node.name)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        visit_ClassDef = _scoped
+        visit_FunctionDef = _scoped
+        visit_AsyncFunctionDef = _scoped
+
+        def _note(self, name: str) -> None:
+            if name in names:
+                found[name].append(".".join(self.stack) or self.module)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if isinstance(node.ctx, ast.Load):
+                self._note(node.attr)
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Load):
+                self._note(node.id)
+
+    for path in sorted(SRC.rglob("*.py")):
+        Visitor(str(path.relative_to(SRC))).visit(ast.parse(path.read_text(encoding="utf-8")))
+    return found
+
+
+def test_only_the_worker_thread_reclaims() -> None:
+    """The structural half of "a pause cannot reclaim held work": exactly one reclaimer.
+
+    The idle reclaim is safe across a pause only because the one thread that holds a
+    batch is the one thread that reclaims, and only between batches. A second
+    reclaimer of any period, a sweeper thread or a second worker on the same
+    database, would take back rows a paused batch still holds. A timed test can miss
+    a slow sweeper; this does not, because it reads the code rather than waiting. It
+    sees names, not intent: a ``getattr`` by string, a construction spelled
+    ``module.EmbeddingWorker(...)`` or a reclaim written as raw SQL would pass it.
+    Annotations and imports name ``EmbeddingWorker`` without constructing it, so the
+    construction count reads calls only.
+    """
+    found = _references_in_src()
+    assert set(found["reclaim_stale"]) == RECLAIM_STALE_CALLERS, found["reclaim_stale"]
+    assert len(found["reclaim_stale"]) == len(RECLAIM_STALE_CALLERS), found["reclaim_stale"]
+    assert set(found["reclaim_all"]) == RECLAIM_ALL_CALLERS, found["reclaim_all"]
+    assert len(found["reclaim_all"]) == len(RECLAIM_ALL_CALLERS), found["reclaim_all"]
+    assert sorted(found["tick"]) == sorted(TICK_CALLERS), found["tick"]
+
+    constructions = [
+        str(path.relative_to(SRC))
+        for path in sorted(SRC.rglob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "EmbeddingWorker"
+    ]
+    assert constructions == ["app.py"], constructions
 
 
 # ----------------------------------------------- stopping between sources
@@ -696,9 +860,10 @@ def test_a_restart_reclaims_a_running_row_of_any_age_and_counts_an_attempt(
 ) -> None:
     """DD-35: at the moment a process starts, every ``running`` row is residue.
 
-    The idle poll keeps the ten-minute threshold, because there a live worker may
-    genuinely hold the row; startup does not, because only the application lifespan
-    ever constructs a worker and the documented upgrade stops the old container first.
+    The idle poll keeps the ten-minute threshold as margin (it runs only between
+    batches, on the thread that would hold the row); startup has none, because only
+    the application lifespan ever constructs a worker and the documented upgrade stops
+    the old container first.
     """
     source = field_source(record, "summary")
     clock.advance(400)

@@ -2525,12 +2525,21 @@ class SqliteSearchRepository:
     def reclaim_stale(self, conn: Connection, stale_before: str, now: str) -> int:
         """Return ``running`` rows stranded past the timeout to the queue (rule 5).
 
-        This is the **idle poll**'s reclaim, and it keeps the ten-minute threshold
-        because a live worker may genuinely still hold the row. A batch killed without
-        its failure handler running -- an uncaught ``BaseException``, a thread stopped
-        mid-write -- would otherwise strand rows in ``running`` for the life of the
-        process and ``pending_jobs`` would never reach zero. Startup uses
-        :meth:`reclaim_all` instead (DD-35).
+        This is the **idle poll**'s reclaim. It runs only on the embedding worker's own
+        thread, between batches, while that thread holds nothing, so a row it finds
+        ``running`` was abandoned by that same process: an ``Exception`` escaping
+        ``run_once`` outside ``_process``'s handler (``fail_job``'s own write failing on
+        ``busy_timeout``, say) leaves the rest of the batch ``running`` while the thread
+        survives, and those rows would otherwise stay stranded for the life of the
+        process and ``pending_jobs`` would never reach zero. A ``BaseException`` kills
+        the thread instead, so this reclaim never runs for it and only the next
+        startup's :meth:`reclaim_all` recovers its rows (DD-35).
+
+        The ten-minute threshold is margin, not protection for a live holder: a pause
+        of any length cannot make the worker reclaim its own work, because the pause
+        stops the one thread that would do it. A second process on one database would
+        reclaim rows the first still holds; that is unsupported, not impossible, and the
+        entry point pins one process for that reason.
         """
         return self._reclaim(
             conn,
