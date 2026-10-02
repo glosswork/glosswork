@@ -588,7 +588,7 @@ before this change and is repaired here: see "Staging cleanup" under "What chang
 
 ## Checklist
 
-1. **Write the new tests first and run them against the unfixed tree**, in the order of
+1. [x] **Write the new tests first and run them against the unfixed tree**, in the order of
    the Accept block, recording how each fails. Expected, as the second pass measured by
    writing the criteria literally and running them on `main` (G6): the operator route
    does not exist and is not yet credential-exempt, so the success test gets
@@ -598,25 +598,25 @@ before this change and is repaired here: see "Staging cleanup" under "What chang
    download leaves its file staged. Record the fences, which pass on the unfixed tree and
    are not counted: AC6, AC16, the admin half of AC5, the off and unset half of AC4, and
    the no-relay half of AC17.
-2. Add `operator_backup` to `config.Settings` and its two startup checks to
+2. [x] Add `operator_backup` to `config.Settings` and its two startup checks to
    `load_settings`; add `GW_OPERATOR_BACKUP=false` and its comment to `.env.example`.
-3. Add `OPERATOR_TRIGGER`, `require_operator` and `require_operator_backup` to
+3. [x] Add `OPERATOR_TRIGGER`, `require_operator` and `require_operator_backup` to
    `src/glosswork/services/usage.py`; route `snapshot()` through `require_operator`.
-4. Add `operator_triggered` to `BackupService.stream`, the marker to `_record_audit` and
+4. [x] Add `operator_triggered` to `BackupService.stream`, the marker to `_record_audit` and
    the `backup_streamed` line, and `clear_staging`; call `clear_staging` from the
    lifespan. Correct `backup.py`'s docstring about disconnects.
-5. Add `src/glosswork/routes/closing_response.py`; switch `routes/admin_ops.py::
+5. [x] Add `src/glosswork/routes/closing_response.py`; switch `routes/admin_ops.py::
    take_backup` to it.
-6. Add `src/glosswork/routes/operator_backup.py` with the tagged operator dependency and
+6. [x] Add `src/glosswork/routes/operator_backup.py` with the tagged operator dependency and
    the streamed artifact; register it in `routes/__init__.py`. Use `x_operator_token`
    spelling only (F14). Add `route_operator_credentials` to `scopes.py`.
-7. Add `/api/v1/operator/backup` to `scopes.SCOPE_EXEMPT_PATHS` and
+7. [x] Add `/api/v1/operator/backup` to `scopes.SCOPE_EXEMPT_PATHS` and
    `middleware.AUTH_PUBLIC_PATHS`, and to the equality tests that pin both.
-8. Key the code digest: `derive_code_key`, `code_hash(key, ...)`,
+8. [x] Key the code digest: `derive_code_key`, `code_hash(key, ...)`,
    `SignInCodeService(code_key=...)`, the constructor refusal, the `build_services` line,
    the docstring. Delete `tests/relay_support.py::code_hash` and repair its one caller.
-9. Add the structural pins (F7).
-10. **Mutation checks, each watched to fail and then reverted (F8).** Each mutation must
+9. [x] Add the structural pins (F7).
+10. [x] **Mutation checks, each watched to fail and then reverted (F8).** Each mutation must
     import and start the app before its failure is believed.
     - The operator check moved inside the generator: AC2 red (a streamed-after-start
       error, not a clean 401).
@@ -636,17 +636,17 @@ before this change and is repaired here: see "Staging cleanup" under "What chang
       red for that route.
     - The relay token written into a row by the harness: AC16 red (this is what shows the
       fence can see a leak).
-11. Run `uv run pytest -q tests/test_operator_backup.py tests/test_sign_in_codes.py
+11. [x] Run `uv run pytest -q tests/test_operator_backup.py tests/test_sign_in_codes.py
     tests/test_email_code_off.py tests/test_invites.py tests/test_rest_scope_enforcement.py
     tests/test_operator_usage.py tests/test_one_usage_counter.py tests/test_backup.py
     tests/test_read_only_mode.py tests/test_api_infra.py tests/test_structural_lane.py`
     green.
-12. Regenerate `web/src/api/schema.ts` (`npm --prefix web run generate:api-types`); confirm
+12. [x] Regenerate `web/src/api/schema.ts` (`npm --prefix web run generate:api-types`); confirm
     `tests/test_generated_api_types_fresh.py`; run `npm --prefix web run typecheck` (F13).
-13. Add the container-proof arm (F13) and run it (needs Docker).
-14. Full backend suite; `uv run ruff check .` then `uv run ruff format --check .` as two
+13. [x] Add the container-proof arm (F13) and run it (needs Docker).
+14. [x] Full backend suite; `uv run ruff check .` then `uv run ruff format --check .` as two
     commands reading each exit code (F8); `uv run mypy src`.
-15. Closeout: move durable content into the specs (F9); delete this plan file.
+15. [x] Closeout: move durable content into the specs (F9); delete this plan file.
 
 ## Accept
 
@@ -886,6 +886,95 @@ a rotated token.
 **Not run by either session:** the container proof (AC18, needs Docker), the `schema.ts`
 regeneration and web typecheck, and the Activity screen in a browser.
 
+## Verification
+
+A separate Opus session (Claude Opus 5.5) that wrote none of the code verified the branch
+at `a3adbf6` on 2026-10-02. It ran the Accept block and then attacked the built code,
+because the fixes for G1 to G9 had never been attacked by a session that did not write
+them. It changed nothing in the repository and found nothing to fix.
+
+**Its verdict, in its words: "PASS.** Every Accept criterion AC1-AC20 passes with the exit
+codes and passed-counts the test docstrings state, and each test actually asserts its
+criterion (I read them; the refusal tests pin the body code `operator_token_refused`, not
+just a 401, so they cannot pass vacuously on a tree without the route). Every
+security-carrying mutation I reconstructed turned the right test red, and each mutation
+imported and started the app first. I could not break any of goals (a)-(e): starting from
+only the operator token on a hosted-shaped workspace I reached no session and no write and
+recovered no code; the relay token and derived key appear in no artifact, response, header
+or log I could obtain, including debug level and a failure path; the backup is unreachable
+and side-effect-free with the opt-in off, unset or malformed, and its state is
+indistinguishable from outside; the audit marker cannot be forged or dropped from any
+caller-reachable input; and no abandoned download, concurrent batch, never-reading client
+or restart leaves a staged database copy behind."
+
+What it ran beyond the Accept block:
+
+- **Mutations**, in a scratch clone, each importing and starting the app first: every one
+  in step 10, the two in D11, the comparison skipped while the backup is off (D10's test
+  red, nothing else), and one of its own: the close left unshielded turns AC19 red, so D2
+  is load-bearing.
+- **A session or a write from the operator token alone**, at both relay-token lengths: an
+  offline search of every live code row against 48 candidate keys over every six-digit
+  value recovered nothing, where the same search under the true derived key recovered the
+  one live code. Every session and token value in the artifact, replayed, answered `401`.
+  A sweep of every route with the operator token wrote nothing but its own two
+  `backup_taken` rows.
+- **The opt-in's state from outside**: three deployments differing only in
+  `GW_OPERATOR_BACKUP`, probed with the right token, a wrong one, none, tenant tokens at
+  each scope and an upload ticket, over three methods and four path variants. Off and
+  unset answered identically, and every refusal was byte for byte the same.
+- **Staged copies**: five concurrent abandoned downloads staged up to six snapshots and
+  drained to none; a client that never read left none.
+
+**One thing it measured that the plan's constraint states too broadly.** A server shut
+down gracefully in the middle of a download leaves that download's staged file on disk:
+the generator's `finally` does not run when the loop is torn down. The next startup
+removed it (`backup_staging_cleared`, `removed: 2`). So a staged snapshot does not outlive
+its response while the server keeps running, and does not outlive a restart; it can
+outlive a shutdown until the next start. That is the case `clear_staging` exists for, and
+the specifications say it that way.
+
+**Not established by anyone:** the web Activity screen was not opened in a browser, and
+this change does not claim it shows the marker. The control-plane repository is not on
+this branch, so what P9 says about how it makes and stores the relay token was read, not
+run; the attack assumed the stored form P9 describes and recovered nothing.
+
+## Final Accept output
+
+Run on 2026-10-02 at `a3adbf6`, each command on its own, each exit code read directly.
+
+| Criterion | Command | Exit | Last line |
+| --- | --- | --- | --- |
+| AC1 | `uv run pytest -q tests/test_operator_backup.py -k streams_a_readable_tar` | exit 0 | 1 passed, 18 deselected in 0.14s |
+| AC2 | `uv run pytest -q tests/test_operator_backup.py -k refusal` | exit 0 | 1 passed, 18 deselected in 0.40s |
+| AC3 | `uv run pytest -q tests/test_operator_backup.py -k tenant_pat` | exit 0 | 1 passed, 18 deselected in 0.13s |
+| AC4 | `uv run pytest -q tests/test_operator_backup.py -k sweep` | exit 0 | 3 passed, 16 deselected in 0.58s |
+| AC4-pins | `uv run pytest -q tests/test_operator_backup.py -k pin` | exit 0 | 6 passed, 13 deselected in 1.02s |
+| AC5 | `uv run pytest -q tests/test_operator_backup.py -k audited` | exit 0 | 1 passed, 18 deselected in 0.14s |
+| AC6 | `uv run pytest -q tests/test_rest_scope_enforcement.py` | exit 0 | 21 passed in 1.37s |
+| AC6 | `git diff --exit-code --text main -- src/glosswork/migrations.py tests/migration_hashes.txt` | exit 0 |  |
+| AC7 | `uv run pytest -q tests/test_operator_backup.py -k read_only` | exit 0 | 1 passed, 18 deselected in 0.12s |
+| AC8 | `uv run pytest -q` | exit 0 | 2199 passed, 3 xfailed, 2 warnings in 281.93s (0:04:41) |
+| AC8 | `uv run ruff check .` | exit 0 | All checks passed! |
+| AC8 | `uv run ruff format --check .` | exit 0 | 262 files already formatted |
+| AC8 | `uv run mypy src` | exit 0 | Success: no issues found in 90 source files |
+| AC8 | `uv run pytest -q tests/test_generated_api_types_fresh.py` | exit 0 | 1 passed in 0.70s |
+| AC8 | `npm --prefix web run typecheck` | exit 0 | > tsc -b --noEmit |
+| AC9 | `uv run pytest -q tests/test_operator_backup.py -k opt_in` | exit 0 | 3 passed, 16 deselected in 0.59s |
+| AC10 | `uv run pytest -q tests/test_operator_usage.py -k operator_backup_setting` | exit 0 | 5 passed, 30 deselected in 0.02s |
+| AC11 | `uv run pytest -q tests/test_operator_backup.py -k upgrade_keeps_usage_only` | exit 0 | 1 passed, 18 deselected in 0.55s |
+| AC12 | `uv run pytest -q tests/test_sign_in_codes.py -k stored_form_is_keyed` | exit 0 | 2 passed, 25 deselected in 0.65s |
+| AC13 | `uv run pytest -q tests/test_sign_in_codes.py -k artifact_holds_no_usable_code` | exit 0 | 2 passed, 25 deselected in 7.73s |
+| AC14 | `uv run pytest -q tests/test_sign_in_codes.py -k pre_upgrade_code_is_refused` | exit 0 | 1 passed, 26 deselected in 0.34s |
+| AC15 | `uv run pytest -q tests/test_sign_in_codes.py -k relay_token_rotation` | exit 0 | 1 passed, 26 deselected in 0.65s |
+| AC16 | `uv run pytest -q tests/test_operator_backup.py -k relay_token_is_in_no_artifact` | exit 0 | 1 passed, 18 deselected in 0.45s |
+| AC17 | `uv run pytest -q tests/test_sign_in_codes.py -k code_service_needs_a_key` | exit 0 | 2 passed, 25 deselected in 0.47s |
+| AC18 | `uv run pytest -q container_tests -k operator_backup` | exit 0 | 2 passed, 30 deselected in 6.50s |
+| AC19 | `uv run pytest -q tests/test_backup.py -k abandoned_download` | exit 0 | 2 passed, 17 deselected in 1.84s |
+| AC20 | `uv run pytest -q tests/test_backup.py -k startup_clears_staging` | exit 0 | 1 passed, 18 deselected in 0.15s |
+
+The pins (D7) are `-k pin`. AC6's `git diff` prints nothing, which is the pass.
+
 ## Deviations from the approved plan
 
 None changes the security design: the key derivation, what the operator token can reach,
@@ -939,19 +1028,26 @@ the opt-in's refusal behaviour and the audit marker are built as approved.
   bare SHA-256 (AC12 red at both lengths, on the assertion the token-bytes mutation
   never reaches), and the startup sweep's call removed (AC20 red).
 
-## Durable content moved out of this plan (planned; F9)
+## Durable content moved out of this plan
 
-At closeout: DD-39 (the operator credential also opens one backup route, only when
-`GW_OPERATOR_BACKUP` is on; its cost as now true; the audit marker and its reading rule);
-DD-45, docs/DATA_MODEL.md `sign_in_codes` and `src/glosswork/repositories/models.py`'s
-`SignInCodeRow` docstring (the stored form is keyed with a key derived from the relay
-token; old-form rows never verify); DD-36 (second caller of `BackupService.stream`; F12's "200 is not a
-complete artifact"; a staged snapshot is removed when its response ends and at startup); DD-38 and `docs/DEPLOYMENT.md` section 6a table (the operator backup
-is open while frozen); `docs/DEPLOYMENT.md` section 5a (rotating the relay token ends
-live codes), sections 6 and 8 (the route, the setting, what turning it on hands the
-operator-token holder including password hashes on a password deployment, F12);
-`docs/DEPLOYMENT.md:32-36` and `src/glosswork/errors.py:526` docstring and
-`src/glosswork/services/usage.py:88-91` comment ("no tenant content whatever" holds
-unless the deployment opts in); `docs/ARCHITECTURE.md:110`; `docs/MCP_TOOLS.md:1100-1106`
-and section 8 (the new REST-only operator route); PRD.md FR-P8, FR-P10 and FR-I18.
-(`.env.example` and `config.py` edits are build steps, not closeout.)
+Moved in the closeout commit that deletes this file:
+
+- `docs/DESIGN_DECISIONS.md`: DD-39 (the operator credential also takes a backup where a
+  deployment opts in; what that hands its holder; the audit marker and its reading rule),
+  DD-45 (the stored form of a code is keyed with a key derived from the relay token; rows
+  in an older form or under a changed token never verify), DD-36 (a second caller of the
+  artifact; a `200` is not a complete artifact; a staged snapshot is removed when its
+  response ends and at startup), DD-38 (the operator backup is open while frozen).
+- `docs/DATA_MODEL.md`, `sign_in_codes`: the stored form.
+- `docs/DEPLOYMENT.md`: section 1 (what the operator credential opens), 5a (rotating the
+  relay token ends live codes; an upgrade does too, once), 6 (the operator backup, the
+  setting, what turning it on hands over, password hashes included, and what a `200`
+  means), 6a (open while frozen), 8 (the pointer beside the usage counts).
+- `docs/ARCHITECTURE.md` section 8, `docs/MCP_TOOLS.md` section 8 (the REST-only operator
+  route), `PRD.md` FR-P8, FR-P10 and FR-I18.
+- In `src/`: the `OperatorTokenRefusedError` docstring, the header-name comment in
+  `services/usage.py`, and `SignInCodeRow`'s docstring.
+
+Not moved, because it is not a rule of the product: the consequences for CP-11 (set
+`GW_OPERATOR_BACKUP=true` per tenant; treat a `200` as "a backup started"), which are on
+that task.
