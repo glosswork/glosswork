@@ -888,7 +888,56 @@ regeneration and web typecheck, and the Activity screen in a browser.
 
 ## Deviations from the approved plan
 
-None yet.
+None changes the security design: the key derivation, what the operator token can reach,
+the opt-in's refusal behaviour and the audit marker are built as approved.
+
+- **D1. `ClosingStreamingResponse` lives at `src/glosswork/closing_response.py`, not
+  under `routes/` (step 5).** Built where the plan put it, it turned
+  `tests/test_api_infra.py::test_every_route_handler_is_sync_def_not_async_def` red: that
+  guard refuses any `async def` in a module under `src/glosswork/routes/`, and a response
+  class's `__call__` is one. The class is not a route handler, so it moved beside
+  `api_deps.py` and the guard is untouched. Neither adversarial pass caught this because
+  both built the staging fix in a scratch harness, not in the tree.
+- **D2. The close is shielded from cancellation (step 5).** `__call__`'s `finally` closes
+  the generator inside `anyio.CancelScope(shield=True)`. The plan says only "closes the
+  generator it was handed (in the threadpool)". Unshielded, an await in a `finally` that
+  is reached because the request was cancelled is cancelled in turn, and the file stays.
+- **D3. The audit feed has no `action` filter (AC5, P14).** `GET /api/v1/audit-events`
+  ignores `?action=backup_taken` and returns the whole feed, newest first; P14's reading
+  that the parameter selects was wrong, and its conclusion (the marker reaches a tenant
+  administrator through the API, intact) holds. The test sends the URL as written and
+  selects the `backup_taken` events itself.
+- **D4. AC16 is not a passing fence on the unfixed tree (step 1).** The test takes its
+  artifact through the operator route and asserts that answered `200` before it searches
+  anything, so on the unfixed tree it fails there with `401 invalid_token`. Its leak
+  assertions are still a fence, and step 10's last mutation is what shows they can fail.
+- **D5. The pin on the stored form is worded differently (step 9).** The plan says
+  "`code_hash` is the only function that takes a code". `verify_code` takes one too, so
+  that cannot be asserted. The pin asserts what it was for: in
+  `services/sign_in_codes.py` the only digest calls are `hashlib.sha256` inside
+  `derive_code_key` and `hmac.new` inside `code_hash`.
+- **D6. One more constructor refusal (step 8, AC17).** `SignInCodeService` also refuses
+  an empty key with no relay, so an empty key is never accepted in any combination.
+- **D7. The pins have their own selection.** AC4 says "plus the structural pins green"
+  and names no command. They are `uv run pytest -q tests/test_operator_backup.py -k pin`,
+  6 passed.
+- **D8. The startup sweep logs only when it removed something (step 4).** The plan says
+  it "logs the count removed". It logs `backup_staging_cleared` with the count when the
+  count is not zero, as the orphan-blob sweep beside it does, so a clean start adds no
+  line.
+- **D9. `generate:api-types` was run against a file (step 12).** The script fetches
+  `/openapi.json` from a server on port 8000 and exits 1 with none running. It was run
+  as `OPENAPI_SOURCE=<file> npm --prefix web run generate:api-types`, the file being the
+  application's own `/openapi.json` written out in-process, which is the document
+  `tests/test_generated_api_types_fresh.py` compares against.
+- **D10. One test beyond the Accept block (step 10).** "The comparison runs before the
+  setting is consulted" shows in no answer, so no criterion could fail on it: a mutation
+  that skipped the comparison while the backup was off left AC2 and AC9 green. A test
+  now counts the comparisons, one per call with the backup on or off, and that mutation
+  turns it red. It is selected by `-k opt_in`, which is therefore 3 passed, not 2.
+- **D11. Two mutations beyond step 10's list.** `derive_code_key` returning the token's
+  bare SHA-256 (AC12 red at both lengths, on the assertion the token-bytes mutation
+  never reaches), and the startup sweep's call removed (AC20 red).
 
 ## Durable content moved out of this plan (planned; F9)
 
