@@ -484,7 +484,8 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
   five codes an hour and twenty a day, counted in the database; requests and verifications count
   in the login limiter's two windows. The request answers the same whether or not the address can
   sign in. The relay is the only sender: there is no SMTP option, and a workspace without the two
-  settings behaves exactly as before. `clear-sign-in-codes` resets an address's count.
+  settings behaves exactly as before. `clear-sign-in-codes` resets an address's count. A code is
+  stored keyed with a secret no copy of the database holds, so a backup carries no usable code.
 - **FR-I19.** **An administrator invites a person by email and role** from People & agents, on a
   workspace that signs people in by code. An invite is its own list: no person exists until the
   address first signs in with a code, which creates them (or reactivates the same principal, for a
@@ -559,12 +560,13 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
 - **FR-P7.** Runs correctly behind a TLS-terminating reverse proxy on an internal VM, honoring
   standard forwarded headers.
 - **FR-P8.** An operator-triggered backup endpoint produces a consistent database snapshot without
-  stopping writes.
+  stopping writes. An administrator takes it, or the operator's token where that is on (DD-39).
 - **FR-P9.** With `GW_READ_ONLY` on, every REST and MCP write is refused with an error naming
   `GW_SUBSCRIBE_URL`, while reads, export, sign-in and five named calls keep working (DD-38).
 - **FR-P10.** With `GW_OPERATOR_TOKEN` set, `GET /api/v1/usage` returns aggregate counts to an
   operator holding it and one identical refusal to everybody else, including a workspace `admin`
-  token. No field carries tenant content, and unset means off (DD-39).
+  token. No field carries tenant content, and unset means off (DD-39). The token opens nothing
+  else unless `GW_OPERATOR_BACKUP` is on, and then only `POST /api/v1/operator/backup` (FR-P8).
 
 ## 7. Architecture decisions
 

@@ -93,8 +93,8 @@ logger = get_logger(__name__)
 
 #: Where the operator credential rides. A dedicated header rather than ``Authorization``,
 #: which means "a tenant credential" everywhere else in this product: one header meaning
-#: two kinds of credential is how a later edit comes to confuse them. ``routes/usage.py``
-#: is the only reader of the name.
+#: two kinds of credential is how a later edit comes to confuse them. The two operator
+#: routes, ``routes/usage.py`` and ``routes/operator_backup.py``, are its only readers.
 OPERATOR_TOKEN_HEADER = "X-Operator-Token"
 
 #: What a ``backup_taken`` audit row carries under ``trigger`` when the backup was taken

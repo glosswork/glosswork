@@ -1085,6 +1085,7 @@ row records the human principal, the agent label, the MCP surface, and the exact
 | (operator only) export the deployment | `GET /api/v1/admin/export` |
 | (operator only) sweep orphan blobs | `POST /api/v1/admin/blobs/sweep` |
 | (operator only) read usage counts | `GET /api/v1/usage` |
+| (operator only) take a backup with the operator token | `POST /api/v1/operator/backup` |
 
 `POST` is used for queries because filter trees exceed practical query-string limits. Proposal
 approval is deliberately absent from the MCP catalog at every scope. Audit browsing and revert
@@ -1104,6 +1105,11 @@ not reachable with any tenant credential at all. It reads `X-Operator-Token` and
 `operator_token_refused` -- the same answer a caller presenting nothing gets, and the same answer a
 deployment that never set the variable gives, byte for byte. A tool would have had to be visible to
 the credential that is refused, which is a contradiction rather than a parity gap.
+
+`POST /api/v1/operator/backup` (DD-39, FR-P8) is REST-only for the same reason. It streams the
+backup artifact to the holder of `GW_OPERATOR_TOKEN`, and only on a deployment that set
+`GW_OPERATOR_BACKUP`; every tenant credential, and the operator token itself where the setting is
+off, gets the same 401 `operator_token_refused`.
 
 The three grant endpoints are MCP tools too (DD-11), and the rows above are parity rows. The
 authority is the `admin` **level on the object type**, which is the only thing the three grant

@@ -108,7 +108,8 @@ Configuration is environment variables, read once at startup. At startup the pro
 migrations, and it can hand a program its first administrator's token over HTTP (DD-37). A backup
 is one artifact taken from the running deployment, and restore is an operator procedure (DD-36).
 An operator can freeze a workspace read-only (DD-38) and read its aggregate usage with a
-credential the workspace cannot mint (DD-39). What the product does not do is written down
+credential the workspace cannot mint, which also takes the backup where a deployment opts in
+(DD-39). What the product does not do is written down
 (DD-40).
 
 Running, upgrading, backing up and monitoring a deployment are in `docs/DEPLOYMENT.md`.

@@ -527,10 +527,19 @@ operator procedure, not an endpoint, and it is proven by a restored deployment a
 as the original, including a write. The full export shares the backup's response envelope and its
 scope, not its format.
 
-**Why.** Taking the snapshot first guarantees every attachment the snapshot references is in the
-copy.
+Two routes stream the artifact: an administrator's, and the operator's (DD-39). The status line is
+sent before the snapshot is taken, so a `200` means a backup started, not that the artifact is
+complete; a reader checks the archive's end and the snapshot's integrity. The snapshot is staged on
+the data volume and removed when its response ends, including when the client hangs up, because
+the response closes the generator it streams. A process stopped or killed in the middle of a
+backup removes nothing, so startup removes whatever is staged.
 
-**Held by.** `tests/test_backup.py`, `tests/test_export.py`.
+**Why.** Taking the snapshot first guarantees every attachment the snapshot references is in the
+copy. A streaming response left to itself does not close an abandoned generator, and an abandoned
+download then leaves a full copy of the database on the volume until the garbage collector reaches
+it.
+
+**Held by.** `tests/test_backup.py`, `tests/test_export.py`, `tests/test_operator_backup.py`.
 
 **See.** `docs/DEPLOYMENT.md` section 6; `PRD.md` FR-P8 and FR-E5.
 
@@ -549,7 +558,8 @@ HTTP exactly once, and the endpoint closes as soon as any user exists.
 
 With read-only mode on, every write on both surfaces is refused with 409, naming a subscribe URL
 when one is configured. One predicate decides it. Reads, export and six named security and
-recovery writes stay open.
+recovery writes stay open. The operator's backup (DD-39) stays open too, without being named: it is
+credential-exempt at the edge and never reaches the gate.
 
 **Why.** The same image serves a workspace its operator has paused and a self-hosted deployment
 in a migration window.
@@ -565,11 +575,37 @@ Aggregate usage counts are read with a configured operator credential that no pr
 workspace can mint. Anyone else gets one identical refusal, and no string the workspace chose
 comes back in the response.
 
-**Why.** Usage reporting must not become a way to read or probe a workspace.
+On a deployment that sets `GW_OPERATOR_BACKUP`, the same credential also takes the backup
+(DD-36), at `POST /api/v1/operator/backup`, and opens nothing else. The setting is off by default.
+Off, unset, a wrong credential and no credential all get the usage route's one refusal, so a
+caller cannot tell whether the backup is on, and a refused call stages nothing and audits
+nothing. Startup refuses the setting with no operator credential, and with a relay token equal to
+the operator credential. The credential stays a setting: it is in no table, and no tenant scope
+changes.
 
-**Held by.** `tests/test_operator_usage.py`, `tests/test_one_usage_counter.py`.
+With the backup on, the holder of the credential can read everything in the workspace, its
+password hashes included, and can change nothing in it beyond one audit row per backup, and reach
+no session: a stored sign-in code is keyed with a secret no backup carries (DD-45). Whoever holds both that credential and the relay
+token can still reach an administrator's sign-in; both sit in the deployment's environment. Each
+call takes a snapshot, and nothing limits how many run at once.
 
-**See.** `docs/DATA_MODEL.md` section 2, "usage_counters and usage_meta"; `PRD.md` FR-P10.
+A backup taken this way has no person behind it. Its audit row is attributed to the deployment's
+own service account and carries `trigger: operator_token`. A `backup_taken` row with `trigger`
+was taken with the operator credential, and its principal and `auth_method` describe the
+deployment, not a person; a row without it was taken by the credential it names. An
+administrator's backup never carries the marker. It is in the audit row, the audit API, the full
+export and the server log; the web Activity screen does not show it.
+
+**Why.** Usage reporting must not become a way to read or probe a workspace. A hosting operator
+holds no workspace credential, so its scheduled backup needs one the workspace cannot mint; and a
+deployment that set the credential when it opened only counts must not find, after an upgrade,
+that it opens the whole database.
+
+**Held by.** `tests/test_operator_usage.py`, `tests/test_one_usage_counter.py`,
+`tests/test_operator_backup.py`, `container_tests/test_operator_usage.py`.
+
+**See.** `docs/DATA_MODEL.md` section 2, "usage_counters and usage_meta"; `docs/DEPLOYMENT.md`
+sections 6 and 8; `PRD.md` FR-P8 and FR-P10.
 
 ### DD-40: What the product does not do today
 
@@ -644,8 +680,17 @@ naming one of two templates with typed fields; there is no other sender. The req
 same for every address, a row is written for every address, and the per-address limits are counted
 in the database so a restart keeps them. No request cancels a live code.
 
+A code is stored as a keyed digest: HMAC-SHA256 over a fixed label, the row id and the code, under
+a key derived from the relay token as SHA-256 over a second fixed label and the token. The relay
+token is in no table, file or log, so a copy of the database alone yields no usable code. There is
+one stored form and no fallback: a row written in an older form, or under a relay token that has
+since changed, never verifies, and the person asks for another code.
+
 **Why.** A hosted person holds no password, and a workspace that could send free text would be a
-spam relay. What remains is accepted: anyone who knows an address can spend its allowance and keep
+spam relay. A six-digit code has a million values, so an unkeyed digest protects it from nobody
+who holds the row, and a backup has to carry the table (DD-39). The key is derived and not the
+token itself because HMAC replaces a key longer than 64 bytes with its SHA-256, which is the form
+of the relay token a hosting control plane stores. What remains is accepted: anyone who knows an address can spend its allowance and keep
 that person out for up to a day, recovered by an operator's `clear-sign-in-codes`, and the guessing
 odds are about 1 in 10,000 per targeted address per day.
 

@@ -35,6 +35,11 @@ records, attachment bytes, people, agent labels, and tool calls by name and erro
 and with no tenant content whatever. It is off unless the variable is set, which is why a
 self-hosted deployment is unaffected and should leave it unset.
 
+The same token can also take a backup, and only if you turn that on with
+`GW_OPERATOR_BACKUP=true`. Then it reaches all of the workspace's content, read-only.
+Section 6 has the call and what turning it on hands over. Without that setting the token
+opens the usage counts and nothing else, on every version.
+
 It is **not** a personal access token and cannot be minted, listed or revoked from inside
 the workspace, which is the point: a workspace administrator holding an `admin` token is
 refused this endpoint exactly as an anonymous caller is. It must be at least 32
@@ -760,6 +765,14 @@ above, or when `GW_AUTH_MODE` is `oidc` (codes sign local accounts in). With cod
 
 With codes off, all five of those routes answer `409 feature_disabled` and nothing else changes.
 
+**The relay token also protects stored codes** (DD-45). A code is stored as a digest keyed from
+`GW_RELAY_TOKEN`, so a copy of the database, a backup included, holds no usable code. Two things
+follow. Changing the relay token ends every live code: a person who asked for one before the change
+sees the ordinary "that code is not right, or it has expired" and asks again. And a code issued by
+an image older than this rule stops working when the workspace is upgraded, once, for the same ten
+minutes at most. The token is only as strong as it is random: the startup check is a length floor,
+so use the 43 random characters a control plane generates, not a phrase.
+
 **The per-source limit depends on `GW_TRUSTED_PROXY_IPS`** (section 4). Code requests and
 verifications are counted in the login limiter's two windows (section 5), and the source address is
 the client only when the proxy is trusted. Set it to the platform's proxy range before giving a
@@ -883,6 +896,65 @@ genuine maintenance window rather than during the working day.
 Store the artifact off the volume it came from. It is roughly the size of the database,
 which grows faster than you may expect (section 8).
 
+**A `200` means a backup started, not that the artifact is complete.** The status line is
+sent before the snapshot is taken, so a failure after it cuts the stream short. A program
+that takes backups checks that the tar ends properly and that the snapshot opens (`PRAGMA
+integrity_check`), and does not trust the status alone. `curl -f` cannot see this.
+
+**An abandoned download leaves nothing behind.** The snapshot is staged under
+`backup-tmp/` on the data volume while it streams and is removed when the response ends,
+including when the client hangs up. If the process is stopped or killed in the middle of a
+backup the file stays until the next start, which removes whatever is there.
+
+### The operator backup, for whoever hosts the deployment
+
+If you run this deployment for somebody else you hold no workspace credential, and you
+should not need one to back it up. With the operator backup turned on, `GW_OPERATOR_TOKEN`
+(section 1) takes the same artifact:
+
+```bash
+curl -sS -X POST https://tracker.example.com/api/v1/operator/backup \
+  -H "X-Operator-Token: $GW_OPERATOR_TOKEN" \
+  -o glosswork-backup.tar
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `GW_OPERATOR_BACKUP` | `false` | `true` lets `GW_OPERATOR_TOKEN` take a backup at `POST /api/v1/operator/backup`. A boolean: `true`, `1`, `yes`, `on`, `y` or `t` in any casing turn it on, and a blank or any other value refuses startup naming the variable |
+
+**It is off unless you turn it on**, so a deployment that set the token for the usage
+counts keeps exactly that through an upgrade. Startup also refuses, naming the variables
+and echoing no value, when it is on with `GW_OPERATOR_TOKEN` unset, and when it is on with
+`GW_RELAY_TOKEN` equal to `GW_OPERATOR_TOKEN`. A misspelt variable name is simply ignored,
+which leaves the backup off: it is the first thing to check when a scheduled backup is
+refused.
+
+**What turning it on hands the holder of the token.** A full copy of the workspace: every
+record, attachment and audit row, and the password hashes of its local accounts. Those are
+Argon2id and do not fall to a search the way a short code does, but a weak password is a
+weak password, so on a deployment that signs people in by password treat the operator token
+as you would the backups themselves. The holder cannot change anything in the workspace and
+cannot sign in: a stored sign-in code is keyed with a secret that is in no backup (section
+5a). Someone holding both the operator token and the relay token can; both are in the
+deployment's environment, so that is someone who already controls the host.
+
+**Everything else gets one refusal.** `401 operator_token_refused`, byte for byte, for a
+wrong token, no token, a workspace `admin` token, and for the right token on a deployment
+that has not turned the backup on. A caller cannot tell whether it is on. A refused call
+takes no snapshot and writes no audit row.
+
+**It is marked in the audit trail.** The backup has no person behind it, so its
+`backup_taken` entry is attributed to the deployment's own service account and carries
+`"trigger": "operator_token"` in `new_value`. An entry with `trigger` was taken with the
+operator token, and its principal and `auth_method` describe the deployment, not a person;
+an entry without it was taken by the administrator it names. The marker is in
+`GET /api/v1/audit-events`, the full export and the server log. The Activity screen in the
+browser does not show it.
+
+**It keeps running while the workspace is read-only** (section 6a), and nothing limits how
+many run at once: each call takes a snapshot, at the cost given above, for as long as its
+download is open. Make one call at a time.
+
 ### Restoring
 
 **Restore is an operator procedure, not an endpoint** (DD-36). A restore API would have
@@ -997,6 +1069,9 @@ ticket minted before the restart is refused too.
 | `DELETE /api/v1/principals/{principal_id}` | Removing someone who left |
 | `DELETE /api/v1/invites/{invite_id}` | Stopping an invite: accepting one is a sign-in, which stays open (section 5a) |
 
+The operator backup (`POST /api/v1/operator/backup`, section 6) stays open as well, where it is
+turned on. It is not in the table because it never reaches a scope check, like sign-in below.
+
 Everything else that writes is refused, including an administrator resetting **another** person's
 password; deactivate that person instead if the account needs containing. Re-indexing, blob sweeps,
 saved views, CSV import and agent label renames wait until the deployment is writable. Sign-in,
@@ -1086,8 +1161,9 @@ and the audit trail dominated it:
 | keyword index (all five `fts_content*` shadow tables) | 127 MB | 9% |
 | everything else | ~280 MB | 21% |
 
-**Usage counts, if you are an operator.** `GET /api/v1/usage` is the one endpoint built
-for whoever runs the deployment rather than whoever uses it (DD-39, FR-P10). Set
+**Usage counts, if you are an operator.** `GET /api/v1/usage` is the endpoint built
+for whoever runs the deployment rather than whoever uses it (DD-39, FR-P10); the operator
+backup in section 6 is the only other thing its token opens, and only when turned on. Set
 `GW_OPERATOR_TOKEN` to a value of at least 32 characters and present it in an
 `X-Operator-Token` header:
 

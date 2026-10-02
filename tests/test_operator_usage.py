@@ -53,6 +53,7 @@ from glosswork.services.usage import (
     outcome,
 )
 from tests.conftest import auth, make_actor, mint_scope_tokens
+from tests.fake_relay import new_token
 from tests.mcp_support import memory_session, seed_task_type
 
 # Obviously a fixture, deliberately not a random-looking blob: a 32-character base64 literal
@@ -301,7 +302,8 @@ def test_operator_backup_setting_loads_off_and_on(monkeypatch: pytest.MonkeyPatc
         monkeypatch,
         GW_OPERATOR_TOKEN=OPERATOR_TOKEN,
         GW_OPERATOR_BACKUP="true",
-        GW_RELAY_TOKEN="relay-token-for-tests-0123456789ab",
+        # Made at run time, so no credential-shaped literal sits in the tree.
+        GW_RELAY_TOKEN=new_token(),
         GW_RELAY_URL="https://relay.example/v1/relay/send",
     )
     assert on.operator_backup is True
