@@ -384,6 +384,20 @@ Each of these cost real time at least once.
   (`test_backup_restore.py`), never by a constant. `GW_CONTAINER_CPUS=1` runs every
   application container under `--cpus 1`, about the arm64 runner's speed, so a slow runner
   is reproduced on one machine.
+- **A TLS 1.3 client's handshake returns before the server has checked the client's
+  certificate, so a refused client is never tested by one exception.** On TLS 1.2 the
+  client's own handshake call fails. On TLS 1.3 it returns, and the server then closes the
+  connection without sending a byte. What the client raises next depends on the path
+  between them: `SSLEOFError`, `BrokenPipeError` and `ConnectionResetError` were each
+  measured for the one refusal, and two of those are not `ssl.SSLError`. A test of a
+  refused client asserts zero bytes received, catching `OSError` on the send and on the
+  read, and lets a timeout fail it, because `TimeoutError` is an `OSError` too and a server
+  that hangs is not one that refused. **Zero bytes alone shows no lock:** a server with no
+  TLS at all gives a TLS client zero bytes, and so does a client that cannot verify the
+  server. So the same test first asserts that the TLS 1.3 handshake returned with
+  `version()` reading `TLSv1.3`, which happens only when the server spoke TLS and the client
+  accepted its certificate. `container_tests/test_tls_lock.py` is written that way, and
+  `tests/test_infra.py` measures the server's own handshake raising, with no network.
 - **Reading an exit code through a pipe reads the pipe's.** `cmd | tail -1; echo $?` reports
   `tail`'s status, which is almost always 0. This is the same class as the green-tally trap above
   and it bit in the same session that trap is written from: `uv run ruff format --check .` piped

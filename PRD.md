@@ -567,6 +567,11 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
   operator holding it and one identical refusal to everybody else, including a workspace `admin`
   token. No field carries tenant content, and unset means off (DD-39). The token opens nothing
   else unless `GW_OPERATOR_BACKUP` is on, and then only `POST /api/v1/operator/backup` (FR-P8).
+- **FR-P11.** With `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and `GW_TLS_CLIENT_CA_FILE` all set, the
+  process terminates TLS itself and completes a handshake only with a client whose certificate
+  chains to the named CA; no request from any other caller is read. With some of them set, startup
+  is refused naming what is missing, and with any other name under `GW_TLS_` present it is refused
+  naming that. With none, nothing changes (DD-46).
 
 ## 7. Architecture decisions
 

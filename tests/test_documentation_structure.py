@@ -78,8 +78,12 @@ def test_the_prd_is_the_durable_specification_and_stays_small() -> None:
     that adds the requirement, with the reason recorded here rather than nudged
     up in passing, after the requirement's prose is cut to the fewest lines that still
     read.
+
+    Raised from 619 to 624 for FR-P11, five lines: a workspace that terminates TLS
+    itself and admits one client certificate is a new deployment requirement, and the
+    document had no line to spare for one.
     """
-    assert len(PRD.read_text().splitlines()) < 619
+    assert len(PRD.read_text().splitlines()) < 624
 
 
 def test_no_citation_points_at_a_prd_section_that_no_longer_exists() -> None:
