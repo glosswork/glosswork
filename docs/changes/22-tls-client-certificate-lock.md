@@ -5,7 +5,7 @@
 | Issue | [#22](https://github.com/glosswork/glosswork/issues/22) |
 | Branch | `22-tls-client-certificate-lock` |
 | Spec | PRD.md FR-P1, FR-P3, FR-P7; docs/DEPLOYMENT.md sections 2 and 4; `.env.example`; PLAN.md section 5.4 and Q84 |
-| Decisions | One new decision, taking the next unused number (46 when this was written; text proposed below, and see P16 for why it is not cited by number here). DD-40 is read and not changed |
+| Decisions | DD-46, new (added in the build's first commit, for the reason in P16). DD-40 is read and not changed |
 | Requirements | FR-P1, FR-P3, FR-P7; FR-P11 (new, text proposed below) |
 | Depends on | Nothing. `main` at `42e9d45`, which carries change 11's `workers=1` in the entry point. Unblocks control-plane CP-33 and CP-07 |
 
@@ -1129,6 +1129,147 @@ the proxy's own account can be made to forward another party's request is the ho
 operator's configuration (PLAN Q84), not this image. Timing and resource exhaustion
 beyond P12. An OpenSSL older than 3.5.
 
+## Verification
+
+A separate session that wrote none of the plan, the tests or the code verified the branch
+at `2152e58` on 2026-10-02, with `GW_IMAGE` unset. It ran the Accept block as the
+verification of record and changed nothing in the repository. **All twelve criteria
+passed.** Its output is under "Final Accept output".
+
+AC8's three reading verdicts on section 4a, which only a reader can give: (a) stated, "A
+value wider than your own proxy's address is safe only while the lock is on"; (b) stated,
+"The lock does not make `*` safe"; (c) stated, "A workspace started with none of the three
+settings is unlocked, and it says nothing about it", followed by the two-step outside
+check.
+
+What it reconstructed rather than read, in scratch copies made with `git archive` and
+images under its own tags, checking for each image that the package inside it was the tree
+it was built from:
+
+- **The unfixed tree.** Against an image built from `42e9d45`: the container file exits 1
+  with 8 failed and 1 passed, and the no-certificate, other-CA and same-name-CA cases each
+  fail at their own TLS 1.3 control. The unit files give 12 failed and 3 failed, as step 2
+  records.
+- **M1 to M8.** Every row of step 8's table reproduced, in both halves, with the same
+  counts.
+- **M7's shadowed assertion.** With the trust-store count taken out of the handshake test
+  in a scratch copy, the accepted case fails on its own under M7 (`the right certificate
+  did not complete`, `CERTIFICATE_VERIFY_FAILED`). The same for M1 and M2 with the
+  `verify_mode` assertion taken out: the refused-case handshakes fail on their own. So
+  those cases were shadowed by an earlier assertion, not vacuous.
+- **Two mutations nobody had named.** Dropping the upper-casing from the stray-name check
+  fails exactly D2's test. Removing the file-open check fails exactly the missing-path
+  test.
+- **The lock, with none of the suite's code.** Certificates from the `openssl` CLI, clients
+  `openssl s_client` and `curl`. The right certificate got `200` on TLS 1.3 and 1.2. No
+  certificate, another CA and a second CA with the same name got zero bytes on both. Eight
+  connections left two access events. A key readable only by another uid, and the three
+  settings plus `GW_TLS_CERT`, each exit 1 with a `Configuration error:` line naming the
+  variable. A silent connection is dropped at 60.0 s.
+- **D1.** With step 3 done and step 4 not, `tests/test_config.py` exits 1 with the one
+  failure D1 names, and with step 4 it exits 0. No version of step 3 passes that command
+  without step 4's file, so this is a defect in the plan's step 3 check. The interim
+  state is in no commit.
+- **The build against "What changes".** It matches: the three fields, the before-validator,
+  `tls_enabled`, the three refusals in the approved order with the approved copy, four
+  arguments from one branch and none when off, the decision as proposed with judgment
+  area 6 kept, section 4a's eight items in order. 22 environments through `load_settings`
+  found no refusal added or missing.
+
+**One finding outside the Accept block, known and accepted for this change.** The outside
+check in section 4a gives one command in code, the request over `https://` with no client
+certificate, and says it "prints `000` and exits non-zero". Measured on this image, that
+is also true of a workspace with no lock: a locked one prints `000` and curl exits 52, an
+unlocked one prints `000` and curl exits 35, because a plain HTTP server cannot answer a
+TLS client. What tells the two apart is the sentence after the command (the same request
+over `http://`, which an unlocked workspace answers `200` with exit 0) and the check's
+second step, the startup log line. Followed in full the check works, which is why AC8 (c)
+passes. Run as the `https://` request alone, it passes on exactly the case it exists to
+catch, a workspace whose three settings never arrived. The maintainer chose on 2026-10-02
+to ship the wording as verified, so section 4a is unchanged. A provisioning check built on
+it needs the `http://` request refused, or curl's exit 52, or the log line, and never the
+`https://` request alone.
+
+**Error copy the maintainer read after the build and left as it is.** D8's message for two
+of the three set. And the unreadable-file message for a file that does not exist, which
+reads `cannot read <path> (No such file or directory)` and then the sentence about uid
+1000 and readability, where readability is not the fault: the variable, the path and the
+reason are all correct.
+
+**Not established by anyone.** The client-side symptom of a TLS 1.3 refusal on the release
+workflow's own Linux runners, and how a hosting platform delivers the three files. Both
+are as "Premises" lists them.
+
+## Final Accept output
+
+The verifying session's run at `2152e58`, 2026-10-02, from the repository root. Every
+`exit=` is the command's own status, read on the line after it, with output sent to a file
+and no pipe.
+
+```
+HEAD 2152e5858ca086d78a33eb98882dbc59657ed7ef
+--- AC1   uv run pytest -q tests/test_config.py tests/test_infra.py -k tls
+16 passed, 33 deselected in 0.11s
+exit=0
+(on a git archive of 42e9d45, the same command: "33 deselected", exit=5)
+--- AC2   git status --short
+(prints nothing) exit=0
+          env -u GW_IMAGE uv run pytest -q -rs container_tests/test_tls_lock.py
+9 passed in 8.69s        (no skip line under -rs)
+exit=0
+          docker image inspect glosswork:container-test --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+2152e5858ca086d78a33eb98882dbc59657ed7ef
+          git rev-parse HEAD
+2152e5858ca086d78a33eb98882dbc59657ed7ef
+          (beyond the block: the glosswork package copied out of that image, diff -r against src/glosswork: exit=0)
+--- AC3   uv run pytest -q -rs container_tests
+41 passed in 271.95s (0:04:31)
+exit=0
+--- AC4   uv run pytest -q
+2215 passed, 3 xfailed, 2 warnings in 311.27s (0:05:11)
+exit=0
+--- AC5
+uv run ruff check .            All checks passed!                        exit=0
+uv run ruff format --check .   263 files already formatted               exit=0
+uv run mypy src                Success: no issues found in 90 source files  exit=0
+--- AC6   <path> <origin/main object id> <HEAD object id>
+Dockerfile c4303b2f6c2543d9bbc2e3b0817e2ffa422606bd c4303b2f6c2543d9bbc2e3b0817e2ffa422606bd
+pyproject.toml feecb0f199ee21ff9abe6d556d325ec353ddc473 feecb0f199ee21ff9abe6d556d325ec353ddc473
+uv.lock 84a197533000a924d7ddd2763c627953d375f94f 84a197533000a924d7ddd2763c627953d375f94f
+THIRD_PARTY_LICENSES.md 41104e462ab81280412cb34bc2c739b240371cd5 41104e462ab81280412cb34bc2c739b240371cd5
+--- AC7   uv run pytest -v -rs container_tests/test_tls_lock.py (same image as AC2)
+container_tests/test_tls_lock.py::test_there_is_one_process PASSED
+9 passed in 7.79s   exit=0
+          grep -c "subprocess\|Popen\|os.fork" src/glosswork/entrypoint.py
+0    (grep exit=1, the zero count)
+--- AC8   grep -c of each name in docs/DEPLOYMENT.md
+GW_TLS_CERT_FILE 2   GW_TLS_KEY_FILE 2   GW_TLS_CLIENT_CA_FILE 2   (each exit=0)
+          reading verdicts: (a) stated, (b) stated, (c) stated. See the verification comment.
+--- AC9   uv run pytest -q -m structural
+101 passed, 2117 deselected in 21.61s
+exit=0
+--- AC10  uvx --from semgrep==1.178.0 semgrep scan --config p/python --config p/javascript --config p/typescript --exclude src/glosswork/repositories/sqlite.py --metrics off --error .
+Ran 225 rules on 451 files: 0 findings.
+exit=0
+--- AC11  git diff --name-only origin/main...HEAD
+.env.example
+container_tests/test_tls_lock.py
+docs/DEPLOYMENT.md
+docs/DESIGN_DECISIONS.md
+docs/changes/22-tls-client-certificate-lock.md
+src/glosswork/config.py
+src/glosswork/entrypoint.py
+tests/test_config.py
+tests/test_infra.py
+exit=0; paths ending .pem, .key or .crt: 0
+--- AC12  git status --short
+(prints nothing) exit=0
+```
+
+Fences, which cannot fail on a tree without this change and are not counted as coverage:
+the none-set test in `tests/test_infra.py` (inside AC1's sixteen; M4 shows it can fail),
+`test_there_is_one_process` (AC7), AC3's other container files, and AC6.
+
 ## Deviations from the approved plan
 
 Recorded by the build run (run 3, 2026-10-02), as each happened. None changes the
@@ -1206,52 +1347,52 @@ design in "Judgment areas", a setting name, or what is refused.
   names three files and nothing else, and `container_tests` runs against a built image
   at release, so it does not import from `tests/`.
 
+- **D11. The closeout raises the PRD's line bound, which is an edit to one test.** Found
+  at closeout, by running the structural lane with FR-P11 in place. PRD.md stood at 618
+  lines against `< 619` in `test_the_prd_is_the_durable_specification_and_stays_small`
+  (`tests/test_documentation_structure.py`), so no new requirement of any length fits,
+  and neither P16 nor "What changes" saw that guard. Its docstring says what to do: a
+  genuine new requirement may raise the bound, in the change that adds it, with the
+  reason recorded there. FR-P11 is five lines at the PRD's width, so the closeout commit
+  raises the bound to 624 and records the reason in that docstring. The requirement's
+  text is the wording approved in judgment area 5 and was not cut to fit. This is the
+  only file under `tests/` the closeout touches, it asserts nothing about the lock, and
+  it was not part of what the verifying session passed at `2152e58`: the closeout's own
+  run of the Accept block on the final head is what covers it.
+
 ## Durable content moved out of this plan
 
-Not yet moved. At closeout:
+Two parts moved during the build, because Accept reads them and because of P16. Two move
+in the closeout commit that deletes this file.
 
-- **docs/DESIGN_DECISIONS.md, one new entry under the next unused number.** It is added
-  during the build (checklist step 3), not at closeout, for the reason in P16. Proposed
-  as:
-
-  > **(heading, with its number): A workspace's own TLS is all three settings or none, and it always carries
-  > the client-certificate lock.** With `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and
-  > `GW_TLS_CLIENT_CA_FILE` set, the entry point hands uvicorn the certificate, the key,
-  > the CA and `CERT_REQUIRED`, and a caller without a certificate chaining to that CA
-  > fails the TLS handshake before any request is read. With some set, or with any other
-  > name under `GW_TLS_` present, startup is refused. With none, the process serves
-  > plain HTTP as before, and nothing in the process can tell that from a lock that was
-  > meant and never arrived: whoever deploys it proves the lock from outside.
-  >
-  > **Why.** A workspace on a public address behind a proxy its operator does not run
-  > beside it needs to refuse everyone but that proxy, without a second process (FR-P1).
-  > The half states are silently open if passed through: a CA with no certificate serves
-  > plain HTTP to anyone, and a certificate with no CA serves TLS to anyone. A misspelt
-  > name is ignored by the settings loader, which is the same silence. A wide
-  > `GW_TRUSTED_PROXY_IPS` is safe only behind the lock, and `*` is not safe behind it
-  > either, because the lock decides who connects and not whose header is believed.
-
-  (If judgment area 6 is struck, the clause "or with any other name under `GW_TLS_`
-  present" and the sentence about a misspelt name come out.)
-  >
-  > **Held by.** `tests/test_config.py`, `tests/test_infra.py`,
-  > `container_tests/test_tls_lock.py`.
-  >
-  > **See.** `docs/DEPLOYMENT.md` section 4a.
-
-- **PRD.md, new FR-P11**, proposed as:
+- **docs/DESIGN_DECISIONS.md, DD-46**, "A workspace's own TLS is all three settings or
+  none, and it always carries the client-certificate lock". Added in the build's first
+  commit (checklist step 3), before any file cited its number (P16), with judgment area 6
+  kept: the rule, why the half states and a misspelt name are refused, and that a wide
+  `GW_TRUSTED_PROXY_IPS` is safe only behind the lock and `*` is not safe behind it
+  either.
+- **`docs/DEPLOYMENT.md` section 4a**, written during the build (checklist step 7), with
+  the measured facts it needed from this plan: P4's table, P9's and P18's tables, P6, P12
+  and P17.
+- **PRD.md, new FR-P11**, in the closeout commit:
 
   > **FR-P11.** With `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and `GW_TLS_CLIENT_CA_FILE`
   > all set, the process terminates TLS itself and completes a handshake only with a
   > client whose certificate chains to the named CA; no request from any other caller is
   > read. With some of them set, startup is refused naming what is missing, and with
   > any other name under `GW_TLS_` present it is refused naming that. With none, nothing
-  > changes (the new decision, cited by its number).
+  > changes (DD-46).
 
-- **docs/DEPLOYMENT.md section 4a** is written during the build (checklist step 7), and
-  the measured facts it needs from this plan are P4's table, P9's table, P6 and P12.
-- **AGENTS.md, Traps**: one entry, that a TLS 1.3 client's handshake returns before the
-  server has checked the client certificate, so a test of a refused client asserts zero
-  bytes received and never a particular exception (P4); and that zero bytes alone is
-  also what a server with no TLS gives a TLS client, so the same test first asserts the
-  TLS 1.3 handshake returned (P20).
+  FR-P7 is unchanged. The PRD's line bound rises from 619 to 624 for it (D11).
+- **AGENTS.md, Traps**, in the closeout commit: one entry, that a TLS 1.3 client's
+  handshake returns before the server has checked the client certificate, so a test of a
+  refused client asserts zero bytes received and never a particular exception (P4); and
+  that zero bytes alone is also what a server with no TLS gives a TLS client, so the same
+  test first asserts the TLS 1.3 handshake returned (P20).
+
+Not moved, because it is not a rule of the product: what the control plane's provisioning
+takes from this change (the outside check and its soft spot under "Verification", a TCP
+health check, files readable by uid 1000, `GW_TRUSTED_PROXY_IPS` as the proxy's own range
+and never `*`, the image's entry point left in place, a CA file holding one self-signed
+root). Those are on that work's own task. A release that carries this change is its own
+change.
