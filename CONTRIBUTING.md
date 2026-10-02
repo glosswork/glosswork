@@ -224,10 +224,11 @@ MCP contract) raises `Y`; everything else raises `Z`. The version lives in one p
 
 **A release is a change like any other**, numbered, planned and merged by pull request. It
 sets the new version in `pyproject.toml`, updates the `glosswork` entry in `uv.lock` to
-match, and adds the version's entry to [CHANGELOG.md](CHANGELOG.md). Re-locking on a machine
-with a private `uv` index rewrites every registry line (AGENTS.md, non-negotiable 1), so
-after `uv lock` run the substitution given there and confirm `git diff --text uv.lock`
-changes only the `glosswork` version line.
+match, names the new version in the run line of `README.md`, and adds the version's entry
+to [CHANGELOG.md](CHANGELOG.md). Re-locking on a machine with a private `uv` index rewrites
+every registry line (AGENTS.md, non-negotiable 1), so after `uv lock` run the substitution
+given there and confirm `git diff --text uv.lock` changes only the `glosswork` version
+line.
 
 **The changelog is written once per release, not once per change.** `CHANGELOG.md` holds
 one section per released version, newest first, headed `## X.Y.Z`; the tag records the
