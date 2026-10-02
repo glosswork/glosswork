@@ -714,13 +714,18 @@ re-created. The scripts and their output are attached to PROD-60 beside run 1's.
 
 ## Checklist
 
-1. [ ] Write the new tests in `tests/test_config.py`, `tests/test_infra.py` and
+1. [x] Write the new tests in `tests/test_config.py`, `tests/test_infra.py` and
        `container_tests/test_tls_lock.py`, and nothing else. They do not cite the new
        decision's number yet (P16); the citation is added in step 3. The handshake test
        and the refused-case controls are written as "What changes" words them; the
        scratch prototype attached to PROD-60 is a reference for the technique, not code
        to copy.
-2. [ ] Run each against the unfixed tree and record here how each failed, in the order
+
+       *Done (run 3, 2026-10-02).* Twelve config cases, four entry point cases, and nine
+       container cases in six test functions. Every new test in the two unit files has
+       `tls` in its name. How the tests differ from "What changes" is under "Deviations"
+       (D2 to D6).
+2. [x] Run each against the unfixed tree and record here how each failed, in the order
        written: the two unit files with `uv run pytest -q <file>`, and the container
        file with `GW_IMAGE` naming an image built from `42e9d45`. Expected: the config
        tests fail because the settings are ignored; the entry point tests fail on a
@@ -732,18 +737,75 @@ re-created. The scripts and their output are attached to PROD-60 beside run 1's.
        right-certificate request at its end (P20, F4).** If either gets as far as its
        zero-bytes assertion against a plain HTTP image, the control is missing: stop and
        fix the test before going on. Record what actually happens, not this sentence.
-3. [ ] docs/DESIGN_DECISIONS.md: the new entry, under the next unused number, before
+
+       *What happened (run 3, 2026-10-02).* The unit files ran on the branch with only
+       the tests added. The container file ran with `GW_IMAGE` naming an image built
+       from `git archive 42e9d45`, whose revision label `docker image inspect` printed as
+       that commit.
+
+       `uv run pytest -q tests/test_config.py`: exit 1, 12 failed, 21 passed. All twelve
+       new cases failed and nothing else did.
+       - the six partial sets, the missing path and the three stray names: `Failed: DID
+         NOT RAISE ConfigError`. The settings are ignored, so nothing refuses;
+       - all three blank: `assert None is False`, because `Settings` has no `tls_enabled`;
+       - all three naming files: `assert None is True`, the same way.
+
+       `uv run pytest -q tests/test_infra.py`: exit 1, 3 failed, 13 passed.
+       - all three set: the `ssl_*` arguments captured were `{}`, four expected;
+       - the handshake test: `uvicorn built no TLS context from the entry point's
+         arguments` (`assert None is not None`), on its first assertion;
+       - a partial set: `Failed: DID NOT RAISE SystemExit`;
+       - none set: **passed, and it is a fence.** It cannot fail here by construction.
+         M4 in step 8 is what shows it can fail.
+
+       `GW_IMAGE=<the unfixed image> uv run pytest -q container_tests/test_tls_lock.py`:
+       exit 1, 8 failed, 1 passed, in 12 s.
+       - the right certificate: its TLS 1.3 handshake failed with `[SSL] record layer
+         failure`, which is a plain HTTP server answering a TLS client;
+       - **no certificate, another CA's certificate, and the same-name CA's certificate:
+         each failed on its own TLS 1.3 control**, `the client's handshake call did not
+         return, so this is not a TLS 1.3 server refusing a client certificate`, with the
+         same `record layer failure`. None reached its zero-bytes assertion, and none
+         reached the right-certificate request at its end. The stop condition did not
+         fire;
+       - plain HTTP: the port answered `HTTP/1.1 200 OK` where zero bytes were required;
+       - the three partial sets (client CA only; certificate and key only; a stray
+         `GW_TLS_CA_FILE` only): each container started and answered `/readyz` in plain
+         HTTP, where an exit was required. Each failed within seconds, not at a
+         timeout;
+       - one process: **passed, and it is a fence.**
+3. [x] docs/DESIGN_DECISIONS.md: the new entry, under the next unused number, before
        any file cites that number (P16). Then `src/glosswork/config.py`: the three
        fields, the validator, `tls_enabled`, `_check_tls`.
        `uv run pytest -q tests/test_config.py` exits 0 and
        `uv run pytest -q -m structural` exits 0.
-4. [ ] `.env.example`: the section. `uv run pytest -q tests/test_config.py` still exits 0.
-5. [ ] `src/glosswork/entrypoint.py`: the four arguments.
+
+       *Done, with one command that could not exit 0 at this step (D1).* The entry is
+       DD-46, the last in the file. `uv run pytest -q -m structural` exited 0, 101
+       passed. `uv run pytest -q tests/test_config.py` exited 1 with one failure, 32
+       passed: `test_every_setting_config_reads_appears_in_env_example`, which fails
+       until step 4 lists the three in `.env.example`. All twelve new cases passed.
+4. [x] `.env.example`: the section. `uv run pytest -q tests/test_config.py` still exits 0.
+
+       *Done.* Exit 0, 33 passed. This is the first point at which the file is green
+       (D1).
+5. [x] `src/glosswork/entrypoint.py`: the four arguments.
        `uv run pytest -q tests/test_infra.py` exits 0.
-6. [ ] Build the image from the working tree and run
+
+       *Done.* Exit 0, 16 passed.
+6. [x] Build the image from the working tree and run
        `uv run pytest -q container_tests/test_tls_lock.py`. Exits 0.
-7. [ ] `docs/DEPLOYMENT.md`: section 4a and the two pointers.
-8. [ ] Mutations, each applied alone, the named tests run, the result recorded here, and
+
+       *Done.* With `GW_IMAGE` unset, so the suite built the image from the working
+       tree: exit 0, 9 passed in 10 s.
+7. [x] `docs/DEPLOYMENT.md`: section 4a and the two pointers.
+
+       *Done.* The eight items in the order given, and one sentence each in section 2's
+       probe paragraph and section 4's first paragraph. Three facts in 4a were measured
+       in this run and are not in the premises (D7). After it: `uv run pytest -q` exit
+       0, 2215 passed, 3 xfailed; `uv run ruff check .` exit 0; `uv run ruff format
+       --check .` exit 0; `uv run mypy src` exit 0.
+8. [x] Mutations, each applied alone, the named tests run, the result recorded here, and
        the mutation reverted (`git diff --quiet` afterward for the file). Check each
        mutated tree still starts before believing a failure:
        - **M1**, entry point passes no `ssl_cert_reqs`: the no-certificate and
@@ -777,6 +839,46 @@ re-created. The scripts and their output are attached to PROD-60 beside run 1's.
          fail at their TLS 1.3 control. This mutates the test's subject, not the
          product, and it is what shows the refused cases cannot pass against an unlocked
          server.
+
+       *Results (run 3, 2026-10-02).* Each mutation was applied alone to the committed
+       build. For each: `import glosswork.entrypoint, glosswork.config` exited 0 and
+       `uv run mypy src` exited 0, so the mutated tree compiles; then
+       `uv run pytest -q tests/test_config.py tests/test_infra.py` (49 tests) and, with
+       `GW_IMAGE` unset so the image is rebuilt from the mutated tree,
+       `uv run pytest -q container_tests/test_tls_lock.py` (9 tests). In every container
+       run at least four tests passed against the mutated image, which is the proof that
+       it started. After each, `git checkout` of the file and `git diff --quiet` exit 0.
+
+       | | Unit files | Container file | As predicted |
+       | --- | --- | --- | --- |
+       | M1 | 2 failed: the all-three test (no `ssl_cert_reqs` among the arguments) and the handshake test (`verify_mode` is `CERT_NONE`) | 3 failed: no certificate, another CA, the same-name CA, each answered `200` where zero bytes were required. The right-certificate test passed | yes |
+       | M2 | 2 failed: the same two (`CERT_OPTIONAL` where `CERT_REQUIRED` is required) | 1 failed: no certificate, answered `200`. Both other-CA cases passed | yes, the other-CA pass included |
+       | M3 | 11 failed: the six partial sets, the missing path, the three stray names, and the entry point's partial-set test | 3 failed: the three partial-set containers, each answering in plain HTTP | yes |
+       | M4 | 1 failed: the none-set fence, with an extra `ssl_cert_reqs` among the arguments | 9 passed | yes. The fence can fail |
+       | M5 | 1 failed: all three blank | 9 passed | yes |
+       | M6 | 3 failed: the three stray-name cases | 1 failed: the stray-name container, answering in plain HTTP | yes |
+       | M7 | 2 failed: the all-three test (no `ssl_ca_certs`) and the handshake test | 5 failed: the right certificate got no answer on TLS 1.3, and the four tests that close with a right-certificate request failed at that request | yes, with one difference below |
+       | M8 | not run: the mutation is in the container test | 5 failed. No certificate, another CA and the same-name CA each failed **at the TLS 1.3 control**; the right-certificate and plain HTTP tests failed too | yes |
+
+       Two things the table cannot hold.
+
+       *M7 fails the handshake test one assertion before its accepted case.* The test
+       asserts the context's trust store holds one CA before it runs any handshake, and
+       under M7 the store is empty (`{'x509': 0, 'crl': 0, 'x509_ca': 0}`), so it fails
+       there. The accepted case was therefore not reached under M7 in this run. That an
+       empty store refuses the right certificate is shown by M7's container half, where
+       the right certificate's TLS 1.3 handshake returned and no answer came.
+
+       *M4's container half was run twice, and the first run measured nothing.* Docker's
+       disk filled during it (`sqlite3.OperationalError: database or disk is full` in the
+       container's log, at application startup), so the locked container exited and six
+       tests failed for a reason that had nothing to do with the mutation. The disk held
+       about 2 GB free before this run, and each rebuilt image costs about 350 MB of
+       layers. This run's own images and build cache records were removed, nothing
+       older was touched, and from M4 on each mutated image was removed before the next
+       was built. M1 to M3 ran before the disk filled; their container runs passed
+       six, eight and six tests against a running container. The rerun of M4 is the
+       row above.
 9. [ ] Run the whole Accept block and paste the output here.
 
 ## Accept
@@ -963,7 +1065,80 @@ beyond P12. An OpenSSL older than 3.5.
 
 ## Deviations from the approved plan
 
-None yet.
+Recorded by the build run (run 3, 2026-10-02), as each happened. None changes the
+design in "Judgment areas", a setting name, or what is refused.
+
+- **D1. Checklist step 3's first command cannot exit 0 until step 4 is done.** Step 3
+  adds the three fields and says `uv run pytest -q tests/test_config.py` exits 0. It
+  exits 1 there, with one failure: `test_every_setting_config_reads_appears_in_env_example`,
+  the test P8 names, which fails for any setting `.env.example` does not list. Step 4
+  adds the section and the file exits 0. The steps were done in the order written and
+  nothing was reordered; what moved is the point at which the command is green.
+
+- **D2. One more config case than "What changes" lists: twelve, not eleven.** The
+  stray-name test has a third case, `gw_tls_ca_file` in lower case and alone. "What
+  changes" says names are compared upper-cased and lists no test for it, and without
+  one a mutation that dropped the upper-casing would pass. The refusal names the
+  variable as it is written in the environment. AC1's command selects 16.
+
+- **D3. Two container tests are parametrized, so each case is measured on its own.**
+  `test_another_cas_certificate_is_refused_at_the_handshake` has two cases (another
+  CA; a second CA with the right CA's subject name) and
+  `test_a_partial_set_refuses_to_start` three (client CA only; certificate and key
+  only; the stray name only). As one function each, the later cases would only ever
+  run after an earlier one had passed, and on the unfixed image they would never have
+  been measured. Nine container cases in six functions.
+
+- **D4. How the access count is closed.** "What changes" says to make one request with
+  the right certificate and wait for the count to reach before plus one, and its
+  controls say that request is made on each version. Both hold as written per
+  version: for TLS 1.3 and then for TLS 1.2, count, make the refused attempt, make
+  one right-certificate request on that version, wait, and assert the count is
+  exactly before plus one. The wait is for the access event carrying that request's
+  own `X-Request-ID`, not for a number, and every answered request this module sends
+  is waited for the same way, the readiness probes included. Without that, an access
+  line from an earlier test could land after a later test had read its count. The
+  refused attempt carries its own id too, and the test asserts no access event has it.
+
+- **D5. A timeout is not a refusal.** "What changes" says the probe catches `OSError` on
+  the send and on the read. `TimeoutError` is an `OSError`, and catching it would let a
+  server that hung for ten seconds read as zero bytes received. The probe raises it
+  instead, which is the plan's own rule that a timeout is a failure and not a pass.
+
+- **D6. The wait that starts each container has four outcomes, not three.** "What
+  changes" names three for the partial-set test: exited, answering in plain HTTP,
+  answering over TLS. The same wait starts the module's locked container, and it
+  asserts nothing, so the refused-case tests reach their own TLS 1.3 control against
+  an unlocked image (checklist step 2, M8). The fourth outcome is a server that
+  completes a TLS 1.3 handshake and gives the right certificate no answer, which is
+  what M7 produces; without it M7 would have been a fixture that timed out after 90
+  seconds and nine errors, not five failed assertions.
+
+- **D7. Section 4a carries three facts measured in this run.** Against a locked
+  container from this branch's image, with curl 8.7.1 on macOS and no client
+  certificate: `curl -sk -o /dev/null -w '%{http_code}'` printed `000` over `https://`
+  and over `http://`; curl exited 52 on TLS 1.3 and over plain HTTP, and 35 when held
+  to TLS 1.2; and the startup log line read `Uvicorn running on https://0.0.0.0:8000`.
+  Item 2's instruction to prove the lock from outside is written as that command.
+  4a also carries an example `docker run`, which the plan did not ask for.
+
+- **D8. The partial-set message when two of the three are set.** The plan gives the
+  copy for one set variable (`required when GW_TLS_CERT_FILE is set`). With two set
+  it reads `required when GW_TLS_CERT_FILE and GW_TLS_KEY_FILE are set`; the rest of
+  the sentence is the plan's. The unreadable-file message carries the plan's second
+  sentence, about uid 1000, for every reason the system gives, a missing file
+  included.
+
+- **D9. Where DD-46 sits.** It is the last entry in docs/DESIGN_DECISIONS.md, after
+  DD-45 and so under that file's "Interface" heading, because
+  `test_every_design_decision_is_listed_once_in_ascending_order` requires the numbers
+  to ascend through the file. DD-45, which is about sign-in, sits there for the same
+  reason. Its text is the proposal under "Durable content", with judgment area 6 kept.
+
+- **D10. The certificate helpers are written twice**, once in `tests/test_infra.py` and
+  once in `container_tests/test_tls_lock.py`, about sixty lines each. Checklist step 1
+  names three files and nothing else, and `container_tests` runs against a built image
+  at release, so it does not import from `tests/`.
 
 ## Durable content moved out of this plan
 
