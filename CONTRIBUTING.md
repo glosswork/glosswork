@@ -272,7 +272,8 @@ The tag starts `.github/workflows/release.yml`, which publishes nothing unless:
 
 Then it publishes one tag, `X.Y.Z`, covering `linux/amd64` and `linux/arm64`, to
 `ghcr.io/glosswork/glosswork` and `docker.io/glosswork/glosswork`, and reads both back.
-There is no `latest` tag and no moving `X.Y` tag: a deployment names the version it runs.
+It then moves `latest` to that version in both registries and reads it back. There is no
+moving `X.Y` tag: a deployment that should stay put names the version it runs.
 **A published version is never replaced.** A bad release is fixed by the next patch
 version; the workflow refuses to overwrite a version that exists. A run that failed part
 way can be re-run: it skips a registry that already serves exactly this build.
