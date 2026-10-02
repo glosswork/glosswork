@@ -23,60 +23,105 @@ change, up to the tag. The tag is the maintainer's.
 ## Judgment areas
 
 Four things in this plan are the maintainer's to decide. The plan's text below is written
-for the recommended answer to each, and each area says exactly what changes under the
-other answer. Approving the plan as written approves the four recommendations.
+for one answer to each, and each area says exactly what changes under the other answer.
+Approving the plan as written approves those four answers: version 0.1.1, the changelog
+entry as it now reads, the README line moved in this change, and one dry run first. The
+adversarial pass changed the evidence under area 1 and the text under area 2, and its
+findings F1, F2 and F5 are the ones to read before approving.
 
-### 1. The version number: 0.1.1 (recommended) or 0.2.0
+### 1. The version number: 0.1.1 or 0.2.0
+
+The plan's text is written for 0.1.1, which the planning run recommended. The adversarial
+pass re-measured the question and makes no recommendation: the evidence for each number is
+set out below, and the number is the maintainer's. Approving the plan as written approves
+0.1.1.
 
 The rule (`CONTRIBUTING.md`, "Releases"): while the major version is 0, a change an
 operator has to act on when upgrading raises `Y`, and everything else raises `Z`. It
 names three cases. Each was measured against the published 0.1.0 image and an image built
-from `main` (P9):
+from `main`, first on a nearly empty workspace (P9) and then, in the adversarial pass, on
+one holding real data (F3):
 
 | The rule's case | What was measured | Result |
 | --- | --- | --- |
-| A setting renamed or removed | The settings each image defines: 38 in 0.1.0, 44 now | None renamed or removed. Six added, all optional and off by default |
-| A migration that cannot be rolled back by restoring a backup | The new image started on a 0.1.0 volume, then 0.1.0 started again on the volume it had migrated | Migration 13 adds two tables and two indexes and changes no existing table. 0.1.0 starts and signs in on the migrated volume |
-| A changed API or MCP contract | `/openapi.json`, the MCP tool list and `describe_capabilities` from each | REST: all 73 operations and 32 schemas unchanged, 6 operations and 3 schemas added. MCP: 32 tools, descriptions and input schemas identical, `describe_capabilities` byte-identical |
+| A setting renamed or removed | The settings each image defines, and each one's default: 38 in 0.1.0, 44 now | None renamed or removed, and no default changed. Six added, all optional and off by default |
+| A migration that cannot be rolled back by restoring a backup | A 0.1.0 workspace with records, an attachment, a comment, two people, two tokens and a live browser session: upgraded; taken back to 0.1.0 on the migrated volume; taken back again after invites and sign-in codes had been used; and restored from a backup 0.1.0 took before the upgrade | Migration 13 adds two tables and two indexes and changes no existing table. Every step came up ready in 3 or 4 seconds with the same records, search results, attachment bytes, tokens and session, and accepted a write |
+| A changed API or MCP contract | `/openapi.json`, the MCP tool list and `describe_capabilities` from each | REST: all 73 operations and 32 schemas unchanged, 6 operations and 3 schemas added. MCP: 32 tools, descriptions and input schemas identical, `describe_capabilities` identical |
 
-**One thing does behave differently for an unchanged environment**, and it is what makes
-this a choice rather than a lookup. Change 22 refuses to start when any environment
-variable begins `GW_TLS_` and is not one of its three. 0.1.0 ignored such a name.
-Measured: with `GW_TLS_ENABLED=false` set, 0.1.0 starts and answers `/readyz` with 200;
-the new image exits 1 with `Configuration error: GW_TLS_ENABLED: not a setting. ...`.
-An operator carrying such a variable has to remove it.
+**None of the three named cases applies. What does differ for an unchanged environment is
+this, and it is what makes the number a choice rather than a lookup.** This version reads
+six environment variables that 0.1.0 ignored, and refuses every other name under one
+prefix. Each row was run on both images in the adversarial pass (F1, F2):
 
-- **0.1.1, recommended.** No setting, route or tool that 0.1.0 defined has changed, and a
-  deployment set up as 0.1.0 documents upgrades by starting the new image. The stray-name
-  refusal concerns a name no version ever defined, it fails loudly at startup naming the
+| The environment already carries | 0.1.0 | This version |
+| --- | --- | --- |
+| Any other name beginning `GW_TLS_` (`GW_TLS_ENABLED=false`, lower-case `gw_tls_mode=off`, `GW_TLS_PROXY_SERVICE_HOST=10.0.0.9`) | Runs, `/readyz` 200 | Exits 1 at startup, naming the variable |
+| One of the three TLS names without the other two | Runs | Exits 1, naming the missing two |
+| `GW_RELAY_URL` or `GW_RELAY_TOKEN` alone | Runs | Exits 1, naming the missing one |
+| Both relay names, well formed | Runs, password sign-in 200 | **Runs, and password sign-in answers 409.** The one difference that is not loud |
+| `GW_OPERATOR_BACKUP` blank, or `true` with no operator token | Runs | Exits 1, naming the variable |
+| `WEB_CONCURRENCY=2` or `4`, on a volume that already holds a workspace | Runs 2 or 4 processes | Runs one process. Nothing to do |
+
+- **For 0.1.1.** No setting, route or tool that 0.1.0 defined has changed, a deployment
+  set up as 0.1.0 documents upgrades by starting the new image, and going back works,
+  with and without a backup. Every refusal above concerns a name no version ever defined
+  and 0.1.0's documents never mention; all but one fail loudly at startup naming the
   variable, and the changelog says so first. Every release that adds a validated setting
   gives meaning to a name the last version ignored; reading that as "an operator has to
   act" would make every feature release a `Y`, and `Y` would stop meaning "read this
   before you upgrade".
-- **0.2.0.** The strict reading: an environment exists that ran 0.1.0 and does not start
-  on this version, so an operator may have to act. It costs nothing to build. It spends
-  the `Y` signal on a case that, as far as is known, no deployment is in.
+- **For 0.2.0.** The strict reading: environments exist that ran 0.1.0 and do not start
+  on this version, so an operator may have to act. Three things the planning run did not
+  have make that less remote than "a case no deployment is in". It is six names and a
+  whole prefix, not one name. A `GW_TLS_` name can arrive without anybody typing it:
+  Kubernetes gives every container a `<NAME>_SERVICE_HOST` variable for each Service in
+  its namespace, so a Service called `gw-tls-proxy` is enough (the injection is
+  Kubernetes' documented behaviour and was not reproduced here; that such a name stops
+  this version was). And who runs 0.1.0 is not known: Docker Hub reports 293 pulls of the
+  image since 2026-09-29, an unknown share of them this project's own. `0.2.0` costs
+  nothing to build. A third-digit change is also what people and update tools take
+  unattended, and this one carries three features.
 
 Under 0.2.0 every `0.1.1` in this plan reads `0.2.0`: the version, the lockfile line, the
-changelog heading, the README tag, the Accept block and the tag command. Nothing else
-changes.
+changelog heading, the README tag, the Accept block and the tag command. That includes the
+escaped form in AC3's two `awk` programs, where `0\.1\.1` becomes `0\.2\.0` and
+`0\.1\.0` stays. Nothing else changes.
 
 ### 2. The changelog entry's text
 
 Customers read it. It is under "The changelog entry" below, in full, and it is the text
 the build writes, byte for byte. Three choices are inside it:
 
-- **It opens with an Upgrading paragraph although the recommended number is a `Z`.** The
-  paragraph says a deployment set up as documented has nothing to do, and then names the
-  one thing to check (area 1). The alternative is no Upgrading paragraph, with the
+- **It opens with an Upgrading paragraph although the number it is written for is a
+  `Z`.** The paragraph says a deployment set up as documented has nothing to do, and then
+  names what to check (area 1). The alternative is no Upgrading paragraph, with the
   stray-name refusal folded into line 22. Recommended as written: an operator looks under
   Upgrading, and "nothing else to do" is itself worth saying.
-- **It does not say that 0.1.0 starts on a volume this version has migrated.** That was
-  measured once, on a workspace that had used none of the new features (P9), and a
-  changelog line would be read as a promise about downgrading. Left out.
-- **It does not mention `WEB_CONCURRENCY` under Upgrading.** 0.1.0 did not stay up with
-  that variable set to 2 (P9), so no running 0.1.0 deployment is affected. Line 11 says
-  what is now true.
+- **The check it names is six variables, not one prefix.** The planning run's paragraph
+  told an operator to look for a stray `GW_TLS_` name only. The adversarial pass measured
+  the same kind of difference for `GW_RELAY_URL`, `GW_RELAY_TOKEN` and
+  `GW_OPERATOR_BACKUP` (area 1's second table), one of them silent, so the paragraph now
+  names all six. The sentence it replaced is kept in F1 for comparison. This is a change
+  to the customer-facing text since the planning run, made by the adversarial pass.
+- **It does not say that 0.1.0 starts on a volume this version has migrated.** That is
+  now measured on a workspace with real data, before and after invites and sign-in codes
+  were used (F3), on one machine. A changelog line would still be read as a promise about
+  downgrading, and one thing does not come back with it: a person who joined by invite
+  has no password, so on 0.1.0 an administrator has to set one. Left out.
+- **It does not mention `WEB_CONCURRENCY` under Upgrading. The planning run's reason for
+  that was wrong, and whether to mention it is now a real choice.** 0.1.0 exits with that
+  variable set to 2 only on an empty volume, where two processes race to create the
+  database. On a volume that already holds a workspace it runs two processes, or four,
+  and answers `/readyz` (F2). So a 0.1.0 deployment can be running with it set, and after
+  upgrading it runs one process. That needs nothing from the operator, 0.1.0's documents
+  never mention the variable, and line 11 says what is now true, so the entry is left as
+  it was. The alternative is one more sentence under Upgrading: "If you set
+  `WEB_CONCURRENCY`, it is now ignored and the workspace runs one process."
+- **Line 11's last sentence describes, it does not announce a fix.** "Indexing is
+  unaffected by a pause" is true of this version and was true of 0.1.0 run as one process:
+  change 11 changed the indexing worker's comments and documentation, and its one change
+  to behaviour is the single process (F4). Left as written; the alternative is to end the
+  line at "does to a workspace".
 
 ### 3. The README's run line moves to the new version in this change (recommended)
 
@@ -87,9 +132,13 @@ one of them, so as the rule stands the README would go on naming 0.1.0.
 - **Recommended: this change sets it to 0.1.1, and "Releases" gains the clause that says
   a release does so**, so the next release does not depend on someone remembering. The
   cost: from the merge until the maintainer's tag has published, the README on `main`
-  names an image that does not exist yet. That is minutes when the tag follows the
-  merge, and the repository is private today. If the release run fails, it lasts until
-  the run is fixed.
+  names an image that does not exist yet. **That is 20 minutes at the least, not a few**
+  (F9): the tag cannot be pushed until CI is green on `main` for the merge commit, which
+  took 10 to 11 minutes for each of the last four code merges, and the release run then
+  took 8 minutes 25 seconds for `v0.1.0`. In that window the README's command fails
+  loudly, with the registry's "not found". The repository is private today, so its only
+  readers are the maintainer and the agents. If the release run fails, the window lasts
+  until the run is fixed.
 - **Alternative: leave the README at 0.1.0** and move it in a separate
   documentation-only change after the image is published. The README is never ahead of
   the registry, at the cost of a second change for every release. Under this answer
@@ -120,12 +169,20 @@ same build and test before it publishes anything, and publishes nothing if they 
 
 **What it costs.** The last dry run (run 36618298361, at `0d6fd1f`) took 7 minutes 6
 seconds of wall time: `preflight` 5 s, `build-amd64` 404 s, `build-arm64` 404 s. Billed
-by the minute per job that is 8 x64 minutes and 7 arm64 minutes. The suite is larger now
-(280 s on this machine for the container tests alone), so expect about 10 minutes of
-wall time and about 20 billed minutes, a few cents at the per-minute prices if the
-plan's included minutes are used up, and nothing if they are not. It uses billable
-runner minutes, so the maintainer starts it or approves an agent to. Whether the agent's
-token may start a workflow is not established: it has never tried.
+by the minute per job that is 8 x64 minutes and 7 arm64 minutes. The planning run
+expected about 10 minutes of wall time and about 20 billed minutes because the suite has
+grown. The adversarial pass measured the growth and that estimate is on the high side
+(F10): the tests added since `v0.1.0` take 13 of the suite's 267 seconds on this machine,
+because one unchanged file, `container_tests/test_clean_shutdown.py`, is 204 of them. So
+expect about 8 minutes of wall time and about 17 billed minutes. At GitHub's listed prices
+on 2026-10-02, $0.006 a minute for the x64 runner and $0.005 for the arm64 one, that is
+about 10 cents if the organisation's included minutes are used up, and nothing if they
+are not: its Team plan includes 3,000 a month. How many of those are left this month
+could not be read with the agent's token. It uses billable runner minutes, so the
+maintainer starts it or approves an agent to. **The agent's token can start it**: it is a
+classic token whose scopes include `repo` and `workflow`, with push access to the
+repository, which is what the dispatch call requires. That is read from the token's
+scopes; no run was started to prove it.
 
 - **Recommended: checklist step 1 is that dry run, and the build does not start until
   all three of its jobs conclude `success`.**
@@ -145,9 +202,11 @@ line. It is the only `markdown` fence in this file, which AC3 relies on.
 **Upgrading.** Pull the new image and start it on the same volume. A deployment set up as
 0.1.0 documents has nothing else to do: the first start adds two tables and changes no
 existing one, and no setting, REST route or MCP tool that 0.1.0 had is renamed or removed.
-One thing to check first: an environment variable whose name begins `GW_TLS_`, other than
-the three in change 22 below, now stops the workspace at startup, naming the variable.
-0.1.0 ignored such a name. Remove it.
+One thing to check first: this version reads six environment variables that 0.1.0 ignored,
+`GW_RELAY_URL`, `GW_RELAY_TOKEN`, `GW_OPERATOR_BACKUP` and the three `GW_TLS_` names in
+change 22 below, and it refuses to start, naming the variable, on any other name that
+begins `GW_TLS_`. If your environment already carries one of them, remove it unless you
+mean what it now does.
 
 - 7: the README's run line pulls the published image, where it used to build one from
   source.
@@ -172,7 +231,9 @@ Where each line's claims come from: line 7, change 7's diff (`README.md` only). 
 `docs/DEPLOYMENT.md` section 5a. Line 11, section 2's "Pausing is not stopping" and the
 `workers=1` in `src/glosswork/entrypoint.py`. Line 20, section 6 ("The operator backup",
 "An abandoned download leaves nothing behind") and section 5a ("The relay token also
-protects stored codes"). Line 22, section 4a. The Upgrading paragraph, P9.
+protects stored codes"). Line 22, section 4a. The Upgrading paragraph, P9 and F1. The
+adversarial pass checked each line against the image built from `main`, not only against
+the section it cites (F4).
 
 ## Premises
 
@@ -213,6 +274,11 @@ edited to establish a premise.
   one line added and one removed. `uv lock --check` then exits 0. No dependency version
   moved. `git diff --stat` reports the file as binary with equal sizes, as
   `AGENTS.md` warns, so the counts above come from `--text`.
+  **The adversarial pass did not re-run this step** (F7): its session's permission check
+  refused the command, so the measurement above is the planning run's alone. Read
+  instead: all 70 registry lines on `main` name `https://pypi.org/simple` and the only
+  other source is the project itself, so the substitution cannot overwrite an index that
+  should stay.
 
 - **P5. The repository's own checks pass with the edits in place.** In the scratch
   clone: `uv run pytest -q tests/test_supply_chain.py tests/test_third_party_licenses.py
@@ -249,6 +315,13 @@ edited to establish a premise.
     green, or the release run stops at preflight and is re-run.
   - *The notices check.* P6.
   - *The version does not exist in either registry.* P8.
+  - *The tag is annotated, and the checks read a commit.* `v0.1.0` is an annotated tag
+    (`git cat-file -t v0.1.0` prints `tag`, tagger `hello@glosswork.dev`) and its run,
+    36619380689, passed every job, so the workflow's "is a commit", "is on main" and CI
+    queries are shown to work for the kind of tag the command below makes (F8).
+  - *`publish` waits on nobody.* The `release` environment has one rule, a tag policy of
+    `v*`, and no required reviewer, read from the environments API. What happens when
+    `publish` fails part way is under "After the merge" (F8).
 
 - **P8. Neither registry holds 0.1.1 or 0.2.0.** With an empty Docker configuration,
   `docker buildx imagetools inspect docker.io/glosswork/glosswork:0.1.1` exits 1 with
@@ -258,16 +331,20 @@ edited to establish a premise.
   `0.1.0`.
 
 - **P9. What each of the five changes requires of an operator upgrading from 0.1.0:
-  nothing, with one exception.** Read from each merge's diff, then measured by running
+  nothing, unless the environment already carries one of the names this version starts
+  to read.** The adversarial pass corrected two things in this premise, both marked
+  below: the names are six and a prefix, not one prefix (F1), and the `WEB_CONCURRENCY`
+  conclusion was wrong (F2). It also repeated the upgrade on a workspace with real data
+  (F3). Read from each merge's diff, then measured by running
   the published image `docker.io/glosswork/glosswork:0.1.0` (index
   `sha256:12c783a9...89b4`, revision label `0d6fd1f`) and the scratch image.
 
   | Change | What it brings | What an upgrading operator must do |
   | --- | --- | --- |
   | 7 | `README.md` only | Nothing |
-  | 9 | Migration 13 (two new tables, two indexes); `GW_RELAY_URL` and `GW_RELAY_TOKEN`, off unless both set; five new routes; `GET /api/v1/auth/modes` gains `email_code` | Nothing. With neither variable set, password sign-in is as before |
-  | 11 | `workers=1`; `WEB_CONCURRENCY` ignored; documentation | Nothing |
-  | 20 | `GW_OPERATOR_BACKUP`, off by default; one new route; staged backups cleaned up | Nothing. Unset, the operator token opens what it opened before |
+  | 9 | Migration 13 (two new tables, two indexes); `GW_RELAY_URL` and `GW_RELAY_TOKEN`, off unless both set; five new routes; `GET /api/v1/auth/modes` gains `email_code`; `httpx2` 2.12.0 to 2.13.1, the only locked dependency that moved | Nothing, unless the environment already carries either relay name (F1). With neither set, password sign-in is as before |
+  | 11 | `workers=1`; `WEB_CONCURRENCY` ignored; documentation | Nothing. A deployment that set `WEB_CONCURRENCY` above 1 goes from that many processes to one (F2) |
+  | 20 | `GW_OPERATOR_BACKUP`, off by default; one new route; staged backups cleaned up | Nothing, unless the environment already carries `GW_OPERATOR_BACKUP` (F1). Unset, the operator token opens what it opened before: measured, `/api/v1/usage` 200 and the backup route 401 with the same token on an upgraded 0.1.0 deployment |
   | 22 | `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE`, `GW_TLS_CLIENT_CA_FILE`, all or none | Nothing, unless the environment carries some other name beginning `GW_TLS_`: remove it |
 
   Measured:
@@ -293,10 +370,17 @@ edited to establish a premise.
     byte-identical (19,640 bytes).
   - *The exception.* With `GW_TLS_ENABLED=false`: 0.1.0 runs and `/readyz` answers 200;
     the scratch image exits 1 with the `Configuration error:` line naming the variable.
-  - *`WEB_CONCURRENCY=2`.* 0.1.0 exits within 12 seconds with code 0, after a clean
-    shutdown in its log, and serves nothing; with `WEB_CONCURRENCY=1` it runs. The
-    scratch image with `WEB_CONCURRENCY=2` runs one process. So no running 0.1.0
-    deployment has that variable above 1.
+  - *`WEB_CONCURRENCY=2`.* **Corrected by F2.** On a fresh volume 0.1.0 exits within 12
+    seconds with code 0, after a clean shutdown in its log, and serves nothing; with
+    `WEB_CONCURRENCY=1` it runs. The planning run concluded from that that no running
+    0.1.0 deployment has the variable above 1, and that does not follow: the exit is two
+    processes racing to create the database (`Child process [8] failed to start`, under
+    a SQLAlchemy traceback). On a volume that already holds a workspace, 0.1.0 with
+    `WEB_CONCURRENCY=2` and with `4` stayed up for the 45 seconds watched, answered
+    `/readyz` with 200 throughout, and logged a completed startup 2 and 4 times. The
+    image built from `main` on that volume with `WEB_CONCURRENCY=4` logs one and runs
+    one `python` process.
+  - *The upgrade again, on real data (F3).* See the adversarial pass.
 
 - **P10. The release workflow has run three times, never since `0d6fd1f`.** From
   `actions/workflows/release.yml/runs`: a failed dry run at `8ec0cc9`, a successful dry
@@ -381,13 +465,19 @@ Each exit code is read on its own line, never through a pipe.
   `awk '/^## 0\.1\.1$/{f=1} /^## 0\.1\.0$/{f=0} f' CHANGELOG.md | grep -c -E '^- (7|9|11|20|22): '`
   prints 5. That same `awk` output is identical to this plan's entry:
   `diff <(awk '/^## 0\.1\.1$/{f=1} /^## 0\.1\.0$/{f=0} f' CHANGELOG.md) <(awk '/^```markdown$/{f=1;next} /^```$/{f=0} f' docs/changes/24-release-after-0-1-0.md)`
-  exits 0. `git diff origin/main -- CHANGELOG.md | grep -c '^-[^-]'` prints 0.
+  exits 0. Every added line is the entry's and no line is removed:
+  `git diff --numstat origin/main -- CHANGELOG.md` prints the number that
+  `awk '/^```markdown$/{f=1;next} /^```$/{f=0} f' docs/changes/24-release-after-0-1-0.md | wc -l`
+  prints, then `0`, then the path. (The planning run's form of this check,
+  `grep -c '^-[^-]'` over the diff, could not see a removed list line, because a removed
+  `- 1: ...` line reads `-- 1: ...` in a diff, and it counted no added line at all: F5.)
 - **AC4.** The README names the version and no longer names the last one:
   `sed -n '/^## Run it/,/^## Point/p' README.md | grep -c 'docker.io/glosswork/glosswork:0.1.1$'`
   prints 1, and `grep -c 'glosswork/glosswork:0.1.0' README.md` prints 0.
 - **AC5.** The tag the maintainer will push matches: with `TAG=v0.1.1`, the workflow's
   pattern `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$` matches it in `bash`,
-  and `${TAG#v}` equals AC1's output.
+  and `${TAG#v}` equals AC1's output. This restates AC1 against the tag command below:
+  it cannot fail unless AC1 does, and is not counted as separate coverage (F6).
 - **AC6.** Nothing else changed. Before the closeout,
   `git diff --name-only origin/main...HEAD` prints `CHANGELOG.md`, `README.md`,
   `docs/changes/24-release-after-0-1-0.md`, `pyproject.toml` and `uv.lock`. After it,
@@ -405,7 +495,10 @@ Each exit code is read on its own line, never through a pipe.
   `uv run python scripts/notices_coverage.py --image glosswork:container-test` exits 0.
 - **AC10 (fence).** The version is free in both registries: with an empty
   `DOCKER_CONFIG`, `docker buildx imagetools inspect docker.io/glosswork/glosswork:0.1.1`
-  exits 1 with `not found`, and the GitHub package's version list holds no `0.1.1`.
+  exits 1 with `not found`, and
+  `gh api orgs/glosswork/packages/container/glosswork/versions --jq '[.[].metadata.container.tags[]] | any(. == "0.1.1")'`
+  prints `false`. The GitHub package is private, so it is read through the API with a
+  token and not anonymously.
 
 ## After the merge, for the maintainer
 
@@ -422,7 +515,32 @@ git push origin v0.1.1
 The release run's `preflight`, `build-amd64`, `build-arm64` and `publish` should all
 conclude `success`. Then `docker.io/glosswork/glosswork:0.1.1` pulls with no login for
 both architectures, and its revision label is the merge commit. That is the version the
-hosted control plane pins.
+hosted control plane pins. Docker Hub is the only name that pulls without a login: the
+GitHub package is private, and `ghcr.io/glosswork/glosswork:0.1.0` refuses an anonymous
+read today.
+
+**If the release run fails** (F8, read from `.github/workflows/release.yml`; none of
+these was produced):
+
+- *`preflight` fails because CI was not yet green on `main`.* Nothing was built. Wait
+  for the `main` run and re-run the release run; the tag stays.
+- *A build job fails.* Nothing has a name in either registry. The defect is in merged
+  code and needs its own change; delete the tag, and tag the fix's merge commit with the
+  same version, which is still free.
+- *`publish` fails at sign-in.* A Docker Hub credential that no longer works stops the
+  job before either registry is tagged. A dry run cannot show this in advance, because
+  it never signs in. Fix the credential and use "Re-run failed jobs".
+- *`publish` fails between the two registries.* It tags the GitHub registry first and
+  Docker Hub second, so the GitHub registry then holds `0.1.1` and Docker Hub does not,
+  and nobody outside can pull it. **Use "Re-run failed jobs", never "Re-run all jobs".**
+  The first keeps the two build jobs' digests, finds the GitHub registry already holding
+  exactly this build, and goes on to Docker Hub. The second builds again on fresh
+  runners, and nothing makes a second build byte-identical to the first (the base images
+  are named by tag, and Python in the image moved from 3.13.15 to 3.13.16 between the
+  0.1.0 build and one made today from the same Dockerfile), so `publish` would find a
+  `0.1.1` in the GitHub registry that is not its own and refuse, every time. The way out
+  of that is to delete the private GitHub package version by hand, or to release the
+  next number.
 
 ## Baseline repaint
 
@@ -430,11 +548,153 @@ None. No UI change.
 
 ## Adversarial pass
 
-Not yet run. It is run by a session that did not write this plan. Places worth attacking
-first: whether anything an operator must do was missed in P9, since it was established on
-a nearly empty workspace; each sentence of the changelog entry against the section it
-cites; whether AC3's `awk` comparison can pass on a wrong entry; and area 3's window in
-which the README is ahead of the registry.
+Run on 2026-10-02 by a session that did not write this plan, on this machine (arm64).
+"Old" is the published `glosswork/glosswork:0.1.0`; "new" is an image built from a
+separate clone at `ac1b349`. Nothing in the working clone but this file was edited.
+Three findings change what the maintainer is asked to approve: **F1** (the evidence for
+the number, and the Upgrading paragraph's text), **F2** (one reason given in area 2 was
+wrong, which opens a choice) and **F5** (an Accept criterion that could pass on a wrong
+changelog). F9 and F10 correct the cost and the window stated in areas 3 and 4 without
+changing what is proposed. The rest confirm, or record what is not established.
+
+- **F1. This version gives meaning to six names 0.1.0 ignored, not to one prefix, and
+  one of the differences is silent.** Each of these was started on both images with
+  otherwise the same environment: `GW_TLS_ENABLED=false`, lower-case `gw_tls_mode=off`,
+  `GW_TLS_PROXY_SERVICE_HOST=10.0.0.9`, `GW_TLS_CERT_FILE` alone, `GW_RELAY_TOKEN` alone,
+  `GW_RELAY_URL` alone, `GW_OPERATOR_BACKUP` blank, and `GW_OPERATOR_BACKUP=true` with no
+  token. Old ran and answered `/readyz` with 200 every time; new exited 1 every time with
+  a `Configuration error:` line naming a variable. With both relay names set and well
+  formed, both images ran, and a password sign-in that old answered with 200 new answered
+  with 409. Blank `GW_TLS_CERT_FILE` and `GW_OPERATOR_BACKUP=false` changed nothing. The
+  planning run tested the first of these only, and its Upgrading paragraph read: "One
+  thing to check first: an environment variable whose name begins `GW_TLS_`, other than
+  the three in change 22 below, now stops the workspace at startup, naming the variable.
+  0.1.0 ignored such a name. Remove it." Also read: Docker Hub's public record of the
+  image shows `pull_count` 293. *Disposition: folded into area 1, as its second table
+  and both arguments, with no recommendation; into P9; and into the entry's Upgrading
+  paragraph, which now names all six. The number and the new sentence are the
+  maintainer's to approve.*
+
+- **F2. P9's `WEB_CONCURRENCY` conclusion was wrong.** Measured as P9 now records: 0.1.0
+  runs 2 or 4 processes on a volume that already holds a workspace, and exits only on an
+  empty one. So a 0.1.0 deployment can be running with the variable set, and upgrading
+  takes it to one process. *Disposition: P9 corrected in place; area 2's bullet rewritten
+  as a choice, with the entry left as it was and the alternative sentence given.*
+
+- **F3. The upgrade holds on a workspace with real data, in both directions.** One
+  volume, the same environment throughout, with `GW_OPERATOR_TOKEN` set. On old: one
+  object type, 24 records with an embedded field, a comment, a 3 MB attachment, a second
+  person with a password, a token minted from the command line and one minted over REST,
+  and a browser session. Then, in order:
+  - *New on that volume.* Ready in 3 s, migration 13 applied. Both tokens, the session
+    cookie minted by old, both password sign-ins, the 24 records, a semantic search (the
+    same three records), the attachment's bytes by SHA-256 and the comment were as on
+    old. The operator token read `/api/v1/usage` with 200 and was refused the backup
+    route with 401, as area 1 says an upgraded deployment should. A write succeeded.
+    Every structured log line was at `info`.
+  - *Old again on the migrated volume.* The same checks, the same results.
+  - *New with the relay on*, the relay being a recorder inside the container. The old
+    session still answered; password sign-in answered 409; the administrator and the
+    second person signed in by code; one person was invited and joined by code; one
+    invite and one code were left open.
+  - *Old on that volume.* Ready in 3 s. The three sessions minted by code answered 200.
+    Records, search, export, backup and a write worked. The invited person has no
+    password: a password sign-in is refused with 401, an administrator can set one, and
+    the sign-in then succeeds. Every log line at `info`.
+  - *A restore*, by the procedure in `docs/DEPLOYMENT.md` section 6, of the backup old
+    took before any upgrade, onto an empty volume: old came up on it with 24 records,
+    the session, search and attachment intact, and so did new, applying migration 13.
+  *Disposition: no change to the plan's claims; area 1's table now cites it. Measured on
+  one arm64 machine and one small workspace, and not on `linux/amd64`.*
+
+- **F4. Each changelog line was checked against the built image, and each is true.**
+  Line 7: read from change 7's diff. Line 9: F3's relay step (`202` on a code request,
+  sign-in by code, an invite accepted, password sign-in 409 only with both variables
+  set); the code is six digits and the invite is by email, read in
+  `src/glosswork/services/sign_in_codes.py`. Line 11: one process under
+  `WEB_CONCURRENCY=4` (F2); the pause sentence is true and is not a change from 0.1.0,
+  whose indexing worker differs from this one in comments only
+  (`git diff v0.1.0..origin/main -- src/glosswork/services/embedding_worker.py`).
+  Line 20: off by default (F3); an abandoned download of a 165 MB backup left one file
+  in the staging directory on old for the 60 seconds watched and none on new one second
+  after the client hung up; the stored code is an HMAC keyed from the relay token, read
+  at `sign_in_codes.py` lines 123 and 130, not attacked. Line 22: `container_tests` on
+  the image built from `main`, exit 0, 40 passed and 1 skipped, in 267 s, including
+  `container_tests/test_tls_lock.py`. Upgrading: the REST and MCP comparisons were
+  repeated and match P9 (73 operations and 32 schemas unchanged, 6 and 3 added; 32 tools,
+  instructions and `describe_capabilities` identical), and no existing setting's default
+  changed. Two things the image carries that no line mentions, because a line is a
+  change and these are not one: Python 3.13.16 where 0.1.0 has 3.13.15 (the Dockerfile
+  names its base images by tag), and `httpx2` 2.13.1 where 0.1.0 has 2.12.0 (change 9).
+  *Disposition: area 2 gains the note on line 11. No line was changed for truth.*
+
+- **F5. AC3 could pass on a changelog that had lost or gained lines.** Its last check
+  counted removed lines with `grep -c '^-[^-]'` over a diff. A removed list line begins
+  `- ` and so reads `-- ` in a diff, which that pattern skips, and nothing counted added
+  lines. Measured on copies of the changelog text: with one word of the 0.1.0 entry
+  changed, with an unapproved line appended under 0.1.0, and with an unapproved sentence
+  added above the entry, all of AC3 passed. It did fail, as it should, on a missing
+  line, a changed word, an extra space, the entry twice, the entry below 0.1.0, and a
+  heading reading `0.2.0`. *Disposition: the last check is replaced with
+  `git diff --numstat`, whose added count must equal the entry's own line count and
+  whose removed count must be 0. On the same copies it fails all three cases that
+  passed before (one added line more than the entry has, or 1 removed) and passes the
+  correct file.*
+
+- **F6. Three smaller faults in the Accept block.** AC10's second half was a sentence,
+  not a command. AC5 cannot fail unless AC1 does. And under 0.2.0, "every `0.1.1` reads
+  `0.2.0`" missed AC3's escaped patterns. AC4 was run on copies of the README text and
+  fails on the unfixed text, on `0.1.2`, on `0.1.10` and on the other registry's name.
+  *Disposition: AC10 given its command, which prints `false` today for `0.1.1` and `true`
+  for `0.1.0`; AC5 labelled; area 1 names the escaped patterns.* **Not run by this pass:** AC1 and AC2 against a tree with
+  the wrong version in `pyproject.toml` or in `uv.lock` (see F7). By reading, AC1 prints
+  what `pyproject.toml` holds and AC2's third command prints the lockfile's own line, so
+  each fails on a wrong number in its own file; and `tests/test_supply_chain.py` records
+  that `uv lock --check` exits 0 on a lockfile whose registry lines are wrong, so of
+  AC2's commands only the two `grep -c` counts and AC7 guard those lines.
+
+- **F7. The lockfile step was not reproduced by this pass.** The session's permission
+  check refused the one command that would have re-run `uv lock` and the substitution in
+  a scratch clone, and it was not attempted another way. P4 therefore stands on the
+  planning run's measurement. Read: `main` holds 70 registry lines, all PyPI, and one
+  other source, the project itself. `uv` on this machine is 0.9.18 and the workflows pin
+  0.12.19; the planning run's one-line diff was made with the local one. *Disposition:
+  recorded in P4. The build's own step 4 and AC2 are the next measurement.*
+
+- **F8. The preflight would accept the tag, as far as can be shown, and a failed
+  `publish` has one right way to be retried.** The tag trigger, the "is a commit" check,
+  the "on main" check and both CI queries all passed for `v0.1.0`, an annotated tag made
+  by the same command. A tag on the branch's own head instead of the merge commit is
+  refused, by reading: that commit has a `pull_request` run and no `push` run on `main`. The
+  `release` environment has no required reviewer. What cannot be shown before the merge
+  is the CI run on `main` for the merge commit, as P7 says. The publish job tags the
+  GitHub registry before Docker Hub, and what follows from that is now under "After the
+  merge". *Disposition: P7 extended; the failure cases added to "After the merge".
+  Whether a second full run would reproduce the first run's digests was read, not
+  measured.*
+
+- **F9. The README window is at least 20 minutes, and the README is not the only place
+  the tag is written.** Timings as area 3 now gives them. The site repository names
+  `docker.io/glosswork/glosswork:0.1.0` in three files (the content of its home page and
+  of its install page, and the home page's template), which the "Releases" clause
+  proposed here does not reach. That is
+  another repository's change and is not made here. *Disposition: area 3 corrected. The
+  proposal is unchanged.*
+
+- **F10. The dry run's cost estimate holds, on the high side, and the agent's token can
+  start one.** As area 4 now gives it: per-file durations from this pass's run of the
+  suite, step timings of runs 36618298361 and 36619380689 read from the jobs API, and
+  prices read at <https://docs.github.com/en/billing/reference/actions-runner-pricing>
+  on 2026-10-02. No run was started. An alternative was considered and not taken: a dry
+  run on the pull request's head, after its CI passes and before the merge, would test
+  the release's own tree on both runners, but it finds a defect in merged code later
+  than a dry run on `main` now, and the tag run repeats the test either way.
+  *Disposition: area 4 corrected. The proposal is unchanged.*
+
+**Not established by either run:** the suite on `linux/amd64` or on the release runners
+(the dry run is for this); CI on `main` for the release's merge commit; that the Docker
+Hub credential still works, which only a tag run exercises; how many included Actions
+minutes are left this month; and who, outside this project, runs 0.1.0.
 
 ## Deviations from the approved plan
 
