@@ -69,6 +69,41 @@ that design in this plan before any code.
    self-hosted deployment still sits behind its own proxy. The proposed text is under
    "Durable content".
 
+The adversarial pass added the three below. Each changes what is being approved, and
+"Adversarial pass" says which finding it came from.
+
+6. **A misspelt name under `GW_TLS_` refuses startup (F3). The maintainer can strike
+   it.** The settings loader ignores any variable it does not know, so an operator who
+   writes `GW_TLS_CA_FILE` for the client CA, or drops `_FILE` from all three, gets a
+   workspace that starts, serves plain HTTP to anyone and says nothing (P19). With two
+   names right and one wrong the partial-set refusal already fires; with all three wrong
+   nothing does. This plan adds a third startup refusal: any environment variable whose
+   name begins `GW_TLS_` and is not one of the three. It is one more step past what the
+   issue asks for, it is a pattern no other setting group in the repository has, and it
+   is in the plan because this group is the one where an ignored name means an open
+   door. Struck, the change is smaller by one check, one test and one mutation, and the
+   documentation says in so many words that a misspelt name is silently ignored.
+
+7. **What the product does not close, stated so it is approved knowingly (F3).** "None
+   of the three set" is a valid state and always will be, so a deployment in which the
+   three never arrive (the platform dropped the block, the names sit under another
+   prefix) starts unlocked, and the workspace cannot tell that from a self-hosted
+   deployment that never wanted the lock. A fourth setting meaning "the lock is
+   required" was considered and declined: it is beyond the three the issue names, and
+   it can fail to arrive in exactly the same way. The check that closes this belongs to
+   whoever provisions the workspace: connect to its address with no certificate and
+   require a refusal before anything points at it. The documentation says so (4a,
+   item 2) and the control plane's routing work carries it.
+
+8. **The documentation sentence about `GW_TRUSTED_PROXY_IPS` becomes two statements
+   (F2).** The issue asks the documentation to say that a wide value is only safe with
+   the lock on. That is true and it is not enough: with the lock on, a value of `*`, or
+   any range wide enough to cover a visitor's address, still lets a visitor choose the
+   address the sign-in limiter sees, through an honest proxy that holds the right
+   certificate (P18). So section 4a says both: wide only behind the lock, and never
+   `*`, lock or no lock, unless the proxy overwrites `X-Forwarded-For` rather than
+   appending to it. Accept criterion AC8 checks both.
+
 ## Premises
 
 Everything below was measured on 2026-10-02 against `main` at `42e9d45` (tree
@@ -153,6 +188,22 @@ attached to the build task this change belongs to (PROD-60).
   `errno=104`, and `curl` exit 52. What does not vary is that the client receives zero
   bytes of a response.
 
+  *Amended by the adversarial pass (F4, F5).* Rerun with a second harness, the whole
+  table reproduced: the seven rows, 14 connections, gave 2 answers, 2 `connection_made`
+  lines and 2 `access` events, and with P17's six further rows 26 connections gave 6
+  answers and 6 `access` events. Three Linux client positions were
+  added, each on both versions: inside the server's container on loopback, from a second
+  container to the server's bridge address, and through a userland TCP relay in that
+  second container. On all three, and through Docker Desktop's forward, **the TLS 1.3
+  client's handshake call returned, with `version()` reading `TLSv1.3`, before the
+  refusal, and the TLS 1.2 client's handshake call failed.** The error that follows on
+  TLS 1.3 was `BrokenPipeError` raised from the *read* on the two direct Linux paths,
+  `SSLEOFError` through the relay and the forward, and `ConnectionResetError` from
+  Python's `http.client`: three Python exceptions for one refusal, two of which are not
+  `ssl.SSLError`, so a probe catches `OSError` on the send and on the read. The
+  release workflow's own runners are still not measured; what a wrong guess there costs
+  is a test that errors, never one that passes (P20).
+
 - **P5. A partial set handed straight to uvicorn is silently open or a traceback, never
   a refusal that says why.** Run with the wrapper, which does not validate:
 
@@ -173,7 +224,10 @@ attached to the build task this change belongs to (PROD-60).
   `PermissionError: [Errno 13] Permission denied`; a key that belongs to another
   certificate gives `ssl.SSLError: [X509: KEY_VALUES_MISMATCH]`; a CA file that is empty
   or not a certificate gives `ssl.SSLError: [X509: NO_CERTIFICATE_OR_CRL_FOUND]`. None of
-  them starts a listener. The image runs as uid 1000 (`Dockerfile`, `USER appuser`), so
+  them starts a listener. *Added by the adversarial pass:* a certificate or CA path that
+  is a directory gives `IsADirectoryError`, and a private key encrypted with a
+  passphrase gives `OSError: [Errno 22] Invalid argument` with no terminal attached;
+  both exit 1 before listening. The image runs as uid 1000 (`Dockerfile`, `USER appuser`), so
   the three files must be readable by that uid.
 
 - **P7. With none of the settings, the call uvicorn receives is the one it receives
@@ -215,7 +269,8 @@ attached to the build task this change belongs to (PROD-60).
   refused.** Run against the locked wrapper: `curl http://127.0.0.1:<port>/readyz`
   exits 52 with no response. `openssl s_client` offering TLS 1.1 and TLS 1.0 at security
   level 0, with the CA A leaf, fails with `unexpected eof` and no cipher agreed. There is
-  one listener: the entry point binds one port, read at `src/glosswork/entrypoint.py:22`.
+  one listener: the entry point binds one port, read at `src/glosswork/entrypoint.py:22`,
+  and measured by the adversarial pass in P21.
 
 - **P11. No second process.** Inside the locked container, `/proc` lists PID 1
   (the Python entry point) and the probe that listed it, and nothing else.
@@ -267,17 +322,167 @@ attached to the build task this change belongs to (PROD-60).
   plan names that commit by its relation to the merge commit instead. With both fixed
   the same command exits 0.
 
+**Premises added by the adversarial pass (2026-10-02).** A session that did not write
+P1 to P16 rebuilt the image from this branch (`docker image inspect` shows the branch
+head as its revision; the branch adds only this file to `main`'s tree), wrote its own
+wrapper, probe and certificate generator rather than reusing run 1's, and reran P1 to
+P15 before adding these. Every one reproduced. P16's two guards were read
+(`tests/test_documentation_structure.py:198` and `:205`) and the structural lane run
+with this file committed, exit 0; the two failures on the first draft were not
+re-created. The scripts and their output are attached to PROD-60 beside run 1's.
+
+- **P17. The lock lets in every certificate that chains to the CA file, by any route,
+  and a CA file that is not a self-signed root lets in nobody.** Run against the locked
+  wrapper, both TLS versions, the same result on each:
+
+  | Client presents, CA file holds CA A | Result |
+  | --- | --- |
+  | Leaf under an intermediate that CA A signed, sent with the intermediate | `200` |
+  | The same leaf sent alone | refused |
+  | Leaf from CA A with **no** extended key usage at all (how a plain server certificate from the same CA looks) | `200` |
+  | Leaf from CA A not yet valid | refused |
+  | A certificate signed by leaf A, which is not a CA, sent with leaf A | refused |
+  | The same, where the signing leaf carries no basic constraints at all | refused |
+
+  | CA file holds | Result |
+  | --- | --- |
+  | CA A and CA B together | leaves of both `200`; the same-name twin still refused |
+  | Only the intermediate, not CA A | **everyone refused**, including the leaf that intermediate signed. uvicorn's context carries verify flags `32768`, which is OpenSSL's "trusted first" and not "partial chain", so a chain must end at a self-signed certificate in the file |
+  | Only leaf A itself (a certificate pinned as if it were a CA) | **everyone refused**, leaf A included |
+  | A self-signed client certificate, pinned | that certificate `200`, leaf A refused |
+  | The server's own CA, client presents the server's certificate and key | refused when that certificate is marked for server use only; P17's third row is the case where it is not |
+
+  So an intermediate is not a narrower lock than its root: name the root and every
+  intermediate under it is trusted, name the intermediate and the workspace is closed to
+  all. Both wrong ways to fill the file fail closed. The one way to widen the lock by
+  accident is a CA that also signs something else.
+
+- **P18. `GW_TRUSTED_PROXY_IPS` set to `*`, or to a range that covers the visitor, is
+  forgeable with the lock on.** Read at `uvicorn/middleware/proxy_headers.py:176-187`:
+  with `*` the client is the *first* `X-Forwarded-For` entry, and when every entry is
+  trusted it is the first entry too; otherwise it is the last entry that is not trusted.
+  Run: 12 wrong sign-ins for one account against the locked wrapper, from a client
+  holding the CA A leaf and behaving as an honest proxy does, appending one real visitor
+  address (`203.0.113.9`) after whatever the visitor sent (`6.6.6.N`, different each
+  time).
+
+  | `GW_TRUSTED_PROXY_IPS` | Answers |
+  | --- | --- |
+  | The proxy's own range | `401` ten times, then `429`, `429` |
+  | The proxy's own range, visitor also forges an address inside that range before the real one | `401` ten times, then `429`, `429` |
+  | `*` | `401` twelve times: the limiter never fires |
+  | `0.0.0.0/0` | `401` twelve times |
+  | The proxy's own range, where the visitor's real address is itself inside that range | `401` twelve times |
+
+  P9's four rows reproduced first. So the lock decides who may *connect*. It does not
+  make a visitor's own header trustworthy, and a value that trusts the visitor's
+  address hands the choice back to the visitor through the proxy.
+
+- **P19. With the plan's check, every partial or malformed value of the three refuses
+  startup; the states that start unlocked are "none of the three" and "none of the three
+  under their right names".** Run in the project's environment against a scratch subclass
+  of `Settings` written from "What changes" (three fields, the blank validator, the
+  all-or-none check, the open-for-reading check), over 20 environments:
+
+  | Environment | Result |
+  | --- | --- |
+  | Each of the six ways to set one or two of the three | refuses, naming the missing ones |
+  | One set, the other two blank or spaces | refuses, the same way |
+  | All three, one path missing, a directory, or ending in a newline | refuses, naming the variable and the reason |
+  | All three given as a literal pair of quotes, as Docker's `--env-file` passes `""` | refuses: `cannot read ""` |
+  | All three, the CA file empty | passes the check, and uvicorn then exits 1 (P6) |
+  | Lower-case names | read as the three; the lock is on |
+  | All three blank, or all three spaces | **starts, lock off**, as designed (P8) |
+  | `GW_TLS_CERT`, `GW_TLS_KEY`, `GW_TLS_CLIENT_CA` (no `_FILE`) | **starts, lock off, no message** |
+  | `GW_TLS_CA_FILE` alone | **starts, lock off, no message** |
+  | `GW_SSL_CERT_FILE`, `GW_SSL_KEY_FILE`, `GW_SSL_CLIENT_CA_FILE` | **starts, lock off, no message** |
+  | Two names right and `GW_TLS_CA_FILE` for the third | refuses as a partial set |
+
+  `Settings` is declared `extra="ignore"` (read at `src/glosswork/config.py:45`), which
+  is why an unknown name says nothing.
+
+- **P20. "Zero bytes received, the TLS 1.2 handshake call fails, and the access count
+  does not move" is true of a server with no lock at all.** Run: the same no-certificate
+  probe against the image's own plain HTTP entry point failed its handshake call on both
+  versions (`record layer failure`), received zero bytes, and moved the `access` count
+  by 0. Against the locked wrapper, a client that held the *right* certificate and
+  trusted the wrong server CA did the same (`SSLCertVerificationError` on both
+  versions). So those three observations do not show a lock: they show a client that got
+  no answer. What separates the cases is the TLS 1.3 client's handshake call *returning*
+  with `version()` `TLSv1.3` (P4, four client positions), which happens only when the
+  server spoke TLS 1.3 and the client accepted its certificate; and, for TLS 1.2, a
+  right-certificate request built by the same code succeeding immediately afterwards.
+
+  The direct evidence can be had without a network. Run in the project's environment
+  (OpenSSL 3.5.4, macOS) and again inside the image (OpenSSL 3.5.7, Linux), same output:
+  `uvicorn.Config(<a no-op application>, ssl_certfile=…, ssl_keyfile=…, ssl_ca_certs=…,
+  ssl_cert_reqs=ssl.CERT_REQUIRED).load()` yields the context uvicorn serves with
+  (`verify_mode CERT_REQUIRED`, one trusted CA), and a handshake against it over
+  `ssl.MemoryBIO` pairs gave, on TLS 1.3 and 1.2: both sides complete for the CA A leaf;
+  the **server's** `do_handshake()` raising `PEER_DID_NOT_RETURN_A_CERTIFICATE` for no
+  certificate and `CERTIFICATE_VERIFY_FAILED` for CA B and for the same-name twin; and
+  the client's handshake call already returned at that moment on TLS 1.3 and not on
+  TLS 1.2. The 24 handshakes of the three variants took 0.03 s and 0.07 s. With
+  `ssl_cert_reqs` left out every client completes; with `CERT_OPTIONAL` the client with
+  no certificate completes and CA B is still refused.
+
+- **P21. Nothing else in the image answers, and nothing ambient widens the lock.** Run
+  inside the locked container: `/proc/net/tcp` holds one listening socket,
+  `0.0.0.0:8000`, and `tcp6`, `udp` and `udp6` hold none; `/proc` holds PID 1 and the
+  probe. `grep -rnE "uvicorn|socket\.|\.listen\(|\.bind\(|create_server|start_server"`
+  over `src/glosswork` outside the entry point finds comments that name uvicorn and one
+  `server.bind(adapter)` at `src/glosswork/mcp_server/__init__.py:208`, which attaches an
+  adapter object to the MCP server mounted in the same application and opens nothing. No
+  module under `src/glosswork` imports `socket`, `socketserver`, `http.server`,
+  `multiprocessing` or `subprocess`, and `pyproject.toml` declares no script. The entry
+  point ignores its arguments, read at
+  `src/glosswork/entrypoint.py:12-17`. Offered by `openssl s_client` at security level 0
+  on TLS 1.2, with no certificate: anonymous suites, pre-shared-key suites and
+  null-encryption suites each ended with no cipher agreed; a TLS 1.3 pre-shared key was
+  ignored and the caller refused as usual. The context holds 17 suites; their
+  authentication is RSA, ECDSA or TLS 1.3's own, and none has zero-strength encryption.
+  Started with `SSL_CERT_FILE` naming CA B, `SSL_CERT_DIR`,
+  `FORWARDED_ALLOW_IPS=*`, `WEB_CONCURRENCY=3`, `UVICORN_SSL_CERT_REQS=0` and
+  `UVICORN_PORT=9999` in the environment, the locked wrapper still refused the CA B leaf
+  and the caller with no certificate on both versions, listened on 8000 only, and ran
+  one process: uvicorn's `Config` reads the environment only for the worker count and
+  the forwarded-address list when those arguments are absent
+  (`uvicorn/config.py:352-357`), and the entry point passes both.
+
+  One thing that is not a way in and is worth knowing: a client that completed one
+  handshake with a good certificate resumed its session on a second connection, on both
+  versions (`session_reused` true, `200`). The certificate is checked when a session is
+  made, not on each connection, and the keys that seal a session ticket live in the
+  process, so a restart ends every session.
+
+- **P22. The container tests are a gate at release and by hand, not on a pull
+  request.** Read at `.github/workflows/ci.yml:239` (`uv run pytest -q`, which
+  `testpaths` limits to `tests/`) and `.github/workflows/release.yml:146-147` and
+  `:200-201`, where `GW_IMAGE=glosswork:release uv run pytest -q container_tests` runs
+  before the push step on both architectures; `tests/test_release_workflow.py:36` and
+  `:119` pin that order. So a later change that broke the lock (a uvicorn upgrade, say)
+  could not be *released* past `container_tests/test_tls_lock.py`, and could be *merged*
+  past it, because on a pull request the only check would be that the entry point passed
+  four arguments. `container_tests/conftest.py:20-24` uses `GW_IMAGE` when it is set and
+  otherwise builds `glosswork:container-test` from the working tree.
+
 **Not established, and who can establish it.**
 
 - The client-side symptom of a TLS 1.3 refusal on the release workflow's native Linux
-  runners. The test asserts only what P4 found invariant, and the first release dry run
-  after this change is where it is measured.
-- A client certificate that chains through an intermediate authority. Only a single-level
-  CA was measured.
+  runners. P4 now covers three Linux client positions and a userland relay, not the
+  runners themselves; the first release dry run after this change is where it is
+  measured, and a surprise there fails the test rather than passing it (P20).
 - How a hosting platform delivers the three files and under which uid. That is the
-  control plane's side (CP-33); P6 says what the workspace needs.
+  control plane's side (CP-33); P6 says what the workspace needs. CP-07's runbook
+  records that its test tenant started on the published image with files delivered by
+  the platform, and records neither their owner nor their mode. An unreadable file
+  stops the process before it listens (P6, reproduced), so what this gap can hide is a
+  workspace that will not start, not one that starts open.
 - Semgrep and the full CI lanes on the real diff. P15 is a proxy.
-- Behaviour on an OpenSSL other than 3.5.7. The base image tag floats.
+- Behaviour on an OpenSSL older than 3.5. P20's handshake ran on 3.5.4 and 3.5.7 and
+  the base image tag floats; the test P20 leads to runs on whatever the pipeline has.
+- Revocation. Nothing was measured, because nothing is configured: a certificate from
+  the CA is good until it expires or the CA file changes and the process restarts.
 
 ## What changes
 
@@ -289,8 +494,15 @@ attached to the build task this change belongs to (PROD-60).
   whitespace-only to `None` (P8).
 - A property `tls_enabled`, true when all three are set. It is the only thing the entry
   point reads to decide.
-- `_check_tls(settings)`, called from `load_settings` beside `_check_relay`, with two
+- `_check_tls(settings)`, called from `load_settings` beside `_check_relay`, with three
   refusals, each a `ConfigError`:
+  - **A name under `GW_TLS_` that is not one of the three** (judgment area 6, F3).
+    Checked first, over the process environment, comparing names upper-cased because the
+    loader reads them without regard to case (P19), and whatever the value, blank
+    included. The message names the stray variable and prints no value:
+    `GW_TLS_CA_FILE: not a setting. The three are GW_TLS_CERT_FILE, GW_TLS_KEY_FILE and
+    GW_TLS_CLIENT_CA_FILE. An unknown name is refused rather than ignored, because
+    ignoring it would start the workspace with no client certificate check.`
   - **Some but not all set.** The message names every missing variable and the ones that
     are set, in this form:
     `GW_TLS_KEY_FILE, GW_TLS_CLIENT_CA_FILE: required when GW_TLS_CERT_FILE is set. Set
@@ -308,6 +520,16 @@ attached to the build task this change belongs to (PROD-60).
   OpenSSL's own reason (P6). Parsing certificates in `config.py` would be a second
   implementation of what uvicorn does a moment later.
 
+  **Who else these refusals reach (F6).** `load_settings` has four callers, read at
+  `src/glosswork/entrypoint.py:14`, `src/glosswork/app.py:671`,
+  `src/glosswork/admin.py:466` and `src/glosswork/config.py:547`. So the admin CLI and a
+  hand-run `uvicorn glosswork.app:app` refuse on a partial set, a stray name or an
+  unreadable file exactly as the entry point does. That is the behaviour the relay and
+  bootstrap checks already have, and it is kept: `docker exec` runs the CLI as uid 1000
+  (measured), the same user as the server, so a file the server can read the CLI can
+  read. The one new consequence is that a CLI run under a third uid that cannot read the
+  key is refused over a file it never uses. The documentation says so (4a, item 7).
+
 **`src/glosswork/entrypoint.py`**
 
 - When `settings.tls_enabled`, the existing `uvicorn.run` call also receives
@@ -320,8 +542,8 @@ attached to the build task this change belongs to (PROD-60).
 **`.env.example`**
 
 - A section with the three variables, each blank, saying: all three or none; what the
-  lock does; that `GW_TRUSTED_PROXY_IPS` may name a wide range only with the lock on;
-  that the files must be readable by uid 1000.
+  lock does; that `GW_TRUSTED_PROXY_IPS` may name a wide range only with the lock on,
+  and never `*` (F2); that the files must be readable by uid 1000.
 
 **`docs/DEPLOYMENT.md`** (written during the build, so Accept can check it)
 
@@ -329,23 +551,45 @@ attached to the build task this change belongs to (PROD-60).
   certificate", covering, in this order:
   1. When to use it, and that section 4's proxy on a private network remains the
      ordinary self-hosted shape.
-  2. The three settings, all or none, and the two startup refusals.
+  2. The three settings, all or none, and the three startup refusals. Then, in its own
+     paragraph (judgment area 7, F3): **a workspace started with none of the three is
+     unlocked and says nothing about it**, because that is also the ordinary self-hosted
+     state. So prove the lock from outside after every deployment that is meant to have
+     it: connect to the workspace's own address with no certificate and require that no
+     answer comes back, and require the log line `Uvicorn running on https://`. Do that
+     before any name or proxy points at the workspace.
   3. What a refused caller sees on TLS 1.2 and on TLS 1.3, that no request is read, and
      that a refused connection leaves no log line (judgment area 3).
-  4. **`GW_TRUSTED_PROXY_IPS` behind the lock.** A value wider than your own proxy's
-     address is safe only while the lock is on, because whoever can open a connection is
-     believed about `X-Forwarded-For`; with the lock that is the certificate's holder and
-     nobody else. Never set a wide value on a workspace without the lock (P9).
-  5. The CA file should hold only the authority that signs your proxy's client
-     certificate: every certificate that chains to anything in the file is let in (P2).
+  4. **`GW_TRUSTED_PROXY_IPS` behind the lock** (judgment area 8). Two statements, both
+     in so many words:
+     - A value wider than your own proxy's address is safe only while the lock is on,
+       because whoever can open a connection is believed about `X-Forwarded-For`; with
+       the lock that is the certificate's holder and nobody else. Never set a wide value
+       on a workspace without the lock (P9).
+     - The lock does not make `*` safe. With `*`, or with any range that also covers
+       addresses your visitors can have, the workspace takes the *first* address in
+       `X-Forwarded-For`, which is the one the visitor wrote, and a visitor coming
+       through your own proxy then chooses the address the sign-in limiter sees. Name
+       the range your proxy connects from and nothing wider (P18).
+  5. The CA file should hold one self-signed authority that signs your proxy's client
+     certificate and nothing else. Every certificate that chains to anything in the file
+     is let in (P2), and that includes a certificate under any intermediate that
+     authority has signed, and a server certificate from the same authority unless it is
+     marked for server use only. A file holding only an intermediate, or only the client
+     certificate itself, lets nobody in, the right client included (P17).
   6. Probes. `/readyz` and `/healthz` cannot be reached without the certificate, so an
      orchestrator's HTTP probe fails. Use a TCP check on the port, or a prober that
      holds the certificate. A silent connection is dropped after 60 seconds (P12).
   7. Operations: files readable by uid 1000; rotation is a restart; TLS 1.2 is the
      minimum; the port stays 8000; the settings are applied by the image's entry point,
-     so `uvicorn glosswork.app:app` run by hand does not apply them.
-  8. What it does not do: no revocation list, no encrypted private key, and the
-     certificate identifies no principal inside the application.
+     so `uvicorn glosswork.app:app` run by hand, or a container whose entry point has
+     been replaced, serves plain HTTP whatever the three say; the admin CLI reads the
+     same settings and is refused by the same three checks (F6).
+  8. What it does not do: no revocation list, no encrypted private key (a key that needs
+     a passphrase stops startup, P6), and the certificate identifies no principal inside
+     the application. The certificate is checked when a TLS session is made, so an open
+     connection or a resumed session outlives the certificate's expiry until the process
+     restarts (P21).
 - Section 2's probe paragraph and section 4's first paragraph each gain one sentence
   pointing at 4a.
 
@@ -353,10 +597,25 @@ attached to the build task this change belongs to (PROD-60).
 
 - `tests/test_config.py`: the six partial combinations each refuse, naming each missing
   variable (parametrized); all three blank is off; all three set to files that exist is
-  on; a path that does not exist refuses naming its variable.
+  on; a path that does not exist refuses naming its variable; a stray `GW_TLS_CA_FILE`
+  refuses naming it, alone and beside the three real ones (judgment area 6).
 - `tests/test_infra.py`:
   - *All three set:* the captured `uvicorn.run` arguments carry the three paths and
     `ssl.CERT_REQUIRED`, and `uvicorn.Config` built from them reports `is_ssl` true.
+  - *The context uvicorn builds from those arguments refuses in its own handshake
+    (F4, F7; added by the adversarial pass, prototyped in P20).* Certificates are made
+    in the test with `cryptography`. The `ssl_*` arguments captured from
+    `entrypoint.main()` go to `uvicorn.Config` with a no-op application, `.load()` is
+    called, and `.ssl` is the context under test: `verify_mode` is `CERT_REQUIRED` and
+    `cert_store_stats()` counts one CA. Then, over `ssl.MemoryBIO` pairs, on TLS 1.3 and
+    on TLS 1.2: the CA A leaf completes on both sides; with no certificate, with a CA B
+    leaf, and with a leaf from a second CA carrying CA A's subject name, the *server's*
+    `do_handshake()` raises `ssl.SSLError`; and at that moment the client's handshake
+    call has returned on TLS 1.3 and has not on TLS 1.2. No socket, no thread, no
+    Docker, no wait. This is the test that runs on every pull request (P22), and it is
+    the direct measurement of "refused at the handshake" that the container test can
+    only infer from the client's side. The OpenSSL reason is recorded in the assertion
+    message and not asserted: the exception type and which side raised are.
   - *A partial set:* `entrypoint.main()` exits 1, stderr starts
     `Configuration error: GW_TLS_`, and `uvicorn.run` was never called.
   - *None set (a fence, labelled so in its docstring):* the captured keyword arguments equal
@@ -378,11 +637,30 @@ attached to the build task this change belongs to (PROD-60).
     attempts, make one request with the right certificate, wait for the count to reach
     before plus one, and assert it is exactly that. Waiting for the later line is what
     makes "no line for the refused ones" a statement about the log and not about timing.
+
+    **Those three observations are also true of a server with no lock, and of a client
+    that cannot verify the server (P20), so each refused case carries controls that are
+    not (F4):**
+    - one function builds every probe, and the accepted and refused cases differ only
+      in the client certificate handed to it;
+    - on TLS 1.3 the client's handshake call must *return* and `version()` must read
+      `TLSv1.3` before the zero-bytes assertion. That is the proof, inside the refused
+      case itself, that the server spoke TLS and the client accepted its certificate, so
+      the silence that follows is the server's refusal;
+    - on TLS 1.2 the handshake failure must not be an `ssl.SSLCertVerificationError`,
+      which is the client rejecting the server;
+    - the right-certificate request that closes the count is made on each version, by
+      the same function, in the same test.
+
+    The probe catches `OSError` on the send and on the read (P4): a narrower catch turns
+    a refusal into a test error on a path with a different symptom, which is a red run
+    and never a false pass.
   - `test_the_port_answers_nothing_in_plain_http`.
-  - `test_a_partial_set_refuses_to_start`: a container with the CA only, and one with
-    the certificate and key only, each exit 1 with `Configuration error: GW_TLS_` in the
-    log. The wait ends when the container has exited or when it answers `/readyz`, so on
-    a tree without the check it fails quickly instead of timing out.
+  - `test_a_partial_set_refuses_to_start`: a container with the CA only, one with the
+    certificate and key only, and one with a stray `GW_TLS_CA_FILE` and nothing else
+    (judgment area 6), each exit 1 with `Configuration error: GW_TLS_` in the log. The
+    wait ends when the container has exited or when it answers `/readyz` over plain HTTP
+    or over TLS, so on a tree without the check it fails quickly instead of timing out.
   - `test_there_is_one_process` (a fence): `/proc` in the locked container holds PID 1
     and the probe only.
 
@@ -417,7 +695,12 @@ attached to the build task this change belongs to (PROD-60).
 - **Same image (PLAN Q6).** This is configuration of the one image. No hosted build.
 - **FR-P1.** One process. No proxy, no sidecar, no supervisor.
 - **The lock is never half on.** No code path starts a listener with some of the three
-  settings. If execution finds a case where it would, stop and report.
+  settings, or with a name under `GW_TLS_` that is not one of them. If execution finds a
+  case where it would, stop and report.
+- **`ssl.CERT_REQUIRED` and the CA travel with the certificate in one place.** The four
+  arguments are added together, by one branch, or not at all. No refactor passes the
+  certificate and key from one place and the client check from another: the certificate
+  and key alone are TLS that lets anyone in (P5).
 - **Non-negotiable 1.** No dependency is added or re-pinned, so no `uv lock` runs. If
   one appears necessary, stop: the plan's premise has changed.
 - **Non-negotiable 5 and 7.** Every behaviour ships with a test; new and changed
@@ -433,14 +716,22 @@ attached to the build task this change belongs to (PROD-60).
 
 1. [ ] Write the new tests in `tests/test_config.py`, `tests/test_infra.py` and
        `container_tests/test_tls_lock.py`, and nothing else. They do not cite the new
-       decision's number yet (P16); the citation is added in step 3.
+       decision's number yet (P16); the citation is added in step 3. The handshake test
+       and the refused-case controls are written as "What changes" words them; the
+       scratch prototype attached to PROD-60 is a reference for the technique, not code
+       to copy.
 2. [ ] Run each against the unfixed tree and record here how each failed, in the order
        written: the two unit files with `uv run pytest -q <file>`, and the container
        file with `GW_IMAGE` naming an image built from `42e9d45`. Expected: the config
        tests fail because the settings are ignored; the entry point tests fail on a
-       missing `ssl_certfile` and on no exit; the fence passes and is recorded as a
+       missing `ssl_certfile` and on no exit; the handshake test fails because
+       `uvicorn.Config(...).ssl` is `None`; the fence passes and is recorded as a
        fence; the container tests fail because the image serves plain HTTP, except the
-       single-process fence. Record what actually happens, not this sentence.
+       single-process fence. **Each of the two refused-case container tests must fail on
+       its own TLS 1.3 control (the handshake call does not return), not only on the
+       right-certificate request at its end (P20, F4).** If either gets as far as its
+       zero-bytes assertion against a plain HTTP image, the control is missing: stop and
+       fix the test before going on. Record what actually happens, not this sentence.
 3. [ ] docs/DESIGN_DECISIONS.md: the new entry, under the next unused number, before
        any file cites that number (P16). Then `src/glosswork/config.py`: the three
        fields, the validator, `tls_enabled`, `_check_tls`.
@@ -456,13 +747,36 @@ attached to the build task this change belongs to (PROD-60).
        the mutation reverted (`git diff --quiet` afterward for the file). Check each
        mutated tree still starts before believing a failure:
        - **M1**, entry point passes no `ssl_cert_reqs`: the no-certificate and
-         other-CA container tests fail; the right-certificate test passes.
-       - **M2**, entry point passes `ssl.CERT_OPTIONAL`: the no-certificate test fails.
+         other-CA container tests fail; the right-certificate test passes. In
+         `tests/test_infra.py` the all-three test and the handshake test fail too.
+         *Measured on the wrapper by the adversarial pass (F7):* every client, with any
+         certificate or none, got `200` on both versions.
+       - **M2**, entry point passes `ssl.CERT_OPTIONAL`: the no-certificate container
+         test fails, and so do the all-three test and the handshake test. **The other-CA
+         container test still passes, and that is the expected result, not a gap:**
+         measured, a client with no certificate got `200` and a CA B leaf was still
+         refused, because an optional check still verifies a certificate that is offered.
        - **M3**, `load_settings` does not call `_check_tls`: the partial-set tests fail
-         in all three files.
+         in all three files, and so do the missing-path and stray-name config tests.
        - **M4**, entry point passes `ssl_cert_reqs=ssl.CERT_NONE` when the settings are
          off: the none-set fence in `tests/test_infra.py` fails.
-       - **M5**, the blank validator removed: the all-blank config test fails.
+       - **M5**, the blank validator removed: the all-blank config test fails. Measured
+         on the scratch prototype: all three blank then refuses with
+         `GW_TLS_CERT_FILE: cannot read . (Is a directory)`.
+       - **M6** (added, F3), the stray-name refusal removed from `_check_tls`: the
+         stray-name config test and the third container in
+         `test_a_partial_set_refuses_to_start` fail.
+       - **M7** (added, F7), entry point passes no `ssl_ca_certs`: the right-certificate
+         container test and the handshake test's accepted case fail, because a required
+         check with nothing to check against refuses everyone. Measured on the context
+         uvicorn builds: an empty trust store, and the CA A leaf refused with
+         `CERTIFICATE_VERIFY_FAILED` on both versions. This is the mutation that shows
+         the CA argument is load-bearing, and that losing it fails closed.
+       - **M8** (added, F4), in `container_tests/test_tls_lock.py` only: start the
+         module's container with none of the three settings. Both refused-case tests
+         fail at their TLS 1.3 control. This mutates the test's subject, not the
+         product, and it is what shows the refused cases cannot pass against an unlocked
+         server.
 9. [ ] Run the whole Accept block and paste the output here.
 
 ## Accept
@@ -473,10 +787,17 @@ on its own line.
 - **AC1. The settings turn the lock on, and a partial set refuses with its reason.**
   `uv run pytest -q tests/test_config.py tests/test_infra.py -k tls` exits 0. Every new
   test in the two files has `tls` in its name. The number selected is read from the
-  run's own summary line and is at least twelve: nine config cases and three entry
-  point cases.
+  run's own summary line and is at least fifteen: eleven config cases and four entry
+  point cases (thirteen if judgment area 6 is struck). On `42e9d45` the same command
+  selects nothing and exits 5, measured, so every test it selects is this change's.
 - **AC2. The three lock cases hold against the real image, at the handshake.**
-  `uv run pytest -q container_tests/test_tls_lock.py` exits 0 with no test skipped.
+  `git status --short` prints nothing, then
+  `env -u GW_IMAGE uv run pytest -q container_tests/test_tls_lock.py` exits 0 with no
+  test skipped, then
+  `docker image inspect glosswork:container-test --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
+  prints what `git rev-parse HEAD` prints. With `GW_IMAGE` unset the suite builds the
+  image from the working tree (P22); the three commands together are what make "the
+  real image" mean this branch's and not one left over from checklist step 2 (F8).
 - **AC3. With none of the settings the image behaves as before.**
   `uv run pytest -q container_tests` exits 0. Every file in it but the new one starts
   its containers with none of the three settings.
@@ -495,9 +816,13 @@ on its own line.
   `grep -c "GW_TLS_CERT_FILE" docs/DEPLOYMENT.md`,
   `grep -c "GW_TLS_KEY_FILE" docs/DEPLOYMENT.md` and
   `grep -c "GW_TLS_CLIENT_CA_FILE" docs/DEPLOYMENT.md` each print at least 1, and the
-  verifier reads section 4a and reports whether it states, in so many words, that a
-  `GW_TRUSTED_PROXY_IPS` wider than the operator's own proxy is safe only with the lock
-  on. A grep proves the words are present; only reading proves the claim is made.
+  verifier reads section 4a and reports, one verdict each, whether it states in so many
+  words: (a) that a `GW_TRUSTED_PROXY_IPS` wider than the operator's own proxy is safe
+  only with the lock on; (b) that `*`, or a range covering visitors' addresses, is not
+  made safe by the lock (judgment area 8); (c) that a workspace started with none of the
+  three is unlocked and silent about it, and how to prove the lock from outside
+  (judgment area 7). A grep proves the words are present; only reading proves the claim
+  is made.
 - **AC9. The structural lane.** `uv run pytest -q -m structural` exits 0.
 - **AC10. The static scan CI runs.**
   `uvx --from semgrep==1.178.0 semgrep scan --config p/python --config p/javascript
@@ -518,7 +843,123 @@ Not a UI change. No baseline is touched.
 
 ## Adversarial pass
 
-Not yet run. A session that did not write this plan runs it and records F1..Fn here.
+Run on 2026-10-02 by a session that did not write the plan, against an image it built
+from this branch, with its own harness. P1 to P15 were rerun and all reproduced; P16 was
+read and the structural lane rerun. Nothing in the plan's own measurements was found
+wrong. What the pass found is what the plan had not asked. Every script and its output
+is attached to PROD-60.
+
+**Three findings change what the maintainer is asked to approve: F2, F3 and F4.** The
+rest tighten the plan without changing its design.
+
+- **F1. The lock itself holds against everything tried. No change.**
+  *Ran:* the seven rows of P4 on both versions from the host, and its accept and refuse
+  rows from three Linux client positions; six more certificate shapes (P17); anonymous,
+  pre-shared-key and null-encryption suites and TLS 1.1 and 1.0 at security level 0
+  (P21); `SSL_CERT_FILE`, `SSL_CERT_DIR`,
+  `FORWARDED_ALLOW_IPS`, `WEB_CONCURRENCY` and `UVICORN_*` set in the container's
+  environment (P21); the listening sockets and the process list (P21).
+  *Showed:* no caller without a certificate chaining to the CA file got one byte, on any
+  path; one listening socket, one process; no environment variable widened the trust.
+  *Disposition:* none needed. P10's "one listener" is now measured, not read.
+
+- **F2. With the lock on, `GW_TRUSTED_PROXY_IPS=*` is still forgeable. Changes the
+  documentation the issue asks for.**
+  *Ran:* P18. *Showed:* through a certificate holder that appends the visitor's address,
+  as a real proxy does, `*` and `0.0.0.0/0` let twelve wrong sign-ins through with no
+  `429`; the proxy's own range stopped the eleventh. uvicorn takes the first entry when
+  it trusts everything, and the first entry is the visitor's.
+  *Disposition:* fixed in place. Judgment area 8, section 4a item 4, `.env.example`, AC8
+  (b), and the decision text. The plan's sentence "safe only behind the lock" was true
+  and would have been read as "safe behind the lock".
+
+- **F3. A misspelt or undelivered setting starts the workspace unlocked and silent.
+  Changes the design: one more startup refusal, and one limit stated.**
+  *Ran:* P19. *Showed:* with the plan's validation every partial or malformed value
+  refuses, which is the plan's claim and it holds. Three wrong names (`GW_TLS_CERT`,
+  `GW_TLS_KEY`, `GW_TLS_CLIENT_CA`), or `GW_TLS_CA_FILE` alone, start plain HTTP with no
+  message, because the loader ignores names it does not know.
+  *Disposition:* fixed in place for names under `GW_TLS_` (judgment area 6, the third
+  refusal in `_check_tls`, two tests, M6); the maintainer can strike it. **Not fixed,
+  and not fixable in the product:** none of the three arriving at all. Judgment area 7
+  states it, section 4a item 2 tells the operator how to prove the lock from outside,
+  and the check belongs to the control plane's provisioning (CP-33): refuse to publish a
+  workspace until a connection with no certificate is refused.
+
+- **F4. The container test's three observations do not show a lock. Changes the
+  tests.**
+  *Ran:* P20. *Showed:* "zero bytes, TLS 1.2 handshake fails, access count unchanged"
+  held against the image's plain HTTP entry point and against a locked server whose
+  certificate the client could not verify. As the plan stood, the refused-case tests
+  failed on an unlocked server only because of the right-certificate request at their
+  end. An edit that dropped or moved that request would have left tests that pass
+  against no lock at all.
+  *Disposition:* fixed in place. Each refused case now carries its own controls (the
+  TLS 1.3 handshake returns with `version()` `TLSv1.3`; the TLS 1.2 failure is not a
+  verification error; one probe builder), checklist step 2 requires each to fail on its
+  control, and M8 runs them against an unlocked container. The direct measurement,
+  the server's own handshake raising, is the new test in `tests/test_infra.py`.
+
+- **F5. The TLS 1.3 symptom on Linux. Partly established; the risk is a red test, not
+  an open lock.**
+  *Ran:* the probe from a Linux client on loopback, from a second container over the
+  bridge, and through a userland relay (P4, amended). *Showed:* three exception types
+  across the paths; the handshake call returned on TLS 1.3 on every one.
+  *Disposition:* the probe catches `OSError` on send and read. The release runners
+  themselves stay "not established". A symptom nobody has seen there makes the test
+  error, and the handshake test in `tests/` does not depend on a path at all.
+
+- **F6. The file check living in `load_settings` reaches the admin CLI and a hand-run
+  uvicorn. Kept.**
+  *Ran:* read the four callers; `docker exec` in the running container reports uid 1000.
+  *Showed:* the CLI runs as the server's user by default, so it reads what the server
+  reads; half-set relay or bootstrap settings already stop the CLI in the same way, from
+  the same function.
+  *Disposition:* no design change. Stated under "What changes" and in section 4a item 7.
+  Considered and declined: moving the open-for-reading check into the entry point alone,
+  which would let `python -m glosswork.config`, the image's own configuration check,
+  pass a configuration the server then refuses.
+
+- **F7. Mutations M1 to M5: predictions confirmed, two sharpened, three added.**
+  *Ran:* M1 and M2 on the wrapper and on the context uvicorn builds; M5 on the scratch
+  prototype; M7 on the context. M3 and M4 need the product code and are predicted, not
+  measured. *Showed:* M1 opens the lock to everyone. M2 opens it to a caller with no
+  certificate and still refuses another CA's, so the other-CA test passing under M2 is
+  correct. M7 refuses everyone.
+  *Disposition:* checklist step 8 amended; M6, M7 and M8 added.
+
+- **F8. AC2 could run against a stale image. Fixed.**
+  *Ran:* read `container_tests/conftest.py:20-24`. *Showed:* `GW_IMAGE`, which
+  checklist step 2 sets to an image built from `42e9d45`, wins over a fresh build if it
+  is still exported.
+  *Disposition:* AC2 unsets it and checks the built image's revision label against
+  `HEAD`. The direction of the error was safe (a stale unfixed image fails AC2), and it
+  would still have been a verdict about the wrong image.
+
+- **F9. The lock is tested on a pull request only by argument names. Narrowed.**
+  *Ran:* P22. *Showed:* `container_tests` runs at release and by hand. A release cannot
+  carry a broken lock past it; a merge can.
+  *Disposition:* the handshake test in `tests/test_infra.py` runs on every pipeline and
+  builds the context with uvicorn's own code from the entry point's own arguments, so a
+  dependency upgrade that changed what those arguments mean fails a required check.
+  Not adopted: running `container_tests` in CI, which is a decision about CI and outside
+  this change.
+
+- **F10. What the "not established" list could hide.**
+  *Intermediate CAs:* now established (P17). An intermediate is trusted whenever its
+  root is named, and naming the intermediate alone locks everyone out. Section 4a item 5
+  says so. *File ownership:* fails closed (P6, reproduced with a key readable only by
+  another uid: `PermissionError`, exit 1, no listener). *The Linux symptom:* F5.
+  *Also found, and written into section 4a item 8:* a certificate with no key-usage
+  restriction from the same CA is accepted as a client, and a resumed session is not
+  re-checked against the certificate.
+  *Disposition:* documentation only. None opens the lock to a caller the CA did not
+  sign.
+
+**Not attacked, and why.** Anything on the far side of the certificate holder: whether
+the proxy's own account can be made to forward another party's request is the hosting
+operator's configuration (PLAN Q84), not this image. Timing and resource exhaustion
+beyond P12. An OpenSSL older than 3.5.
 
 ## Deviations from the approved plan
 
@@ -536,14 +977,21 @@ Not yet moved. At closeout:
   > the client-certificate lock.** With `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and
   > `GW_TLS_CLIENT_CA_FILE` set, the entry point hands uvicorn the certificate, the key,
   > the CA and `CERT_REQUIRED`, and a caller without a certificate chaining to that CA
-  > fails the TLS handshake before any request is read. With some set, startup is
-  > refused. With none, the process serves plain HTTP as before.
+  > fails the TLS handshake before any request is read. With some set, or with any other
+  > name under `GW_TLS_` present, startup is refused. With none, the process serves
+  > plain HTTP as before, and nothing in the process can tell that from a lock that was
+  > meant and never arrived: whoever deploys it proves the lock from outside.
   >
   > **Why.** A workspace on a public address behind a proxy its operator does not run
   > beside it needs to refuse everyone but that proxy, without a second process (FR-P1).
   > The half states are silently open if passed through: a CA with no certificate serves
-  > plain HTTP to anyone, and a certificate with no CA serves TLS to anyone. A wide
-  > `GW_TRUSTED_PROXY_IPS` is safe only behind the lock.
+  > plain HTTP to anyone, and a certificate with no CA serves TLS to anyone. A misspelt
+  > name is ignored by the settings loader, which is the same silence. A wide
+  > `GW_TRUSTED_PROXY_IPS` is safe only behind the lock, and `*` is not safe behind it
+  > either, because the lock decides who connects and not whose header is believed.
+
+  (If judgment area 6 is struck, the clause "or with any other name under `GW_TLS_`
+  present" and the sentence about a misspelt name come out.)
   >
   > **Held by.** `tests/test_config.py`, `tests/test_infra.py`,
   > `container_tests/test_tls_lock.py`.
@@ -555,11 +1003,14 @@ Not yet moved. At closeout:
   > **FR-P11.** With `GW_TLS_CERT_FILE`, `GW_TLS_KEY_FILE` and `GW_TLS_CLIENT_CA_FILE`
   > all set, the process terminates TLS itself and completes a handshake only with a
   > client whose certificate chains to the named CA; no request from any other caller is
-  > read. With some of them set, startup is refused naming what is missing. With none,
-  > nothing changes (the new decision, cited by its number).
+  > read. With some of them set, startup is refused naming what is missing, and with
+  > any other name under `GW_TLS_` present it is refused naming that. With none, nothing
+  > changes (the new decision, cited by its number).
 
 - **docs/DEPLOYMENT.md section 4a** is written during the build (checklist step 7), and
   the measured facts it needs from this plan are P4's table, P9's table, P6 and P12.
 - **AGENTS.md, Traps**: one entry, that a TLS 1.3 client's handshake returns before the
   server has checked the client certificate, so a test of a refused client asserts zero
-  bytes received and never a particular exception (P4).
+  bytes received and never a particular exception (P4); and that zero bytes alone is
+  also what a server with no TLS gives a TLS client, so the same test first asserts the
+  TLS 1.3 handshake returned (P20).
