@@ -75,7 +75,7 @@ credential.**
 artifact, which already holds these tables for any `admin`-token backup; and the relay
 already receives every code in clear (`src/glosswork/services/relay.py:84-91`), and the
 control-plane design already concedes that a control-plane runtime breach reaches every
-workspace (control-plane `docs/SPEC.md` section 11). What this change genuinely adds is
+workspace (the control-plane SPEC, section 11). What this change genuinely adds is
 narrower and still real: **a stolen per-tenant operator token alone, with no relay
 position and no Fly position, now yields an admin session**, because Q57 keeps the admin
 token out of the control plane and this is the first stored credential that can produce a
@@ -95,7 +95,7 @@ hosted people hold no password, so `sign_in_codes` is the only offline-recoverab
 credential in a hosted artifact. Three product-side options close it, smallest first:
   - **(a) Key the code hash with a secret that is not in the database**, such as
     `GW_RELAY_TOKEN` (the control plane keeps only a hash of it, control-plane
-    `docs/SPEC.md:1095`). An artifact then carries no usable code. No artifact-format
+    the control-plane SPEC, change 9). An artifact then carries no usable code. No artifact-format
     change, no DD-36 change.
   - **(b) Scrub `sign_in_codes` from the staged snapshot.** Measured by the adversarial
     pass: a plain `DELETE` leaves the hash in free pages; it is gone only after `VACUUM`,
