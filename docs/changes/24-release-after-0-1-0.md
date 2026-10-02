@@ -436,22 +436,65 @@ None of these is a file that defines CI (`CONTRIBUTING.md`, "What CI runs").
 
 ## Checklist
 
-- [ ] 1. The dry run of area 4, on `main` at `ac1b349`, started by the maintainer or with
+- [x] 1. The dry run of area 4, on `main` at `ac1b349`, started by the maintainer or with
   the maintainer's approval: `gh workflow run release.yml --ref main`. Read its jobs from
   `actions/runs/<id>/jobs`. Go on only when `preflight`, `build-amd64` and `build-arm64`
   all conclude `success` and `publish` is `skipped`. If a build fails, stop: the defect
   is in a merged change and gets its own issue.
-- [ ] 2. Run AC1 to AC5 against the unfixed tree and record how each failed. Measured
+- [x] 2. Run AC1 to AC5 against the unfixed tree and record how each failed. Measured
   while planning, on `main`: AC1 prints `0.1.0`; AC2's lock line reads `0.1.0`; AC3's
   first heading is `## 0.1.0` and its count is 0; AC4's counts are 0 and 1; AC5 compares
   `0.2.0` with `0.1.0`.
-- [ ] 3. Set `version = "0.2.0"` in `pyproject.toml`.
-- [ ] 4. `uv lock`, then the substitution from `AGENTS.md` non-negotiable 1, then confirm
+- [x] 3. Set `version = "0.2.0"` in `pyproject.toml`.
+- [x] 4. `uv lock`, then the substitution from `AGENTS.md` non-negotiable 1, then confirm
   the diff is the one version line (AC2).
-- [ ] 5. Add the changelog entry, as written above.
-- [ ] 6. Set the README's run line to `docker.io/glosswork/glosswork:0.2.0`.
-- [ ] 7. Commit as `24: the version is 0.2.0, and the changelog says what it carries`.
-- [ ] 8. Run the Accept block and record its output.
+- [x] 5. Add the changelog entry, as written above.
+- [x] 6. Set the README's run line to `docker.io/glosswork/glosswork:0.2.0`.
+- [x] 7. Commit as `24: the version is 0.2.0, and the changelog says what it carries`.
+- [x] 8. Run the Accept block and record its output.
+
+**What the build recorded, 2026-10-02, on this machine (arm64) unless a runner is named.**
+
+- *Step 1.* Actions run 37044863460, `workflow_dispatch` on `main` at `ac1b349`, started
+  by the build agent's account at 18:03:22Z on the maintainer's approval of one run. It
+  finished `success` at 18:10:50Z, 7 minutes 28 seconds of wall time. `preflight`
+  `success` in 7 s, `build-arm64` `success` in 428 s, `build-amd64` `success` in 431 s,
+  `publish` `skipped`. In each build job the steps "The image passes container_tests" and
+  "Its notices cover every third-party package it carries" concluded `success`, and the
+  sign-in and push steps were `skipped`. Read from `actions/runs/37044863460` and its
+  `/jobs`. So the suite, change 22's TLS tests included, passes on `linux/amd64` and on
+  both release runners at `ac1b349`.
+- *Step 2, on the tree at `87786cd`, before any edit.* AC1 printed `0.1.0`. AC2:
+  `uv lock --check` exited 0, both counts printed 0 and the third command printed
+  nothing, since the lockfile was `main`'s; the two registry counts printed 70 and 70.
+  AC3: the first heading was `## 0.1.0`, the count was 0, the `diff` exited 1, and
+  `git diff --numstat` printed nothing where the entry has 28 lines. AC4 printed 0 and 1.
+  AC5: the pattern matched, and `0.2.0` did not equal `0.1.0`. Each of AC1 to AC5 failed.
+- *Step 4.* With `pyproject.toml` at 0.2.0, `uv lock --check` exited 1. `uv lock` exited
+  0 and printed `Updated glosswork v0.1.0 -> v0.2.0`; `git diff --text uv.lock` then held
+  71 added lines. After the substitution it is one hunk, `-version = "0.1.0"` and
+  `+version = "0.2.0"`, and `uv lock --check` exits 0. This is the second measurement of
+  P4, by a session that did not make the first (F7). `uv` here is 0.9.18.
+- *Step 5.* The entry was copied out of this file's `markdown` fence by AC3's own `awk`
+  program and inserted above `## 0.1.0`, not retyped.
+- *Step 7.* Commit `8be5db2`: `CHANGELOG.md`, `README.md`, `pyproject.toml`, `uv.lock`.
+- *Step 8, at `8be5db2` on a clean tree.* This is the build's own run of the Accept
+  block, not the verification, which a separate session does.
+  - AC1 printed `0.2.0`.
+  - AC2: `uv lock --check` exit 0; counts 1 and 1; `+version = "0.2.0"`; 70 and 70.
+  - AC3: `## 0.2.0`; 5; `diff` exit 0; `git diff --numstat` printed `28`, `0`,
+    `CHANGELOG.md`, and the entry's line count is 28.
+  - AC4 printed 1 and 0.
+  - AC5: the pattern matched and `0.2.0` equals AC1's output.
+  - AC6: `CHANGELOG.md`, `README.md`, `docs/changes/24-release-after-0-1-0.md`,
+    `pyproject.toml`, `uv.lock`.
+  - AC7: structural lane exit 0, 101 passed; supply chain and licences exit 0, 11 passed.
+  - AC8: `uv run pytest -q` exit 0, 2215 passed, 3 xfailed; `ruff check` exit 0;
+    `ruff format --check` exit 0, 263 files.
+  - AC9: `container_tests` with `GW_IMAGE` unset exit 0, 41 passed, none skipped, in
+    274 s; the image's installed package printed `0.2.0`; the notices check exit 0,
+    python 57 of 57 and npm 107 of 107.
+  - AC10: `imagetools inspect` exit 1 with `not found`; the API query printed `false`.
 
 Verification, the two closeout commits, the one push and the one pull request follow as
 `docs/changes/README.md` sets out.
@@ -706,7 +749,24 @@ minutes are left this month; and who, outside this project, runs 0.1.0.
 
 ## Deviations from the approved plan
 
-None yet.
+- **The version is 0.2.0, not the 0.1.1 this plan was written for.** The maintainer's
+  choice under area 1, on 2026-10-02. The build's first commit, `87786cd`, applied that
+  area's substitution to this file and changed nothing else in it.
+- **The substitution was applied where the plan says what to do, not to every occurrence
+  of the number.** Area 1 says "every `0.1.1` in this plan" and then lists the places.
+  The listed places were changed, with checklist step 2's prediction for AC5 and the
+  three sentences of "After the merge" that name the published version. Area 1's own
+  argument, the introduction's sentence naming the four answers, the premises and the
+  adversarial pass were left: they record what was argued and measured at 0.1.1, and
+  rewriting them would have them claim measurements at a number nobody measured. What
+  those premises established does not depend on the number, and steps 4 and 8 above repeat
+  P4, P5 and P6 at 0.2.0.
+- **Step 2's wording for AC2.** The checklist expected "AC2's lock line reads `0.1.0`".
+  AC2 has no command that prints the lock line on an unchanged lockfile: what it showed
+  on the unfixed tree is counts of 0 and 0 and an empty third command. Recorded above as
+  observed.
+
+No step was done out of order, and no step was changed.
 
 ## Durable content moved out of this plan
 
