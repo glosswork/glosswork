@@ -190,6 +190,11 @@ class McpPayloadEnvelope:
 #
 # `/api/v1/auth/code/request` and `/api/v1/auth/code/verify` (change 9) are sign-in by
 # emailed code: auth-flow routes like `/login`, with no credential yet by design.
+#
+# `/api/v1/operator/backup` (DD-39) is here for `/api/v1/usage`'s reason: it accepts the
+# operator credential in `X-Operator-Token` and must refuse a workspace `admin` PAT as it
+# refuses an anonymous caller, so the edge resolves nothing on it. The backup it streams
+# is attributed to the anonymous actor built below, the deployment's own service account.
 AUTH_PUBLIC_PATHS = frozenset(
     {
         "/api/v1/auth/login",
@@ -200,6 +205,7 @@ AUTH_PUBLIC_PATHS = frozenset(
         "/api/v1/auth/code/verify",
         "/api/v1/bootstrap",
         "/api/v1/usage",
+        "/api/v1/operator/backup",
     }
 )
 

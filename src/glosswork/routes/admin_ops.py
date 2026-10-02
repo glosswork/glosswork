@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from glosswork.actor import ActorContext
 from glosswork.api_deps import get_actor, get_services
+from glosswork.closing_response import ClosingStreamingResponse
 from glosswork.scopes import require_role, require_scope
 from glosswork.services import ServiceBundle
 from glosswork.services.attachments import DEFAULT_SWEEP_LIMIT
@@ -33,7 +34,7 @@ ServicesDep = Annotated[ServiceBundle, Depends(get_services)]
 
 
 @router.post("/admin/backup", dependencies=[require_scope("admin"), require_role("admin")])
-def take_backup(actor: ActorDep, services: ServicesDep) -> StreamingResponse:
+def take_backup(actor: ActorDep, services: ServicesDep) -> ClosingStreamingResponse:
     """Stream one tar artifact: a consistent database snapshot, then the attachment
     blob tree (FR-P8, DD-36).
 
@@ -45,7 +46,7 @@ def take_backup(actor: ActorDep, services: ServicesDep) -> StreamingResponse:
     No ``Content-Length`` is sent: the artifact's size is not known until the blob
     tree has been walked, and walking it twice to find out would defeat the point.
     """
-    return StreamingResponse(
+    return ClosingStreamingResponse(
         services.backup.stream(actor),
         media_type="application/x-tar",
         headers={"Content-Disposition": 'attachment; filename="glosswork-backup.tar"'},

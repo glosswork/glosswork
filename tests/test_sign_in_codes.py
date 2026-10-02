@@ -8,14 +8,41 @@ code the person would read: the one the relay received.
 positive control in the same test** (plan F3, P16). On a tree without the feature every
 one of these routes answers the same ``401``, so an assertion that only compared two
 answers with each other, or only checked that nothing was sent, would pass there.
+
+**The stored form of a code (change 20).** The last section pins that a code is stored as
+a keyed digest whose key is derived from the relay token, so a copy of the database alone
+yields no usable code. Each test there restates the derivation rather than importing it:
+a test that called the product's own function would agree with whatever that function
+did. Expected passed counts, per selection (``uv run pytest -q tests/test_sign_in_codes.py
+-k <selection>``):
+
+==================================  ======
+``-k``                              passed
+==================================  ======
+``stored_form_is_keyed``            2
+``artifact_holds_no_usable_code``   2
+``pre_upgrade_code_is_refused``     1
+``relay_token_rotation``            1
+``code_service_needs_a_key``        2
+==================================  ======
+
+The no-relay case of ``code_service_needs_a_key`` is a **fence**: true before change 20.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import io
 import re
+import secrets
 import socket
+import sqlite3
+import tarfile
 import threading
 import time
+import uuid
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -27,15 +54,16 @@ from fastapi.testclient import TestClient
 
 from glosswork import admin
 from glosswork.app import create_app
-from tests.conftest import make_actor
-from tests.fake_relay import LiveRelay, Scripted
+from tests.conftest import auth, make_actor
+from tests.fake_relay import FakeRelay, LiveRelay, Scripted, new_token, serve
 from tests.relay_support import (
+    ADMIN_EMAIL,
     KNOWN_EMAIL,
     REQUEST_MESSAGE,
     VERIFY_FAILURE_MESSAGE,
+    admin_token,
     code_app,  # noqa: F401 - fixture
     code_client,  # noqa: F401 - fixture
-    code_hash,
     codes_sent_to,
     execute,
     live_relay,  # noqa: F401 - fixture
@@ -436,13 +464,18 @@ def test_no_log_line_carries_the_code_its_hash_or_the_relay_token(
     with TestClient(app) as client:
         seed_local_user(app)
         code = _one_code(live_relay, client, KNOWN_EMAIL)
-        (row,) = rows(app, "SELECT id FROM sign_in_codes WHERE email = :e", {"e": KNOWN_EMAIL})
+        (row,) = rows(
+            app, "SELECT code_hash FROM sign_in_codes WHERE email = :e", {"e": KNOWN_EMAIL}
+        )
         _signed_in_as(verify_code(client, KNOWN_EMAIL, code), KNOWN_EMAIL)
     out, err = capfd.readouterr()
     logged = out + err
     assert "relay_send" in logged, logged[-2000:]
     assert code not in logged
-    assert code_hash(row["id"], code) not in logged
+    # The stored form, read from the row. Recomputing it here would check for a value the
+    # product may no longer produce, and such an assertion can never fail.
+    assert re.fullmatch(r"[0-9a-f]{64}", row["code_hash"]), row
+    assert row["code_hash"] not in logged
     assert live_relay.relay.token not in logged
 
 
@@ -473,3 +506,217 @@ def test_a_failed_code_insert_leaks_no_code_hash_or_token(
     assert not re.search(r"\b[0-9a-f]{64}\b", logged), logged
     assert live_relay.relay.token not in logged
     assert live_relay.relay.messages() == []
+
+
+# ------------------------------------------------- the stored form of a code (change 20)
+
+#: The two labels of the stored form, restated from the design rather than imported.
+CODE_LABEL = b"glosswork.sign-in-code.v1:"
+KEY_LABEL = b"glosswork.sign-in-code-key.v1:"
+
+#: An operator credential beside the relay, as a hosted workspace has. A fixture string,
+#: for the reason ``tests/test_operator_usage.py`` gives.
+OPERATOR_TOKEN = "operator-token-for-tests-0123456"
+
+#: The relay token at the two lengths that matter: what the hosted control plane makes,
+#: and what ``tests/fake_relay.new_token`` makes. HMAC replaces a key longer than 64 bytes
+#: with its SHA-256, so a construction can be sound at one length and not at the other.
+TOKEN_MAKERS: dict[int, Callable[[], str]] = {
+    43: lambda: secrets.token_urlsafe(32),
+    70: new_token,
+}
+
+
+@pytest.fixture(params=sorted(TOKEN_MAKERS), ids=lambda n: f"{n}-character relay token")
+def sized_relay(request: pytest.FixtureRequest) -> Iterator[LiveRelay]:
+    relay = FakeRelay(TOKEN_MAKERS[request.param]())
+    assert len(relay.token) == request.param
+    with serve(relay) as live:
+        yield live
+
+
+def _unkeyed(row_id: str, code: str) -> str:
+    """The stored form before change 20."""
+    return hashlib.sha256(f"{row_id}:{code}".encode()).hexdigest()
+
+
+def _keyed(key: bytes, row_id: str, code: str) -> str:
+    return hmac.new(key, CODE_LABEL + f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
+
+
+def _derived_key(relay_token: str) -> bytes:
+    return hashlib.sha256(KEY_LABEL + relay_token.encode("utf-8")).digest()
+
+
+def test_the_stored_form_is_keyed_with_a_key_derived_from_the_relay_token(
+    tmp_path: Path, sized_relay: LiveRelay
+) -> None:
+    app = relay_app(tmp_path / "data", sized_relay)
+    with TestClient(app) as client:
+        seed_local_user(app)
+        code = _one_code(sized_relay, client, KNOWN_EMAIL)
+        (row,) = rows(
+            app, "SELECT id, code_hash FROM sign_in_codes WHERE email = :e", {"e": KNOWN_EMAIL}
+        )
+    token = sized_relay.relay.token
+    stored, row_id = row["code_hash"], row["id"]
+    assert stored != _unkeyed(row_id, code), "the code is stored as its unkeyed digest"
+    assert stored != _keyed(token.encode(), row_id, code), "the key is the relay token itself"
+    assert stored != _keyed(hashlib.sha256(token.encode()).digest(), row_id, code), (
+        "the key is the relay token's bare SHA-256, which the hosting control plane stores"
+    )
+    assert stored == _keyed(_derived_key(token), row_id, code)
+
+
+def _snapshot_from(tar_bytes: bytes, into: Path) -> Path:
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r|") as tar:
+        for member in tar:
+            if member.name == "glosswork.sqlite3":
+                tar.extract(member, path=into, filter="data")
+                return into / member.name
+    raise AssertionError("the artifact holds no database snapshot")
+
+
+def test_an_artifact_holds_no_usable_code(tmp_path: Path, sized_relay: LiveRelay) -> None:
+    """A copy of the database, and nothing else, does not give up a live code.
+
+    The artifact comes through the administrator's backup route, which exists with or
+    without change 20, so the deciding assertion is reached on either tree. Every
+    six-digit value is tried against the stored form with what the holder of an artifact
+    and the operator credential has: no key at all, an empty key, the operator credential
+    as the key, and the relay token's bare SHA-256, which is the only form of that token
+    the hosting control plane stores."""
+    app = relay_app(tmp_path / "data", sized_relay, operator_token=OPERATOR_TOKEN)
+    with TestClient(app) as client:
+        pat = admin_token(app)
+        code = _one_code(sized_relay, client, ADMIN_EMAIL)
+        taken = TestClient(app).post("/api/v1/admin/backup", headers=auth(pat))
+        assert taken.status_code == 200, taken.text
+        snapshot = _snapshot_from(taken.content, tmp_path / "out")
+        conn = sqlite3.connect(snapshot)
+        try:
+            ((row_id, stored_hex),) = conn.execute(
+                "SELECT id, code_hash FROM sign_in_codes WHERE email = ? AND consumed_at IS NULL",
+                (ADMIN_EMAIL,),
+            ).fetchall()
+        finally:
+            conn.close()
+        stored = bytes.fromhex(stored_hex)
+
+        token_sha256 = hashlib.sha256(sized_relay.relay.token.encode()).digest()
+        keys = {
+            "an empty key": b"",
+            "the operator credential as key": OPERATOR_TOKEN.encode(),
+            "the relay token's bare SHA-256 as key": token_sha256,
+        }
+        prefix = f"{row_id}:".encode()
+        found: list[tuple[str, str]] = []
+        for n in range(1_000_000):
+            candidate = b"%06d" % n
+            if hashlib.sha256(prefix + candidate).digest() == stored:
+                found.append(("no key", candidate.decode()))
+            message = CODE_LABEL + prefix + candidate
+            for name, key in keys.items():
+                if hmac.digest(key, message, "sha256") == stored:
+                    found.append((name, candidate.decode()))
+        assert found == [], f"a code was recovered from the artifact alone: {found}"
+
+        # The positive control: the row searched is a live one, and its code works.
+        _signed_in_as(verify_code(client, ADMIN_EMAIL, code), ADMIN_EMAIL)
+
+
+def test_a_pre_upgrade_code_is_refused(
+    code_app: FastAPI,  # noqa: F811
+    code_client: TestClient,  # noqa: F811
+    live_relay: LiveRelay,  # noqa: F811
+) -> None:
+    """A row an older image wrote, in the unkeyed form, never verifies. Accepting it for
+    a while would keep alive exactly the rows an artifact can be used against."""
+    seed_local_user(code_app)
+    row_id, code = str(uuid.uuid4()), "424242"
+    execute(
+        code_app,
+        "INSERT INTO sign_in_codes (id, email, code_hash, created_at, expires_at, attempts, "
+        "consumed_at, sent) VALUES (:id, :email, :hash, "
+        "strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), "
+        "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+10 minutes'), 0, NULL, 1)",
+        {"id": row_id, "email": KNOWN_EMAIL, "hash": _unkeyed(row_id, code)},
+    )
+    refused = verify_code(code_client, KNOWN_EMAIL, code)
+    _assert_verify_failure(refused)
+    assert "gw_session" not in refused.headers.get("set-cookie", "")
+    assert code_client.get("/api/v1/me").status_code == 401
+    (row,) = rows(code_app, "SELECT attempts FROM sign_in_codes WHERE id = :id", {"id": row_id})
+    assert row["attempts"] == 1, row
+
+    # The positive control: a code this image issues signs the same person in.
+    fresh = _one_code(live_relay, code_client, KNOWN_EMAIL)
+    _signed_in_as(verify_code(code_client, KNOWN_EMAIL, fresh), KNOWN_EMAIL)
+
+
+def test_a_code_does_not_survive_a_relay_token_rotation(
+    tmp_path: Path,
+    live_relay: LiveRelay,  # noqa: F811
+) -> None:
+    data_dir = tmp_path / "data"
+    first = relay_app(data_dir, live_relay)
+    with TestClient(first) as client:
+        seed_local_user(first)
+        issued_before = _one_code(live_relay, client, KNOWN_EMAIL)
+
+    with serve(FakeRelay(new_token())) as rotated:
+        assert rotated.relay.token != live_relay.relay.token
+        second = relay_app(data_dir, rotated)
+        with TestClient(second) as client:
+            _assert_verify_failure(verify_code(client, KNOWN_EMAIL, issued_before))
+            issued_after = _one_code(rotated, client, KNOWN_EMAIL)
+            _signed_in_as(verify_code(client, KNOWN_EMAIL, issued_after), KNOWN_EMAIL)
+
+
+def test_the_code_service_needs_a_key_exactly_when_it_has_a_relay(
+    code_app: FastAPI,  # noqa: F811
+    code_client: TestClient,  # noqa: F811
+) -> None:
+    from glosswork.repositories.sqlite import (
+        SqlitePrincipalRepository,
+        SqliteSignInCodeRepository,
+    )
+    from glosswork.services.sign_in_codes import SignInCodeService
+
+    services = services_of(code_app)
+    relay = services.relay
+    assert relay is not None
+
+    def build(sender: Any, key: bytes | None) -> SignInCodeService:
+        return SignInCodeService(
+            code_app.state.db,
+            SqliteSignInCodeRepository(),
+            SqlitePrincipalRepository(),
+            services.invites,
+            sender,
+            code_key=key,
+        )
+
+    for sender, key in ((relay, None), (relay, b""), (None, b"k" * 32), (None, b"")):
+        with pytest.raises(ValueError):
+            build(sender, key)
+    assert build(relay, b"k" * 32).enabled is True
+    assert build(None, None).enabled is False
+
+
+def test_code_service_needs_a_key_fence_without_a_relay_no_code_is_ever_stored(
+    tmp_path: Path,
+) -> None:
+    """**Fence.** A deployment with no relay settings has no key and needs none: both
+    code routes answer ``feature_disabled`` and no row is written."""
+    from glosswork.config import Settings
+
+    app = create_app(Settings(data_dir=tmp_path / "data", embedding_enabled=False))
+    with TestClient(app) as client:
+        for response in (
+            request_code(client, KNOWN_EMAIL),
+            verify_code(client, KNOWN_EMAIL, "123456"),
+        ):
+            assert response.status_code == 409, response.text
+            assert response.json()["error"]["code"] == "feature_disabled", response.text
+        assert rows(app, "SELECT COUNT(*) AS n FROM sign_in_codes") == [{"n": 0}]

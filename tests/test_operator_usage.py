@@ -19,6 +19,9 @@ Run it bare: ``uv run pytest -q tests/test_operator_usage.py``. A summary line t
 anything but ``N passed`` -- ``skipped``, ``xfailed``, ``xpassed``, ``deselected``,
 ``error`` -- is a failure whatever the exit code says, because a skipped test is a
 collected test and a collected count proves nothing.
+
+``-k operator_backup_setting`` selects the startup behaviour of ``GW_OPERATOR_BACKUP``
+(change 20), the setting that lets the same credential take a backup: 5 passed.
 """
 
 from __future__ import annotations
@@ -222,6 +225,86 @@ def test_a_short_operator_token_refuses_startup(monkeypatch: pytest.MonkeyPatch)
             load_settings()
         assert "GW_OPERATOR_TOKEN" in str(caught.value)
         assert value.strip() not in str(caught.value) or not value.strip()
+
+
+# ------------------------------------------------- GW_OPERATOR_BACKUP at startup
+
+
+def _load_with(monkeypatch: pytest.MonkeyPatch, **environment: str) -> Settings:
+    """``load_settings`` over exactly these variables, whatever the machine has set."""
+    import os
+
+    from glosswork.config import load_settings
+
+    for name in list(os.environ):
+        if name.startswith("GW_"):
+            monkeypatch.delenv(name)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    return load_settings()
+
+
+def test_operator_backup_setting_on_with_no_operator_token_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The caller of the backup route is a scheduled job. A nightly 401 for a reason set
+    at boot is a diagnosis nobody can act on from there, so it is a startup refusal."""
+    for token in (None, ""):
+        environment = {"GW_OPERATOR_BACKUP": "true"}
+        if token is not None:
+            environment["GW_OPERATOR_TOKEN"] = token
+        with pytest.raises(ConfigError) as caught:
+            _load_with(monkeypatch, **environment)
+        assert "GW_OPERATOR_BACKUP" in str(caught.value)
+
+
+def test_operator_backup_setting_refuses_a_relay_token_equal_to_the_operator_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stored form of a sign-in code is keyed from the relay token. If that token were
+    also the credential the backup route accepts, the holder of the credential would hold
+    the key. Refused only when the backup is on: with it off, the same pair loads."""
+    shared = {
+        "GW_OPERATOR_TOKEN": OPERATOR_TOKEN,
+        "GW_RELAY_TOKEN": OPERATOR_TOKEN,
+        "GW_RELAY_URL": "https://relay.example/v1/relay/send",
+    }
+    with pytest.raises(ConfigError) as caught:
+        _load_with(monkeypatch, GW_OPERATOR_BACKUP="true", **shared)
+    message = str(caught.value)
+    assert "GW_RELAY_TOKEN" in message and "GW_OPERATOR_TOKEN" in message, message
+    assert OPERATOR_TOKEN not in message
+
+    for off in ({}, {"GW_OPERATOR_BACKUP": "false"}):
+        loaded = _load_with(monkeypatch, **shared, **off)
+        assert loaded.operator_backup is False
+
+
+@pytest.mark.parametrize("value", ["", "maybe"])
+def test_operator_backup_setting_blank_or_malformed_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """A boolean like every other boolean here: a blank value never reads as on, and
+    never reads as off either. It refuses startup naming the variable."""
+    with pytest.raises(ConfigError) as caught:
+        _load_with(monkeypatch, GW_OPERATOR_TOKEN=OPERATOR_TOKEN, GW_OPERATOR_BACKUP=value)
+    assert "GW_OPERATOR_BACKUP" in str(caught.value)
+    assert OPERATOR_TOKEN not in str(caught.value)
+
+
+def test_operator_backup_setting_loads_off_and_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _load_with(monkeypatch).operator_backup is False
+    assert _load_with(monkeypatch, GW_OPERATOR_TOKEN=OPERATOR_TOKEN).operator_backup is False
+    off = _load_with(monkeypatch, GW_OPERATOR_TOKEN=OPERATOR_TOKEN, GW_OPERATOR_BACKUP="false")
+    assert off.operator_backup is False
+    on = _load_with(
+        monkeypatch,
+        GW_OPERATOR_TOKEN=OPERATOR_TOKEN,
+        GW_OPERATOR_BACKUP="true",
+        GW_RELAY_TOKEN="relay-token-for-tests-0123456789ab",
+        GW_RELAY_URL="https://relay.example/v1/relay/send",
+    )
+    assert on.operator_backup is True
 
 
 # ------------------------------------------------------------------------ the counts

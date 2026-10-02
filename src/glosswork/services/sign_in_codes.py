@@ -27,10 +27,26 @@ many sources and keep that person out until it rolls off, up to a day; the recov
 the operator command ``clear-sign-in-codes``. The guessing odds at these numbers are
 about 1 in 10,000 per targeted address per day.
 
-A code hash is sha256, not a slow hash: a six-digit code has a million values, so no hash
-protects it from someone holding the database for ten minutes, and that person already
-holds every session hash. What protects a code is its lifetime, its attempt cap and the
-limits.
+**A code is stored as a keyed digest, and the key is in no copy of the database** (DD-45).
+A six-digit code has a million values, so no unkeyed hash, slow or fast, protects it from
+someone holding the row: they try every value. That mattered little while the only way to
+hold the row was to hold the machine. It matters once a backup can be taken by a
+credential that is not an administrator's (DD-39), because a backup has to carry this
+table. So the stored form is HMAC-SHA256 over a fixed label, the row id and the code,
+under a key derived from the deployment's relay token (:func:`derive_code_key`). The
+relay token is a setting: it is never written to the database, the data directory or a
+log, so an artifact alone cannot be searched for a code.
+
+There is **one stored form and one key, with no fallback**. Codes are on exactly when the
+relay is configured, so a deployment that issues codes always has the token; the service
+refuses to be built with a relay and no key; and nothing here computes an unkeyed digest
+of a code. A row written before this form existed, or under a relay token that has since
+changed, never matches and is refused like any wrong code: the person asks for another.
+No older form is accepted for a while, because that would keep alive exactly the rows an
+artifact can be used against.
+
+Against guessing online, what protects a code is unchanged: its lifetime, its attempt cap
+and the limits.
 """
 
 from __future__ import annotations
@@ -82,10 +98,36 @@ SETTING = "GW_RELAY_URL"
 _SIX_DIGITS = re.compile(r"[0-9]{6}", re.ASCII)
 
 
-def code_hash(code_id: str, code: str) -> str:
-    """The stored form of a code: sha256 of ``"<id>:<code>"``, so equal codes on two rows
-    never share a hash."""
-    return hashlib.sha256(f"{code_id}:{code}".encode()).hexdigest()
+#: The two fixed labels of the stored form. Versioned, so a later construction can never
+#: be confused with this one, and distinct from each other, so the key derivation and the
+#: code digest are separate uses of their inputs.
+_CODE_KEY_LABEL = b"glosswork.sign-in-code-key.v1:"
+_CODE_LABEL = b"glosswork.sign-in-code.v1:"
+
+
+def derive_code_key(relay_token: str) -> bytes:
+    """The 32-byte key a deployment's codes are stored under: SHA-256 over a fixed label
+    followed by the relay token.
+
+    **Derived, and never the token itself**, for a measured reason. HMAC replaces a key
+    longer than its 64-byte block with that key's SHA-256, and the hosting control plane
+    stores exactly the SHA-256 of each relay token. With the token used directly as the
+    key, a token of 65 characters or more would make the control plane's stored hash a
+    working key. Under its own label the derived key equals no value anyone stores, at
+    any token length, and this use of the token stays distinct from its use as the
+    relay's bearer credential.
+
+    The key is handed to :class:`SignInCodeService` and to nothing else. It is never
+    logged, returned, stored or put in an exception message.
+    """
+    return hashlib.sha256(_CODE_KEY_LABEL + relay_token.encode("utf-8")).digest()
+
+
+def code_hash(key: bytes, code_id: str, code: str) -> str:
+    """The stored form of a code: HMAC-SHA256 under ``key`` over a fixed label and
+    ``"<id>:<code>"``. The row id is in it so equal codes on two rows never share a
+    stored form; the key is what makes a row useless to someone holding only the row."""
+    return hmac.new(key, _CODE_LABEL + f"{code_id}:{code}".encode(), hashlib.sha256).hexdigest()
 
 
 def feature_disabled() -> FeatureDisabledError:
@@ -105,7 +147,19 @@ class SignInCodeService:
         principal_repo: PrincipalRepository,
         invites: InviteService,
         relay: RelaySender | None,
+        code_key: bytes | None = None,
     ) -> None:
+        # A relay and a key, or neither. A relay with no key would issue codes it has no
+        # way to store safely, and a key with no relay is a secret held for nothing; both
+        # are assembly mistakes and are refused here, not at the first sign-in.
+        if code_key is not None and not code_key:
+            raise ValueError("code_key must not be empty; pass None when there is no relay")
+        if (relay is None) != (code_key is None):
+            raise ValueError(
+                "SignInCodeService takes a relay and a code key together, or neither: "
+                "sign-in codes are on exactly when both exist"
+            )
+        self._code_key = code_key
         self._db = db
         self._codes = code_repo
         self._principals = principal_repo
@@ -120,6 +174,13 @@ class SignInCodeService:
     def require_enabled(self) -> None:
         if self._relay is None:
             raise feature_disabled()
+
+    def _key(self) -> bytes:
+        """The key, or the feature's refusal. There is no unkeyed path to fall back to:
+        without a key no code is stored and none is checked."""
+        if self._code_key is None:
+            raise feature_disabled()
+        return self._code_key
 
     # ------------------------------------------------------------------ request
 
@@ -143,6 +204,7 @@ class SignInCodeService:
             )
 
     def _record_code(self, email: str, now: datetime | None = None) -> RelayMessage | None:
+        key = self._key()
         address = normalize_address(email)
         moment = now or utc_now()
         ts = format_datetime(moment)
@@ -171,7 +233,7 @@ class SignInCodeService:
                 SignInCodeRow(
                     id=code_id,
                     email=address,
-                    code_hash=code_hash(code_id, code),
+                    code_hash=code_hash(key, code_id, code),
                     created_at=ts,
                     expires_at=format_datetime(expires),
                     attempts=0,
@@ -202,6 +264,7 @@ class SignInCodeService:
         local person signs in, and otherwise a live invite creates or reactivates them.
         The failure is raised after the transaction commits, so the attempts it counted
         are kept."""
+        key = self._key()
         address = normalize_address(email)
         if not isinstance(code, str) or not _SIX_DIGITS.fullmatch(code):
             raise AuthenticationFailedError(VERIFY_FAILURE_MESSAGE)
@@ -210,7 +273,9 @@ class SignInCodeService:
         principal: PrincipalRow | None = None
         with self._db.write() as conn:
             live = self._codes.list_live_for_email(conn, address, ts)
-            matches = [hmac.compare_digest(row.code_hash, code_hash(row.id, code)) for row in live]
+            matches = [
+                hmac.compare_digest(row.code_hash, code_hash(key, row.id, code)) for row in live
+            ]
             if not any(matches):
                 for row in live:
                     attempts = row.attempts + 1

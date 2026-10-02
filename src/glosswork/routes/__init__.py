@@ -21,6 +21,7 @@ def register_routes(app: FastAPI) -> None:
     from glosswork.routes.comments import router as comments_router
     from glosswork.routes.csv import router as csv_router
     from glosswork.routes.identity import router as identity_router
+    from glosswork.routes.operator_backup import router as operator_backup_router
     from glosswork.routes.records import router as records_router
     from glosswork.routes.saved_views import router as saved_views_router
     from glosswork.routes.schema import router as schema_router
@@ -44,3 +45,4 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(search_router)
     app.include_router(admin_ops_router)
     app.include_router(usage_router)
+    app.include_router(operator_backup_router)

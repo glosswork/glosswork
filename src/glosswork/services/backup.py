@@ -43,6 +43,7 @@ from glosswork.repositories.interfaces import (
     BlobRepository,
 )
 from glosswork.services.base import make_event
+from glosswork.services.usage import OPERATOR_TRIGGER
 from glosswork.timeutil import format_datetime, utc_now
 
 logger = get_logger(__name__)
@@ -105,6 +106,12 @@ def _tar_end_of_archive() -> bytes:
     return bytes(2 * _TAR_BLOCK)
 
 
+def _trigger(operator_triggered: bool) -> dict[str, str]:
+    """The marker an operator-triggered backup carries, in its audit row and its log
+    line alike, and nothing at all for every other backup."""
+    return {"trigger": OPERATOR_TRIGGER} if operator_triggered else {}
+
+
 class BackupService:
     def __init__(
         self,
@@ -120,7 +127,13 @@ class BackupService:
         self._blobs = blob_repo
         self._audit = audit_repo
 
-    def stream(self, actor: ActorContext, now: datetime | None = None) -> Iterator[bytes]:
+    def stream(
+        self,
+        actor: ActorContext,
+        now: datetime | None = None,
+        *,
+        operator_triggered: bool = False,
+    ) -> Iterator[bytes]:
         """Yield one tar artifact: the database snapshot, then the blob tree.
 
         A generator, and lazily so: the snapshot is taken on the first pull. That is
@@ -128,8 +141,19 @@ class BackupService:
         can pull one chunk, upload an attachment, and then drain the rest, and assert
         the new attachment is absent from the snapshot's database.
 
-        The staged snapshot is removed in a ``finally``, which runs when the response
-        finishes *or* when the client disconnects and the server closes the generator.
+        ``operator_triggered`` says the backup was taken with the operator credential
+        and not by a workspace administrator (DD-39). It changes what is recorded, never
+        what is streamed: the audit row and the log line gain a ``trigger``. Left false,
+        both are exactly what they were before the operator route existed.
+
+        The staged snapshot is removed in a ``finally``, which runs when the generator
+        is exhausted **or closed**. Nothing closes it on its own account when a client
+        disconnects: measured under uvicorn, a response that is abandoned leaves the
+        generator suspended inside the ``try`` until the cycle collector reaches it, and
+        the file stays on the volume until then. So every route that streams this returns
+        ``closing_response.ClosingStreamingResponse``, which closes the generator
+        when the response ends, and a test pins that. :meth:`clear_staging` covers the
+        one case no ``finally`` can: a process killed mid-backup.
         """
         staging_dir = self._data_dir / _SNAPSHOT_DIRNAME
         staging_dir.mkdir(parents=True, exist_ok=True)
@@ -147,7 +171,7 @@ class BackupService:
             # records is that a consistent snapshot of the deployment was taken and
             # handed out, and that has already happened. A client that disconnects
             # mid-download still got the snapshot's first bytes.
-            self._record_audit(actor, snapshot_bytes, snapshot_ms, now)
+            self._record_audit(actor, snapshot_bytes, snapshot_ms, now, operator_triggered)
 
             yield from _tar_member(snapshot, SNAPSHOT_ARCNAME)
 
@@ -171,9 +195,31 @@ class BackupService:
                 blob_count=blob_count,
                 blob_bytes=blob_bytes,
                 principal_id=actor.principal_id,
+                **_trigger(operator_triggered),
             )
         finally:
             snapshot.unlink(missing_ok=True)
+
+    def clear_staging(self) -> int:
+        """Remove every staged snapshot, and return how many there were.
+
+        For the file a killed process leaves: a ``SIGKILL`` or a lost machine runs no
+        ``finally``, and nothing else ever reads this directory, so without this a full
+        copy of the database stays on the volume for good. Called once, from the
+        application lifespan at startup, where it is safe by construction: the image runs
+        one process, and no backup can be in flight before the lifespan has started.
+        **Never call it while the application is serving**, because it would remove the
+        snapshot under a download in progress.
+        """
+        staging_dir = self._data_dir / _SNAPSHOT_DIRNAME
+        if not staging_dir.is_dir():
+            return 0
+        removed = 0
+        for path in staging_dir.iterdir():
+            if path.is_file():
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
 
     def _record_audit(
         self,
@@ -181,10 +227,20 @@ class BackupService:
         snapshot_bytes: int,
         snapshot_ms: float,
         now: datetime | None,
+        operator_triggered: bool,
     ) -> None:
         """One ``backup_taken`` row with full attribution (DD-4), the same shape
         ``reindex_requested`` uses: an operator action against the deployment itself,
-        so it carries no record or object type."""
+        so it carries no record or object type.
+
+        A backup taken with the operator credential has no tenant principal behind it.
+        It is attributed to the deployment's own service account, whose ``auth_method``
+        reads ``pat``, and neither says what happened; the ``audit_events`` constraint
+        admits no third ``auth_method``. So that row, and only that row, carries
+        ``trigger``. The reading rule: a ``backup_taken`` row with ``trigger`` was taken
+        with the operator credential, and its principal and ``auth_method`` describe the
+        deployment, not a person; a row without it was taken by the credential it names.
+        """
         ts = format_datetime(now or utc_now())
         with self._db.write() as conn:
             self._audit.append(
@@ -199,6 +255,7 @@ class BackupService:
                         new_value={
                             "snapshot_bytes": snapshot_bytes,
                             "snapshot_ms": snapshot_ms,
+                            **_trigger(operator_triggered),
                         },
                     )
                 ],

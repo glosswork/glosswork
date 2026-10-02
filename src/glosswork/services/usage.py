@@ -8,6 +8,12 @@ a workspace administrator cannot also mint.
 calls :meth:`UsageService.snapshot`, and shapes a response; every refusal below is this
 service's.
 
+**The same credential may also take a backup, on a deployment that opted in.** That is
+the one other thing it opens, at ``POST /api/v1/operator/backup``, and the rule is here
+too: :meth:`UsageService.require_operator_backup` is that route's gate and the only
+reader of ``GW_OPERATOR_BACKUP``. Without the opt-in this credential reaches no tenant
+content whatever; with it, it reaches all of it, read-only.
+
 Four things in this module are load-bearing, and each is here rather than spread out so
 that there is exactly one place to read and one place to break.
 
@@ -90,6 +96,14 @@ logger = get_logger(__name__)
 #: two kinds of credential is how a later edit comes to confuse them. ``routes/usage.py``
 #: is the only reader of the name.
 OPERATOR_TOKEN_HEADER = "X-Operator-Token"
+
+#: What a ``backup_taken`` audit row carries under ``trigger`` when the backup was taken
+#: with the operator credential and not by a workspace administrator (DD-39, DD-4). The
+#: row's principal and ``auth_method`` then describe the deployment, not a person, and
+#: this marker is what says so. Spelled here, in the operator credential's home, and
+#: imported by ``services/backup.py``: ``tests/test_one_usage_counter.py`` keeps this
+#: word out of every other module so that nothing else can come to read the credential.
+OPERATOR_TRIGGER = "operator_token"
 
 #: Written to ``usage_counters.tool_name`` when the tool catalog does not know the name
 #: the caller sent. It is not a rare fallback: it is the answer for every call an agent
@@ -405,6 +419,38 @@ class UsageService:
             hashlib.sha256(configured.encode("utf-8")).digest(),
         )
 
+    def require_operator(self, presented: str | None) -> None:
+        """Refuse everybody who is not the operator. The usage counts' gate.
+
+        One refusal, :class:`~glosswork.errors.OperatorTokenRefusedError`, whichever of
+        the four situations :meth:`token_matches` folds together is the case.
+        """
+        if not self.token_matches(presented):
+            raise OperatorTokenRefusedError()
+
+    def require_operator_backup(self, presented: str | None) -> None:
+        """Refuse everybody who may not take the operator backup. That route's gate, and
+        the **one** reader of ``GW_OPERATOR_BACKUP`` outside ``config.py``.
+
+        The operator, on a deployment that turned the backup on, passes. Everybody else
+        gets the refusal :meth:`require_operator` gives, byte for byte, and so does the
+        operator while the setting is off: a caller cannot tell a wrong token from a
+        right one on a deployment that never opted in, and so cannot learn whether the
+        backup is on.
+
+        The comparison runs first and the setting is consulted second, whatever the
+        comparison said, so the work done for a wrong token does not depend on the
+        setting.
+
+        Called from a route dependency, before the response exists. Raised from inside
+        the streaming generator instead, this refusal would arrive after the status line
+        had already said 200.
+        """
+        matched = self.token_matches(presented)
+        enabled = self._settings.operator_backup
+        if not (matched and enabled):
+            raise OperatorTokenRefusedError()
+
     # ------------------------------------------------------------------ the read
 
     def snapshot(self, request_id: str, presented: str | None) -> UsageSnapshot:
@@ -422,8 +468,7 @@ class UsageService:
         front of the operator. So everything that is not this service's own refusal
         becomes ``internal_error``, which discloses a request id and nothing else.
         """
-        if not self.token_matches(presented):
-            raise OperatorTokenRefusedError()
+        self.require_operator(presented)
         try:
             return self._read_counts()
         except Exception:
@@ -608,6 +653,7 @@ __all__ = [
     "KNOWN_HARNESSES",
     "KNOWN_TOOLS",
     "OPERATOR_TOKEN_HEADER",
+    "OPERATOR_TRIGGER",
     "OTHER_HARNESS",
     "STOP_GRACE_SECONDS",
     "SUCCESS_ERROR_CODE",

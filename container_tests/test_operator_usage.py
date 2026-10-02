@@ -21,10 +21,18 @@ runs inside the container anywhere in this file.
 2. That the endpoint answers at all on the built image, with the variable passed the way
    an operator passes it, rather than only against an application object in a test
    process.
+
+**The operator backup** (``-k operator_backup``, 2 passed) is here for the second reason
+and one more: its consumer is a scheduled program outside the container, reading a
+streamed tar over a real socket, and ``TestClient`` and uvicorn differ on streaming. With
+``GW_OPERATOR_BACKUP=true`` the operator credential downloads the artifact; without the
+variable the same request is refused.
 """
 
 from __future__ import annotations
 
+import io
+import tarfile
 import time
 from collections.abc import Iterator
 
@@ -170,3 +178,60 @@ def test_an_operator_reads_counts_over_http_and_a_stop_loses_none_of_them(
     after = _usage(origin).json()
     assert after["tool_calls"] == counted, (counted, after["tool_calls"])
     assert after["since"] == before["since"]
+
+
+# ------------------------------------------------------------- the operator backup
+
+
+def _container(image_tag: str, environment: dict[str, str]) -> tuple[str, str]:
+    port = ds.free_port()
+    origin = f"http://127.0.0.1:{port}"
+    cid = ds.start_published_container(
+        image_tag,
+        environment={"GW_BASE_URL": origin, "GW_OPERATOR_TOKEN": OPERATOR_TOKEN, **environment},
+        port=port,
+    )
+    return cid, origin
+
+
+def _operator_backup(origin: str, token: str = OPERATOR_TOKEN) -> httpx2.Response:
+    return httpx2.post(
+        f"{origin}/api/v1/operator/backup",
+        headers={"X-Operator-Token": token},
+        timeout=HTTP_TIMEOUT_S,
+    )
+
+
+def test_operator_backup_downloads_the_artifact_when_the_deployment_opted_in(
+    image_tag: str,
+) -> None:
+    cid, origin = _container(image_tag, {"GW_OPERATOR_BACKUP": "true"})
+    try:
+        _wait_until_ready(origin, cid)
+        response = _operator_backup(origin)
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "application/x-tar"
+        assert response.headers["cache-control"] == "no-store"
+        with tarfile.open(fileobj=io.BytesIO(response.content), mode="r|") as tar:
+            names = [member.name for member in tar]
+        assert names[0] == "glosswork.sqlite3", names
+
+        # A wrong credential on the same container gets the one refusal and no tar.
+        wrong = _operator_backup(origin, "operator-token-for-container-XXX")
+        assert wrong.status_code == 401, wrong.text
+        assert wrong.json()["error"]["code"] == "operator_token_refused"
+    finally:
+        ds.remove_container(cid)
+
+
+def test_operator_backup_is_refused_when_the_variable_is_not_set(image_tag: str) -> None:
+    cid, origin = _container(image_tag, {})
+    try:
+        _wait_until_ready(origin, cid)
+        refused = _operator_backup(origin)
+        assert refused.status_code == 401, refused.text
+        assert refused.json()["error"]["code"] == "operator_token_refused"
+        # The positive control: the same credential still opens what it always opened.
+        assert _usage(origin).status_code == 200
+    finally:
+        ds.remove_container(cid)
