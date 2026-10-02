@@ -87,9 +87,11 @@ and let it rebuild. This affects development trees only: no released deployment 
 earlier form, and the test, e2e and container suites create a fresh database per run.
 
 `/readyz` returns 503 while migrations are pending. Point a readiness probe at
-`/readyz` and a liveness probe at `/healthz`. Migrations run automatically at startup
-and are idempotent (FR-P6), so a normal upgrade is: pull the new image, stop the old
-container, start the new one on the same volume.
+`/readyz` and a liveness probe at `/healthz`. A workspace that terminates TLS itself
+answers neither without the client certificate, so it takes a TCP check instead
+(section 4a). Migrations run automatically at startup and are idempotent (FR-P6), so a
+normal upgrade is: pull the new image, stop the old container, start the new one on the
+same volume.
 
 ### Upgrading a database with old index names: one rebuild, once
 
@@ -538,7 +540,9 @@ time. The durable fix is to put them in a group named in `GW_OIDC_CREATOR_GROUPS
 Glosswork expects to sit behind a TLS-terminating reverse proxy on an internal
 network (FR-P7). Two settings have to agree with your proxy, and the failure mode when
 they do not is silent, which is why they are configuration rather than something the
-application infers.
+application infers. A workspace on a public address behind a proxy that does not run beside
+it terminates TLS itself and locks the port to that proxy's client certificate instead
+(section 4a).
 
 `GW_COOKIE_SECURE` (default `true`) controls whether the session cookie carries
 `Secure`. It is **never** inferred from the inbound request's scheme. Behind a proxy
@@ -626,6 +630,145 @@ A global uvicorn `limit_concurrency` is *not* set here: removing the free stream
 unbounded axis, and a concurrency cap is a tuning question for your own deployment rather than a
 value this project should pick for you. It is worth setting if you front the deployment with
 nothing else that caps connections.
+
+## 4a. Terminating TLS in the workspace, locked to one client certificate
+
+**When to use it.** Section 4 is the ordinary self-hosted shape and stays so: the workspace
+serves plain HTTP on a private network and your own proxy, beside it, terminates TLS. Use
+this section instead when the workspace has an address the public can reach and the only
+caller that should ever get an answer is one proxy that does not run beside it, such as a
+content delivery network in front of a hosted workspace. The proxy proves who it is with a
+client certificate, and the workspace refuses everyone else at the connection (DD-46). It
+is the same image and the same single process (FR-P1): no second proxy inside the
+container, and nothing to install.
+
+**The three settings, all or none.**
+
+| Variable | Names |
+| --- | --- |
+| `GW_TLS_CERT_FILE` | the workspace's own certificate, PEM |
+| `GW_TLS_KEY_FILE` | that certificate's private key, PEM, with no passphrase |
+| `GW_TLS_CLIENT_CA_FILE` | the certificate authority a caller's client certificate must chain to, PEM |
+
+```bash
+docker run -d --name glosswork \
+  -p 8000:8000 \
+  -v gw-data:/data \
+  -v /srv/glosswork/tls:/tls:ro \
+  -e GW_TLS_CERT_FILE=/tls/server.pem \
+  -e GW_TLS_KEY_FILE=/tls/server.key \
+  -e GW_TLS_CLIENT_CA_FILE=/tls/client-ca.pem \
+  -e GW_BASE_URL=https://tracker.example.com \
+  -e GW_TRUSTED_PROXY_IPS=198.51.100.0/24 \
+  glosswork
+```
+
+With all three set, the workspace terminates TLS itself on port 8000 and completes a
+handshake only with a client whose certificate chains to the CA file. With none set, it
+serves plain HTTP exactly as before. There is no setting for TLS without the client
+certificate check. Startup is refused, with exit 1 and a `Configuration error:` line naming
+the variable, in three cases:
+
+- **Some of the three are set and some are not.** The message names each missing variable.
+  Handed on as they are, the CA alone would serve plain HTTP to anyone, and the certificate
+  and key alone would serve TLS to anyone.
+- **Any other variable whose name begins `GW_TLS_` is present**, in any letter case and
+  whatever its value: `GW_TLS_CA_FILE`, or `GW_TLS_CERT` with `_FILE` dropped. Every other
+  misspelt setting in this deployment is silently ignored. This group is refused, because
+  ignoring it would start the workspace with no lock.
+- **A named file cannot be opened.** The message names the variable, the path and the
+  system's reason, and nothing from the file.
+
+A file that opens and that OpenSSL cannot use (a key that belongs to another certificate, a
+CA file that holds no certificate, a key that needs a passphrase) also stops the process
+with exit 1 before it listens, with OpenSSL's own error.
+
+**A workspace started with none of the three settings is unlocked, and it says nothing
+about it**, because that is also the ordinary self-hosted state: the process cannot tell a
+lock that was never wanted from one that was meant and never arrived. A platform that
+drops the three variables, or delivers them under another prefix, gets a workspace that
+answers anyone in plain HTTP. So prove the lock from outside, after every deployment that
+is meant to have it and before any name or proxy points at the workspace:
+
+1. Connect to the workspace's own address with no client certificate and require that no
+   answer comes back:
+   `curl -sk -o /dev/null -w '%{http_code}\n' https://<address>:8000/readyz` prints `000`
+   and exits non-zero. So does the same request over `http://`.
+2. Require the startup log line `Uvicorn running on https://0.0.0.0:8000`. An unlocked
+   workspace logs `http://` there.
+
+**What a refused caller sees.** The refusal is in the TLS handshake, on both TLS versions
+the workspace speaks, and no request from a refused caller is ever read. From the caller's
+side the two versions look different:
+
+- On TLS 1.2 the caller's own handshake fails.
+- On TLS 1.3 the caller's handshake appears to complete, because in that version the
+  client finishes before the server has checked the client's certificate. The workspace
+  then closes the connection before sending one byte of a response.
+
+The workspace sends no TLS alert, so the caller sees a closed connection: an unexpected end
+of file or a reset, depending on the path between them. `curl` exits 52 on TLS 1.3 and 35
+on TLS 1.2, and prints no status either way. A caller
+with no certificate, with a certificate from another authority, with a self-signed one, or
+with an expired one is refused the same way. **A refused connection leaves no log line**:
+the access log holds only requests that were read, so a scan of the address is invisible
+in the workspace's own log.
+
+**`GW_TRUSTED_PROXY_IPS` behind the lock.** Two statements, and both matter.
+
+- **A value wider than your own proxy's address is safe only while the lock is on.**
+  Whoever can open a connection from a trusted address is believed about
+  `X-Forwarded-For`. With the lock on, that is the holder of the client certificate and
+  nobody else. Without it, anyone who can reach the workspace chooses the address the
+  sign-in limiter sees, and the limiter then limits nothing: measured, twelve wrong
+  sign-ins with twelve forged addresses were all answered `401`, where the default
+  setting answers the eleventh with `429`. Never set a wide value on a workspace without
+  the lock.
+- **The lock does not make `*` safe.** With `*`, or with any range that also covers
+  addresses your visitors can have (`0.0.0.0/0` among them), the workspace takes the
+  *first* address in `X-Forwarded-For`, and that is the one the visitor wrote. A visitor
+  coming through your own proxy, which holds the right certificate and honestly appends
+  the visitor's real address, then chooses the address the sign-in limiter sees. Name the
+  range your proxy connects from and nothing wider. `*` is safe only behind a proxy that
+  overwrites `X-Forwarded-For` rather than appending to it.
+
+**The CA file.** It should hold one self-signed authority that signs your proxy's client
+certificate and nothing else. Every certificate that chains to anything in the file is let
+in. That includes a certificate under any intermediate authority that root has signed,
+and a server certificate from the same authority unless it is marked for server use only.
+The check is of the authority's key, not its name: a second authority carrying the same
+name is refused. Two ways of filling the file look narrower and lock everyone out, the
+right client included: a file holding only an intermediate, and a file holding only the
+client certificate itself. The system's own trust store is never consulted, so a publicly
+trusted certificate gets a caller nothing.
+
+**Probes.** `/readyz` and `/healthz` cannot be reached without the client certificate, so
+an orchestrator's HTTP probe fails against a locked workspace. Use a TCP check on the
+port, or a prober that holds the certificate. A connection that never finishes its
+handshake is dropped after 60 seconds.
+
+**Operations.**
+
+- The three files must be readable by uid 1000, the user the published image runs as.
+- Rotating the certificate, the key or the CA file is a restart: they are read once, at
+  startup.
+- TLS 1.2 is the minimum, and the port stays 8000. With the lock on, nothing answers on
+  that port in plain HTTP.
+- The settings are applied by the image's entry point. `uvicorn glosswork.app:app` run by
+  hand, or a container whose entry point has been replaced, serves plain HTTP whatever the
+  three say.
+- The admin CLI (`python -m glosswork.admin`) reads the same settings and is refused by
+  the same three checks. `docker exec` runs it as uid 1000, so it reads what the server
+  reads. Run under another user that cannot read the key, it is refused over a file it
+  never uses.
+
+**What it does not do.** There is no revocation list: a certificate from the authority is
+good until it expires, or until the CA file changes and the process restarts. There is no
+encrypted private key. The certificate identifies no principal inside the application: it
+decides whether a connection exists, and every request on it is still authenticated as in
+section 5. And the certificate is checked when a TLS session is made, so an open
+connection or a resumed session outlives the certificate's expiry until the process
+restarts.
 
 ## 5. Authentication modes
 

@@ -230,3 +230,137 @@ def test_env_example_ships_read_only_as_false() -> None:
     """**Measured**. Not blank: a blank boolean refuses startup."""
     lines = [line.strip() for line in _env_example_path().read_text().splitlines()]
     assert ("GW_READ_ONLY=false" in lines, "GW_SUBSCRIBE_URL=" in lines) == (True, True)
+
+
+# ------------------------------------- the workspace's own TLS and its client lock
+
+TLS_VARIABLES = ("GW_TLS_CERT_FILE", "GW_TLS_KEY_FILE", "GW_TLS_CLIENT_CA_FILE")
+
+# Every way to set one or two of the three, each as the set that is present.
+PARTIAL_TLS_SETS = [
+    ("GW_TLS_CERT_FILE",),
+    ("GW_TLS_KEY_FILE",),
+    ("GW_TLS_CLIENT_CA_FILE",),
+    ("GW_TLS_CERT_FILE", "GW_TLS_KEY_FILE"),
+    ("GW_TLS_CERT_FILE", "GW_TLS_CLIENT_CA_FILE"),
+    ("GW_TLS_KEY_FILE", "GW_TLS_CLIENT_CA_FILE"),
+]
+
+
+def _tls_placeholder_files(tmp_path: Path) -> dict[str, Path]:
+    """One readable file per variable. ``load_settings`` opens each and reads nothing,
+    so what is in them does not matter here; ``tests/test_infra.py`` uses real ones."""
+    files = {}
+    for name in TLS_VARIABLES:
+        path = tmp_path / f"{name.lower()}.pem"
+        path.write_text("not a certificate\n")
+        files[name] = path
+    return files
+
+
+def _clear_tls_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in TLS_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("present", PARTIAL_TLS_SETS, ids=lambda names: "+".join(names))
+def test_a_partial_tls_set_refuses_startup_naming_what_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, present: tuple[str, ...]
+) -> None:
+    """Some of the three is never passed on: a CA alone would serve plain HTTP to anyone,
+    and a certificate and key alone would serve TLS to anyone. The refusal names every
+    missing variable first, then the ones that are set."""
+    files = _tls_placeholder_files(tmp_path)
+    _clear_tls_environment(monkeypatch)
+    for name in present:
+        monkeypatch.setenv(name, str(files[name]))
+    missing = [name for name in TLS_VARIABLES if name not in present]
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings()
+
+    message = str(exc_info.value)
+    named_missing, separator, rest = message.partition(": required when ")
+    assert separator, message
+    assert named_missing == ", ".join(missing), message
+    named_present = rest.split(" set. ", 1)[0]
+    assert all(name in named_present for name in present), message
+    assert not any(name in named_present for name in missing), message
+    assert "There is no TLS without the client certificate check." in message
+
+
+def test_all_three_tls_settings_blank_leave_tls_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``.env.example`` ships the three blank, so blank is unset and not a path. Without
+    that rule a blank value reads as the current directory, which is truthy."""
+    for blank in ("", "  "):
+        for name in TLS_VARIABLES:
+            monkeypatch.setenv(name, blank)
+        settings = load_settings()
+        assert getattr(settings, "tls_enabled", None) is False, repr(blank)
+        assert [
+            getattr(settings, field, "absent")
+            for field in ("tls_cert_file", "tls_key_file", "tls_client_ca_file")
+        ] == [None, None, None], repr(blank)
+
+
+def test_all_three_tls_settings_naming_files_turn_tls_on(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    files = _tls_placeholder_files(tmp_path)
+    for name, path in files.items():
+        monkeypatch.setenv(name, str(path))
+    settings = load_settings()
+    assert getattr(settings, "tls_enabled", None) is True
+    assert (settings.tls_cert_file, settings.tls_key_file, settings.tls_client_ca_file) == (
+        files["GW_TLS_CERT_FILE"],
+        files["GW_TLS_KEY_FILE"],
+        files["GW_TLS_CLIENT_CA_FILE"],
+    )
+
+
+def test_a_tls_file_that_does_not_exist_refuses_startup_naming_its_variable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """uvicorn's own failure for a missing file is a traceback naming neither the
+    variable nor the path, so the refusal here names both and the system's reason."""
+    files = _tls_placeholder_files(tmp_path)
+    missing_key = tmp_path / "no-such.key"
+    files["GW_TLS_KEY_FILE"] = missing_key
+    for name, path in files.items():
+        monkeypatch.setenv(name, str(path))
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings()
+
+    message = str(exc_info.value)
+    assert message.startswith(
+        f"GW_TLS_KEY_FILE: cannot read {missing_key} (No such file or directory)."
+    ), message
+
+
+@pytest.mark.parametrize(
+    ("stray", "beside_the_three"),
+    [("GW_TLS_CA_FILE", False), ("GW_TLS_CA_FILE", True), ("gw_tls_ca_file", False)],
+    ids=["alone", "beside-the-three", "alone-in-lower-case"],
+)
+def test_a_stray_name_under_gw_tls_refuses_startup_naming_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stray: str, beside_the_three: bool
+) -> None:
+    """The settings loader ignores a name it does not know, and for this group an ignored
+    name is a workspace that starts with no client certificate check. So a name under
+    ``GW_TLS_`` that is not one of the three refuses startup, whatever its case, and the
+    refusal prints the name and never the value."""
+    files = _tls_placeholder_files(tmp_path)
+    _clear_tls_environment(monkeypatch)
+    if beside_the_three:
+        for name, path in files.items():
+            monkeypatch.setenv(name, str(path))
+    monkeypatch.setenv(stray, "/tls/a-value-the-message-must-not-print")
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings()
+
+    message = str(exc_info.value)
+    assert message.startswith(f"{stray}: not a setting. "), message
+    assert all(name in message for name in TLS_VARIABLES), message
+    assert "a-value-the-message-must-not-print" not in message

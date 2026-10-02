@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ssl
 import sys
+from typing import Any
 
 import uvicorn
 
@@ -15,6 +17,20 @@ def main() -> None:
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    # The workspace's own TLS (DD-46). The four arguments travel together, from this one
+    # branch, or not at all: the certificate and key without the other two are TLS that
+    # lets anyone in, and the CA without the certificate is ignored by uvicorn, which
+    # then serves plain HTTP. With the settings off the call below carries no ``ssl_*``
+    # argument, so it is the call it was before they existed.
+    tls: dict[str, Any] = {}
+    if settings.tls_enabled:
+        tls = {
+            "ssl_certfile": str(settings.tls_cert_file),
+            "ssl_keyfile": str(settings.tls_key_file),
+            "ssl_ca_certs": str(settings.tls_client_ca_file),
+            "ssl_cert_reqs": ssl.CERT_REQUIRED,
+        }
 
     uvicorn.run(
         "glosswork.app:app",
@@ -40,6 +56,7 @@ def main() -> None:
         # attribution (FR-P5) and GW_BASE_URL's OIDC redirect still need this set
         # correctly for a real deployment.
         forwarded_allow_ips=settings.trusted_proxy_ips,
+        **tls,
     )
 
 
