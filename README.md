@@ -20,7 +20,7 @@ docker run -d --name glosswork -p 8000:8000 -v gw-data:/data \
   -e GW_BASE_URL=http://localhost:8000 \
   -e GW_BOOTSTRAP_ADMIN_EMAIL=you@example.com \
   -e GW_BOOTSTRAP_ADMIN_PASSWORD='<a real password, at least 12 characters>' \
-  docker.io/glosswork/glosswork:0.1.0
+  docker.io/glosswork/glosswork:0.2.0
 ```
 
 One container, one process, one volume. Open <http://localhost:8000> and sign in with that

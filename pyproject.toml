@@ -1,6 +1,6 @@
 [project]
 name = "glosswork"
-version = "0.1.0"
+version = "0.2.0"
 description = "Schema-flexible, agent-native record store with an MCP endpoint, a REST API, and a lightweight UI."
 requires-python = ">=3.13"
 # PEP 639. `FSL-1.1-ALv2` is a listed SPDX identifier (licence list 3.29.0), so this is an
