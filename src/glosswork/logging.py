@@ -56,7 +56,15 @@ def configure_logging(log_level: str) -> None:
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+        # No ``file`` argument, and it must stay that way. Without one, structlog prints
+        # each line to ``sys.stdout`` as it is when the line is written. Given
+        # ``file=sys.stdout``, a logger caches the stream of the moment this function
+        # ran; inside a test that captures output that is the test's buffer, which is
+        # closed when the test ends, and every later line from that logger raises
+        # ``ValueError: I/O operation on closed file`` in some other test. In a
+        # deployment the two are the same code path, because ``sys.stdout`` never
+        # changes there. tests/test_logging_stream.py holds this.
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
 
