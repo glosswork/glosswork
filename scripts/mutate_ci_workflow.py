@@ -145,7 +145,7 @@ def _run_rules(root: Path) -> tuple[int, list[str]]:
     module = root / TEST_MODULE
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
-        + ["--deselect", f"{module}::{PARTITION_RULE}", str(module)],
+        + ["-k", f"not {PARTITION_RULE}", str(module)],
         capture_output=True,
         text=True,
     )
