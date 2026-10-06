@@ -503,7 +503,59 @@ Findings:
 
 ## Deviations from the approved plan
 
-None yet.
+Built 2026-10-06 (Opus 5.5), checklist items 1 to 6 in order, one commit each for items 1
+to 5. No deviation changes the design, the files touched or any Accept criterion.
+
+- **D1. The partition rule failed in step 1 for a different reason than the checklist
+  expected, so it was measured again after step 4.** The rule reads N from the workflow.
+  On the unfixed tree there were no shard jobs, so N was 0 and it failed comparing an
+  empty union with the whole collection; it never reached `--shard`. After step 4 it was
+  run against two temporary breaks of the rule in `tests/conftest.py`, each reverted:
+  with the modulus one too large it exits 1 (a test is in no shard); with `<=` in place
+  of `==` it exits 1 with "a test is in more than one shard" (2,227 unique of 5,567). It
+  exits 0 on the restored file.
+- **D2. One new rule cannot fail on the unfixed tree, and is measured by mutations only.**
+  "No shard is weakened in a way identical steps cannot see" loops over the shard jobs,
+  and with none it passes. The mutations `one shard continue-on-error`, `every pytest step
+  continue-on-error` and `PYTEST_ADDOPTS in the workflow env` each turn it red.
+- **D3. Step 1's recorded failures.** `tests/test_logging_stream.py`: exit 1, 3 failed.
+  The first with `ValueError: I/O operation on closed file`; the second because the line
+  written after the swap landed in the stream held from configure time; the third with
+  `copy.Error: Only PrintLoggers to sys.stdout and sys.stderr can be deepcopied`, because
+  under a swapped `sys.stdout` the unfixed code hands structlog a stream that is not the
+  import-time one. `tests/test_ci_workflow.py`: exit 1, 5 failed, 8 passed: rules 3 and 4
+  on `backend-test` against the four names, the two shard rules on zero shard jobs, and
+  the partition rule (D1). `scripts/mutate_ci_workflow.py`: exit 1, `unmutated exit 1
+  (want 0)`, then a `ValueError` from the first mutation, which had no `backend-test-3`
+  to remove.
+- **D4. The mutation script prints which rules each mutation turned red, and that found a
+  defect in the script itself.** Its first draft deselected the partition rule by a node
+  id that did not match inside the temporary copy, so the partition rule ran, failed
+  there (the copy has no test suite to collect), and made every line read `exit 1 (want
+  1)` whatever the mutation did, the unmutated line included. It now deselects with `-k`,
+  the unmutated copy exits 0, and every mutation names at least one workflow rule.
+- **D5. "Shard 3 deleted entirely" also removes it from `ci-ok`'s `needs` and loop**, so
+  the mutated workflow is one GitHub would accept. Deleting the job alone leaves a
+  `needs` entry naming no job, which is the first mutation again.
+- **D6. The collection is 2,227 tests, not 2,220**: this change adds three logging tests
+  and four workflow rules. The shards collect 553, 561, 559 and 554.
+
+## Build results
+
+At `HEAD` of the build, on Chris's Mac. AC12 is not measured: it needs the pull
+request's own runs.
+
+- Step 2: `tests/test_logging_stream.py`, the three files of P6 and the four
+  log-asserting modules each exit 0 alone.
+- Step 3: AC5 `cmp` exit 0, 2,227 lines, 2,227 unique. AC6: `5/4`, `0/4` and `1of4` each
+  exit 4, naming the value.
+- Step 4: `tests/test_ci_workflow.py` exit 0 (13 passed). `scripts/mutate_ci_workflow.py`
+  exit 0: unmutated 0, all 13 mutations `exit 1 (want 1)`, the 7 gate cases each the exit
+  code wanted. actionlint 1.7.12 (darwin arm64, checked against the release's checksums
+  file) exit 0.
+- Step 6: unsharded `uv run pytest -q` exit 0, `2224 passed, 3 xfailed`, 293 s. Shards 1
+  to 4 exit 0 with 552, 560, 559 and 553 passed and 1, 1, 0 and 1 xfailed, which is 2,227,
+  in 68, 66, 79 and 77 s.
 
 ## Durable content moved out of this plan
 
