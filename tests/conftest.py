@@ -13,11 +13,18 @@ Conventions:
   service layer when a test isn't specifically about the seeding endpoint itself.
   Do not mix the ``services``/``db`` fixtures with ``client`` in one test: they point
   at different databases.
+
+``--shard k/N`` runs the k-th of N parts of whatever was collected, which is how CI runs
+the suite as N jobs (``.github/workflows/ci.yml``). A test belongs to the part its node
+id hashes to, so the parts are disjoint, together they are the whole collection, and a
+test is in the same part on every machine. Without the option every test runs.
 """
 
 from __future__ import annotations
 
+import re
 import uuid
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -52,6 +59,48 @@ httpx2.alias_httpx()
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--shard",
+        default=None,
+        metavar="k/N",
+        help="run only the k-th of N parts of the collected tests, by a hash of each node id",
+    )
+
+
+def _shard(config: pytest.Config) -> tuple[int, int] | None:
+    value: str | None = config.getoption("--shard")
+    if value is None:
+        return None
+    match = re.fullmatch(r"([0-9]+)/([0-9]+)", value)
+    if match is None or not 1 <= int(match.group(1)) <= int(match.group(2)):
+        raise pytest.UsageError(
+            f"--shard {value!r}: expected k/N, two whole numbers with 1 <= k <= N"
+        )
+    return int(match.group(1)), int(match.group(2))
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # Refused here rather than in the collection hook, which runs only after everything
+    # has been collected.
+    _shard(config)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    shard = _shard(config)
+    if shard is None:
+        return
+    k, count = shard
+    kept: list[pytest.Item] = []
+    deselected: list[pytest.Item] = []
+    for item in items:
+        # crc32, not hash(): Python salts str hashes per process.
+        mine = zlib.crc32(item.nodeid.encode()) % count == k - 1
+        (kept if mine else deselected).append(item)
+    items[:] = kept
+    config.hook.pytest_deselected(items=deselected)
 
 
 def make_actor() -> ActorContext:
