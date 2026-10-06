@@ -10,8 +10,8 @@
 | Depends on | nothing unmerged. Branched from `origin/main` at `8daeb30` (change 26 merged) |
 
 **Lane: full.** This changes `.github/workflows/ci.yml`, which judges every other change
-(its header, and `CONTRIBUTING.md` "What CI runs"). It also changes one function in
-`src/glosswork/logging.py`, which the suite cannot be split without (P6).
+(its header, and `CONTRIBUTING.md` "What CI runs"). It also changes one argument in
+`src/glosswork/logging.py`, which the suite cannot be split without (P6, F1).
 
 ## Why
 
@@ -36,7 +36,7 @@ measured only **1.34 times** faster (P8), which projects to an 8-minute job: it 
 | | A. Four shard jobs (recommended) | B. Two shard jobs, two workers each |
 | --- | --- | --- |
 | How | Four jobs, `backend-test-1` to `backend-test-4`, each running a quarter of the tests in one plain `pytest` process | Two jobs, each running half the tests under `pytest-xdist -n auto` |
-| Projected pull request time, created to completed | about 3.9 minutes; the floor is about 3.7, set by `frontend-test` (P9) | about 4.9 minutes (P9) |
+| Projected pull request time, created to completed | about 4 minutes, in a band of 3.3 to 4.2; the floor is 3.2 to 3.9, set by `frontend-test` and `e2e` (P9, F4) | about 4.9 minutes (P9) |
 | Billed runner minutes per run, backend part | about 16, up from 11 today: about +5 a run (P10) | about 10: about 1 fewer a run (P10) |
 | New dependency | none | `pytest-xdist==3.8.0` and `execnet==2.1.2`, dev only (P11) |
 | New hazards | none beyond P6 | two test processes share one runner: the probe-then-bind port race (P7) and the two fixed time budgets (P7) become live |
@@ -64,15 +64,30 @@ stream is the test's capture buffer, which pytest closes when the test ends. Eve
 log line from that logger, in any test in the same process, raises. Serial CI passes today
 only because of the order the files happen to run in.
 
-**Recommended: fix it in the product**, by handing structlog a small writer that looks up
-`sys.stdout` each time it writes. In a deployment `sys.stdout` never changes, so every line
-keeps the same bytes and the same destination (FR-P5); measured, the change makes all
-three files and all four shards pass (P6). **The alternative** is a test-side fixture that
-resets structlog's cached loggers around every test. It leaves the product untouched, but
-it reaches into structlog's private caching on proxies that modules create at import, and
-it would hide the same failure in any future tool that swaps `sys.stdout`. Under that
-answer, checklist item 3 becomes an autouse fixture in `tests/conftest.py` and
-`src/glosswork/logging.py` is not touched.
+**Recommended: fix it in the product, by deleting one argument** (changed by the
+adversarial pass, F1). `structlog.PrintLoggerFactory(file=sys.stdout)` becomes
+`structlog.PrintLoggerFactory()`. With no file given, structlog 26.1.0 prints to whatever
+`sys.stdout` is at the time of each line (`structlog/_output.py`, `PrintLogger.msg`). A
+deployment already runs that exact code path today, because there the stream handed in is
+the one structlog saw at import, and structlog treats that case as "no file given". So in a
+deployment nothing changes at all: not the bytes, not the destination (FR-P5), not the code
+that runs. Measured, the change makes the three files, the four shards and the whole suite
+pass (F1).
+
+**The first alternative** is the plan's original answer: a small writer class whose `write`
+and `flush` look up `sys.stdout` on each call. It also makes everything pass (F1), and it
+does not lean on how structlog treats a missing file. It costs a new class, and it changes
+one thing in a deployment: a logger can no longer be copied with `copy.deepcopy` or pickled
+(`Only PrintLoggers to sys.stdout and sys.stderr can be deepcopied`, F1), which works
+today. Nothing in `src/` does either to a logger now. Under that answer, checklist item 2
+adds the class and `tests/test_logging_stream.py` drops its copy assertion.
+
+**The second alternative** is a test-side fixture that resets structlog's cached loggers
+around every test. It leaves the product untouched, but it reaches into structlog's
+private caching on proxies that modules create at import, and it would hide the same
+failure in any future tool that swaps `sys.stdout`. Under that answer, checklist item 2
+becomes an autouse fixture in `tests/conftest.py` and `src/glosswork/logging.py` is not
+touched.
 
 ### 3. Where the second timed run comes from
 
@@ -80,7 +95,12 @@ The task's measure is two consecutive pull request runs, each under 6 minutes. T
 request is opened once, at closeout, and runs CI once. **Recommended:** after that run
 completes, the dispatcher re-runs it once with `gh run rerun <id>`, on the same commit, so
 the second number measures the runner and not a different change. That costs one more run,
-about 33 billed minutes under answer A (P10). **The alternative** is to read the next pull request's run
+about 33 billed minutes under answer A (P10). Two things about a re-run are not
+established, because this repository has never had one (F5): whether the agent's token may
+start it, and whether the four junit uploads succeed on a second attempt. If the token is
+refused, Chris presses "Re-run all jobs" on the run's page. If the re-run fails for a reason
+that is not a test, the second number comes from the next pull request instead. **The
+alternative** is to read the next pull request's run
 instead, which costs nothing extra and arrives whenever the next change does.
 
 ## Premises
@@ -100,9 +120,9 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
   post steps 3 s. The other jobs ended at: `frontend-test` +3.57 minutes, `e2e` +3.48,
   `sast` +1.17, `frontend-lint` +1.05, `image` +0.95, `backend-lint` +0.72, `guards` +0.48,
   `secrets` +0.17, `changes` +0.13; `ci-ok` started when `backend-test` ended and ran
-  2 s. Across the 21 CI runs since 2026-09-28 that ran `backend-test`, it took 5.0 to 11.7
-  minutes, most between 9.2 and 10.8 (same API, every run on the first page of
-  `actions/runs`).
+  2 s. Across the 20 CI runs since 2026-09-28 in which `backend-test` succeeded, it took
+  8.05 to 11.73 minutes, median 9.86 (corrected by F4, which re-read every run; the 5.0
+  was the job of a cancelled run).
 - **P2. The suite is 2,220 tests and takes 285 s locally, serially.**
   `uv run pytest -q --collect-only` on `8daeb30`: `2220 tests collected`. `uv run pytest -q
   -p no:cacheprovider --junitxml=...`: exit 0, `2217 passed, 3 xfailed`, 285.34 s. The
@@ -165,6 +185,15 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
   - The stdlib root handler on the next line, `logging.StreamHandler(sys.stdout)`, has the
     same binding but is replaced on every `configure_logging` call and reports a write
     error instead of raising it; nothing measured fails because of it. It is left alone.
+  - Corrected by F1: the stream is not what a logger caches in a deployment. `PrintLogger`
+    compares the file it was given with the `sys.stdout` structlog saw at import; when they
+    are the same object it calls `print` with no file, which looks `sys.stdout` up per
+    line. Only a file that is some other object is held and written to directly, and inside
+    a test using `capfd` or `capsys` it is.
+  - A second order dependence is left in place (F2). A cached logger also keeps the level
+    it was first used at, so a module logger first used under `info` drops `debug` lines
+    after a later `configure_logging("debug")`. No test fails because of it today, in any
+    shard or alone.
 - **P7. Two hazards are dormant in separate jobs and live when tests share a machine.**
   Read, not triggered: `tests/test_backup.py:397`, `tests/test_sign_in_codes.py:419` and
   `tests/fake_relay.py:280` pick a port by binding to port 0, closing the socket, then
@@ -189,7 +218,8 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
   1.74 times the container's serial time (598 / 344) is 244 s, plus 45 s: about 4.8
   minutes per job, 4.9 for the run. Under xdist alone, 257 s x 1.74 = 447 s plus 45 s:
   about 8.2 minutes, which misses the target. These hold only if the runner's ratios are
-  the container's; AC12 is where they are measured.
+  the container's; AC12 is where they are measured. F4 puts a band on the figure for A:
+  3.3 to 4.2 minutes.
 - **P10. What it costs.** The organisation is on GitHub Team (`gh api orgs/glosswork --jq
   .plan.name` reads `team`), which includes 3,000 Actions minutes a month, with Linux
   2-core minutes beyond that at $0.006
@@ -236,11 +266,14 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
 
 ## What changes
 
-- `src/glosswork/logging.py`: `configure_logging` hands `PrintLoggerFactory` a writer
-  that resolves `sys.stdout` at each write (P6). One small class and one changed argument.
+- `src/glosswork/logging.py`: `configure_logging` calls `structlog.PrintLoggerFactory()`
+  with no `file` argument, so each line goes to `sys.stdout` as it is when the line is
+  written (P6, F1). One argument deleted, and a comment saying why it must stay deleted.
 - `tests/test_logging_stream.py` (new): a module logger first used while `sys.stdout` was a
-  test's buffer still writes after that buffer is closed and logging is configured again.
-  P6's reproduction, as a test.
+  test's buffer still writes after that buffer is closed and logging is configured again
+  (P6's reproduction, as a test); the line lands in the stream that is current when it is
+  written; and a bound logger can still be deep-copied. The first of these is also what
+  fails if a structlog upgrade ever stops looking `sys.stdout` up per line (F1).
 - `tests/conftest.py`: `pytest_addoption` adds `--shard k/N`; `pytest_collection_modifyitems`
   keeps the tests whose `zlib.crc32(nodeid) % N == k - 1` and reports the rest through
   `pytest_deselected`. Without `--shard`, nothing changes. A value that is not two positive
@@ -248,13 +281,19 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
 - `.github/workflows/ci.yml`: `backend-test` becomes `backend-test-1` to `backend-test-4`,
   each the same steps as today with `--shard k/4` on the `pytest` line and the artifact
   named `backend-junit-k`. `ci-ok` needs all four, and its heavy loop names all four. The
-  header says why the parts are separate jobs and not a matrix (P14).
+  header says why the parts are separate jobs and not a matrix (P14). Each shard's
+  `timeout-minutes` is 15, not today's 30: about four times its projected length, and what
+  `frontend-test` already uses (F7).
 - `tests/test_ci_workflow.py`: `HEAVY` names the four jobs in place of `backend-test`. New
   rules: the shard jobs are exactly `backend-test-1..N` for one N, their steps are identical
   except the `pytest` line's `--shard k/N` and the artifact name, each `k` from 1 to N
   appears once, and every shard's `pytest` line is otherwise today's line exactly; and,
   reading N from the workflow, `--collect-only` with each `--shard k/N` gives non-empty,
-  pairwise disjoint sets whose union is the unsharded collection.
+  pairwise disjoint sets whose union is the unsharded collection. That last rule is one
+  test function of its own. Two rules added by F3, because "identical steps" cannot see a
+  change made to all four shards alike: a shard job carries no `continue-on-error` and no
+  `env`, and its `pytest` step has no key but `run`; and no `PYTEST_ADDOPTS` appears
+  anywhere in the workflow.
 - `scripts/mutate_ci_workflow.py` (new), on the pattern of
   `scripts/mutate_release_workflow.py`: applies each mutation below to a copy of the
   workflow in a temporary directory, runs `tests/test_ci_workflow.py` against it, and
@@ -262,7 +301,17 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
   `backend-test-3` dropped from `ci-ok`'s `needs`; dropped from the heavy loop; deleted
   entirely; two jobs both `--shard 2/4`; one job `--shard 4/5`; one job without `--shard`;
   one shard given `-m "not structural"`; one shard `continue-on-error: true`; one shard's
-  `if` removed; one shard's `--collect-only` added.
+  `if` removed; one shard's `--collect-only` added. Added by F3, each applied to all four
+  shards at once: `continue-on-error: true` on the `pytest` step; `-x --maxfail=1 || true`
+  appended to the `pytest` line; `PYTEST_ADDOPTS: "--collect-only"` in the workflow's `env`.
+  The script deselects the partition rule when it runs a mutation, since no mutation
+  depends on it and it costs five collections each time (F6).
+- The same script also **runs** the gate, which no test does today (F3): it takes `ci-ok`'s
+  `run` script from the workflow, feeds it made-up job results through `NEEDS`, and exits 1
+  unless the script exits 0 for an all-green code change and for an all-skipped
+  documentation change, and exits 1 for each of: one shard `failure`, one shard `skipped`
+  on a code change, one shard `cancelled`, one shard `success` on a documentation change,
+  and one shard missing from `needs`. It needs `bash` and `jq`.
 - `CONTRIBUTING.md` "What CI runs": the `backend-test` row becomes the four shards, with one
   sentence on how tests are assigned and that the whole suite still runs once.
 - `AGENTS.md`: the Commands table gains "Run one CI shard locally": `uv run pytest -q
@@ -293,9 +342,11 @@ x64, so its absolute times are not the runner's; its ratios are the evidence.
    failed: the logging test with the `ValueError`; the workflow rules because the four jobs
    do not exist; the partition rule because `--shard` is not an option. Record the
    mutation script's output.
-2. Fix `src/glosswork/logging.py` (judgment area 2). Run `tests/test_logging_stream.py` and
-   the three files of P6 alone, and the four logging-asserting modules of P6.
-3. Add `--shard` to `tests/conftest.py`. Run AC5 and AC6.
+2. Fix `src/glosswork/logging.py` (judgment area 2): delete the `file` argument. Run
+   `tests/test_logging_stream.py` and the three files of P6 alone, and the four
+   logging-asserting modules of P6.
+3. Add `--shard` to `tests/conftest.py`. Refuse a bad value in `pytest_configure`, before
+   anything is collected (F6). Run AC5 and AC6.
 4. Change `.github/workflows/ci.yml`. Run `tests/test_ci_workflow.py` and
    `scripts/mutate_ci_workflow.py`.
 5. Update `CONTRIBUTING.md` and `AGENTS.md`.
@@ -314,7 +365,8 @@ a pipe.
   exit 0 each.
 - **AC3. The workflow rules pass, and every mutation breaks them.** `uv run pytest -q
   -p no:cacheprovider tests/test_ci_workflow.py`; exit 0. `uv run python
-  scripts/mutate_ci_workflow.py`; exit 0, with every mutation line reading `exit 1 (want 1)`.
+  scripts/mutate_ci_workflow.py`; exit 0, with every mutation line reading `exit 1 (want 1)`
+  and every gate case reading the exit code it wants (F3).
 - **AC4. The structural lane passes.** `uv run pytest -q -m structural`; exit 0.
 - **AC5. The shards partition the collection.**
   `uv run pytest -q --collect-only -p no:cacheprovider | grep '::' | sort > /tmp/gw28-all.txt`;
@@ -338,16 +390,116 @@ a pipe.
   uv.lock THIRD_PARTY_LICENSES.md`; exit 0.
 - **AC12. On GitHub, read by the dispatcher after the pull request's run (not by the
   verifier).** For the pull request's CI run and for the second run of judgment area 3:
-  `gh api repos/glosswork/glosswork/actions/runs/<id> --jq '[.created_at, .updated_at,
-  .conclusion]'` shows `success` and under 6 minutes between the two times; the jobs list
+  `gh api repos/glosswork/glosswork/actions/runs/<id> --jq '[.run_attempt,
+  .run_started_at, .updated_at, .conclusion]'` shows `success` and under 6 minutes between
+  the two times. The start is `run_started_at`, not `created_at`: a re-run keeps the first
+  attempt's `created_at`, so the second number would otherwise include the gap between the
+  two runs (F5). The first attempt is read before the re-run starts, or afterwards from
+  `actions/runs/<id>/attempts/1`. The jobs list
   shows `backend-test-1` to `backend-test-4` each `success`; the four `backend-junit-k`
   artifacts' `tests` attributes sum to the `--collect-only` count on that run's head
   commit. If a run is over 6 minutes, the report gives each job's start and end so the
-  floor and what sets it are stated, which the task accepts in place of the target.
+  floor and what sets it are stated, which the task accepts in place of the target. A run
+  whose first job started more than a minute after `run_started_at` waited behind another
+  run of the same pull request and is not a sample (F4).
 
 ## Adversarial pass
 
-Not yet run. A different agent runs it next.
+Run once, 2026-10-05, by a different agent from the planner (Opus 5.5). Everything below was
+run in a scratch worktree of `24c755e` with its own `.venv`, on Chris's Mac, and the
+worktree was removed afterwards. **The design stands: four named shard jobs, a hash of the
+node id, and a logging fix in product code. No finding changes the mechanism, adds a
+component or adds an entry to the full-lane list, so no second pass is needed.** F1 changes
+how the logging fix is written and is the one finding to read before approving.
+
+What the pass reconstructed and found to hold:
+
+- **P6's failure.** On the unmodified tree, `tests/test_schema_engine.py`,
+  `tests/test_mcp_transport.py` and `tests/test_rest_actor_resolution.py` each exit 1 alone
+  (1 failed; 3 failed and 17 errors; 1 failed and 2 errors), each log naming `I/O operation
+  on closed file`. P6's reproduction outside pytest raises the same `ValueError`.
+- **P4 and P12.** `--shard k/4` from a `tests/conftest.py` hook collects 550, 560, 556 and
+  554; the four lists sorted together are byte-identical to the unsharded 2,220 (`cmp`
+  exit 0, 2,220 unique). Two unsharded collections under `PYTHONHASHSEED=1` and `987` are
+  byte-identical, and no node id carries a memory address or an absolute path, so a test
+  cannot hash into a different shard on a different runner. The same collections succeed
+  with `models/` and `web/node_modules` absent, which is the `guards` job's situation, so
+  the partition rule can run in the structural lane.
+- **The gate.** `ci-ok`'s script, taken from the workflow with the four shard names put in
+  its loop and fed made-up results, exits 0 for all green and for a documentation change,
+  and exits 1 for a shard that failed, was skipped on a code change, was cancelled,
+  succeeded on a documentation change, or is absent from `needs`.
+
+Findings:
+
+- **F1. The logging fix is one deleted argument, not a new class; folded into judgment
+  area 2.** `PrintLogger.msg` in structlog 26.1.0 reads `f = self._file if self._file is
+  not stdout else None`, then `print(message, file=f, flush=True)`, where `stdout` is
+  `sys.stdout` as structlog saw it at import. So a deployment already looks `sys.stdout` up
+  on every line: with the unmodified file, a line logged after `sys.stdout` is swapped
+  lands in the swapped stream. The failure needs the stream handed in at configure time to
+  be a different object from the import-time one, which only a test's `capfd` or `capsys`
+  arranges. `PrintLoggerFactory()` removes that case. Measured with it: P6's reproduction
+  exits 0; the three files exit 0 alone (80, 25 and 4 passed), two of them also under `-s`;
+  the four log-asserting modules exit 0 alone; the four shards exit 0 with 549, 559, 556
+  and 553 passed and 3 xfailed between them; the unsharded suite exits 0 with `2217
+  passed, 3 xfailed` in 265 s; `mypy` and `ruff check` pass on the file. The plan's writer
+  class was reconstructed too and passes the same files and all four shards, but with it
+  `copy.deepcopy(logger)` and `pickle.dumps(logger)` raise where they succeed today. What
+  the deleted argument leans on is structlog's `print`-based behaviour, documented in
+  `PrintLogger`'s docstring since 22.1.0 and pinned here at `structlog==26.1.0`;
+  `tests/test_logging_stream.py` fails if an upgrade changes it, and a deployment would be
+  unaffected either way because its `sys.stdout` never changes.
+- **F2. The fix removes this order dependence, not every one; noted in P6 and the AGENTS
+  trap.** `cache_logger_on_first_use=True` also freezes the level filter: a logger first
+  used at `info` stays at `info` after `configure_logging("debug")`, while a logger first
+  used afterwards honours `debug`. Reproduced outside pytest, under every variant of the
+  fix. Dormant today. The trap added to `AGENTS.md` names both, so a future file that
+  passes in the suite and fails in a shard has somewhere to start.
+- **F3. Nothing would have run the gate, and every planned mutation changed one shard
+  only; both folded into "What changes" and AC3.** The task asks that `ci-ok` fail when a
+  part fails or is skipped. `tests/test_ci_workflow.py` reads the script's two `for` loops
+  with a regular expression and never executes it, so the plan proved that clause by shape
+  alone. The mutation script now runs the gate against made-up results. Separately, "the
+  shards' steps are identical" passes when the same weakening is applied to all four, so
+  the rules now forbid `continue-on-error`, a job `env`, extra keys on the `pytest` step
+  and `PYTEST_ADDOPTS`, with three all-shard mutations to prove it. A dropped or
+  duplicated shard was already caught: by the existing rules 2, 3 and 4 once `HEAVY` names
+  the four, and by the `k` rule.
+- **F4. "About 3.9 minutes" rested on one run; the band is 3.3 to 4.2, and the target holds
+  across it.** Re-read from the jobs API for all 23 CI runs since 2026-09-28. In the 18
+  that did not wait behind another run, the last job other than `backend-test` ended
+  between +3.22 and +3.88 minutes in 17 of them (median of all 18: 3.64) and at +5.38 in
+  one, when `image` took 5.2 minutes; a run like that one would take about 5.5 whatever
+  the shards do. `backend-test` took 8.05 to 11.73 minutes against the 10.63 the projection
+  scales from, so the slowest shard's job is about 2.9 to 3.9 minutes, starting at about
+  +0.2. `ci-ok` adds 5 to 8
+  seconds. Locally, with F1's fix, the shards ran in 69, 62, 79 and 65 s against 265 s
+  unsharded: the split costs 10 s in total for fixtures set up in more than one shard, and
+  the largest shard is 30 percent of the suite, which agrees with P4's 171 of 588. Two runs
+  spent 5.4 and 11.9 minutes waiting for an earlier run in the same concurrency group
+  before any job started; AC12 now sets such a run aside.
+- **F5. AC12 would have measured the re-run from the wrong clock; folded into AC12 and
+  judgment area 3.** GitHub's API description says of `run_started_at`: "The start time of
+  the latest run. Resets on re-run." (`github/rest-api-description`, read 2026-10-05).
+  `created_at` does not reset. Not established, because no run in this repository has a
+  second attempt (`run_attempt` is 1 on all 23): whether the agent token may call `gh run
+  rerun`, and whether `actions/upload-artifact` v7.0.1 accepts `backend-junit-k` again on
+  attempt 2.
+- **F6. Small things for the build.** One collection takes about 1.2 s here, so the
+  partition rule adds about 6 s to `guards` and to one shard; run under each of 13
+  mutations it would add over a minute for nothing, so the script deselects it. A bad
+  `--shard` value raised from the collection hook is reported after pytest has already
+  collected, so it is refused in `pytest_configure`. `uv run pytest -q -m structural
+  --shard 2/4` composes as expected (33 passed here).
+- **F7. A hung shard would hold the gate for 30 minutes; folded into "What changes".**
+  The shards inherit `timeout-minutes: 30` from a job that took 10. At 15 a hang is
+  reported in half the time and the limit is still nearly four times the slowest projected
+  shard.
+- **F8. Read, not folded.** On a model cache miss five jobs fetch the model at once (four
+  shards and `e2e`) where two do today; the cache key changes only with
+  `scripts/fetch_model.py`. Each shard also runs `npm ci` for the one test that needs it,
+  which is inside P1's 32 s of setup. Neither changes the design.
 
 ## Deviations from the approved plan
 
