@@ -559,6 +559,11 @@ request's own runs.
 
 ## Durable content moved out of this plan
 
-None yet. At closeout: the shard rule and the reason for named jobs go to
-`CONTRIBUTING.md` "What CI runs" and the `ci.yml` header; the logging trap goes to
-`AGENTS.md` "Traps".
+Moved at closeout, in the build's own commits (`6d588bd`) and checked at closeout:
+
+- The shard rule, the reason for four named jobs rather than a matrix, and the rules that
+  forbid weakening all four alike: `CONTRIBUTING.md` "What CI runs" and the `ci.yml` header.
+- The command to run one shard locally, and the logging trap (a logger that caches its
+  stream outlives its test, so a file fails alone or in one shard): `AGENTS.md` (commands
+  table and "Traps").
+- No entry in `docs/DESIGN_DECISIONS.md`: the change establishes no product rule.
