@@ -19,6 +19,7 @@ decisions, and institutional memory.
 | Install | `uv sync` |
 | Test | `uv run pytest -q` |
 | Structural guards only (what CI runs on every pipeline) | `uv run pytest -q -m structural` |
+| Run one CI shard locally (CI runs the suite as four) | `uv run pytest -q --shard 1/4` |
 | Lint | `uv run ruff check . && uv run ruff format --check .` |
 | Types | `uv run mypy src` |
 | Run locally | `uv run uvicorn glosswork.app:app --reload` |
@@ -398,6 +399,19 @@ Each of these cost real time at least once.
   `version()` reading `TLSv1.3`, which happens only when the server spoke TLS and the client
   accepted its certificate. `container_tests/test_tls_lock.py` is written that way, and
   `tests/test_infra.py` measures the server's own handshake raising, with no network.
+- **A logger outlives the test that first used it, so a file that passes in the suite can
+  fail alone or in a shard.** `cache_logger_on_first_use=True` makes a module-level logger keep
+  what it was built with the first time it logs, for the life of the process.
+  `configure_logging` once passed `file=sys.stdout`, so a logger first used inside a test
+  that captured output kept that test's buffer, which pytest closes when the test ends, and
+  every later line from it raised `ValueError: I/O operation on closed file` in some other
+  test. Three files failed when run alone and two of four shards failed; the single-process
+  suite passed only because of the order its files ran in. `PrintLoggerFactory()` now takes
+  no `file`, so each line goes to `sys.stdout` as it is when written
+  (`tests/test_logging_stream.py`). **The level is still cached the same way and nothing fixes
+  it:** a logger first used under `info` drops `debug` lines after a later
+  `configure_logging("debug")`. No test depends on that today. If a file ever passes in the
+  whole suite and fails alone or in one shard, look at what its loggers cached first.
 - **Reading an exit code through a pipe reads the pipe's.** `cmd | tail -1; echo $?` reports
   `tail`'s status, which is almost always 0. This is the same class as the green-tally trap above
   and it bit in the same session that trap is written from: `uv run ruff format --check .` piped

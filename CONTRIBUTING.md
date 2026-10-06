@@ -154,7 +154,7 @@ holds is checked by `--check`, which needs the network and is not run in CI.
 | `sast` | always | Semgrep with `p/python`, `p/javascript` and `p/typescript` |
 | `backend-lint` | code only | `ruff check .`, `ruff format --check .`, `mypy src` |
 | `frontend-lint` | code only | `npm --prefix web run lint`, `typecheck` |
-| `backend-test` | code only | the whole backend suite, with the real embedding model |
+| `backend-test-1` to `backend-test-4` | code only | the whole backend suite, with the real embedding model, as four shards: `uv run pytest -q --shard k/4` |
 | `frontend-test` | code only | `npm --prefix web run test` |
 | `e2e` | code only | the Playwright functional project |
 | `image` | code only | builds the image; never publishes it |
@@ -165,6 +165,21 @@ holds is checked by `--check`, which needs the network and is not run in CI.
 `tests/test_structural_lane.py` fails if a test that builds a path to a document, or searches
 the whole tree, is not in it. A push to `main` that is one merge commit on top of the previous
 `main` is classified the same way, because its tree is the tree the pull request's run tested.
+
+**The backend suite runs as four shards, and every test still runs exactly once.** Each
+shard is its own job on its own runner, running the tests whose node id hashes to it:
+`--shard k/N` (`tests/conftest.py`) keeps a test when `zlib.crc32` of its node id, modulo N,
+is k - 1. So the parts are disjoint, together they are the whole collection, and a test lands
+in the same shard on every machine. `uv run pytest -q` with no option still runs everything in
+one process. The shards are four named jobs rather than a matrix because `ci-ok` judges each
+job by `needs.<job>.result`, and GitHub does not document what that holds for a matrix's legs
+taken together. They are separate runners rather than workers inside one job because a
+private repository's runner has 2 vCPUs, where two workers measured only 1.34 times faster
+than one. `tests/test_ci_workflow.py` holds the four identical but for the shard number and
+the artifact name, forbids the ways to weaken all four alike, and checks that the shards'
+collections partition the suite. `uv run python scripts/mutate_ci_workflow.py` proves each of
+those rules can fail, and runs `ci-ok`'s script against made-up job results, which no test
+does; run it when changing the workflow.
 
 **Why the skip is per job.** GitHub leaves a required check from a workflow skipped by a path
 filter "Pending" forever, which blocks the merge, and reports a job skipped by `if` as
