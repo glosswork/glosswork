@@ -482,7 +482,7 @@ assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
 
 ## Checklist
 
-1. Write the backend assertions and run them against the unfixed tree, recording how each
+1. **Done.** Write the backend assertions and run them against the unfixed tree, recording how each
    fails: the setting is read; blank and whitespace alone are unset; a value with a
    trailing space or newline is accepted; each of no offset, a bare date, `1790000000`,
    `1790000000.5`, `-1`, a value wrapped in quotes, `9999-12-31T23:59:59-14:00` and
@@ -492,7 +492,16 @@ assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
    `trial: null` unset and the object set, with `subscribe_url` null when that is unset;
    the key set is exactly five; `GET /api/v1/usage` answers 200 with the operator
    credential when a trial end is set. Every test name contains `trial`, which AC1 reads.
-2. Add the trial server to `web/playwright.config.ts` and `web/e2e/constants.ts`
+   **Measured on the unfixed tree:** 30 failed, 2 passed. Twelve failed with
+   `AttributeError: 'Settings' object has no attribute 'trial_ends_at'`, nine with
+   `DID NOT RAISE ConfigError`, five on a document with no `trial` key, the two key pins
+   on the missing fifth key, one on `.env.example`, and one on a log line that was never
+   written. **The two that passed are fences and are not counted:** the usage read with a
+   trial end set answers 200 on the unfixed tree because the setting is ignored there,
+   and it can fail only if building the `trial` value raises (the mutation that converts
+   per request fails at startup instead, on the two out-of-range assertions); and "no
+   log line when unset" cannot fail on a tree that never writes the line.
+2. **Done.** Add the trial server to `web/playwright.config.ts` and `web/e2e/constants.ts`
    (port 8936, its own data directory, `GW_AUTH_MODE=standalone`, embedding off,
    `GW_TRIAL_ENDS_AT=2030-01-02T00:00:00Z`,
    `GW_SUBSCRIBE_URL=https://subscribe.example.com/e2e`, and, as the emailed-code server
@@ -517,23 +526,34 @@ assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
    than `window.innerHeight`. The `shell.spec.ts` assertion follows the constraint from
    F3: wait for `workspace-people-agents`, read `GET /api/v1/workspace` in the same run
    and assert its `trial` is `null`, then assert the banner's count is 0.
-3. Add the setting, its validator and the startup log line to `src/glosswork/config.py`
+   **Measured on the unfixed tree:** all five scenarios failed. The four on the trial
+   server each passed the password sign-in with the clock already pinned and then failed
+   at `trial-time-left`, element not found, which settles what P11 left open. The
+   `shell.spec.ts` assertion failed at `toHaveProperty("trial", null)`, the document
+   having no such key. See D2 and D3 for the two things this step could not do as
+   written.
+3. **Done.** Add the setting, its validator and the startup log line to `src/glosswork/config.py`
    and `src/glosswork/app.py`, and the entry to `.env.example`. Step 1's settings
    assertions pass.
-4. Add the `trial` value to `WorkspaceService.get_workspace` and to `workspace_doc`, and
+4. **Done.** Add the `trial` value to `WorkspaceService.get_workspace` and to `workspace_doc`, and
    rewrite the four-key pin as a five-key pin in both places it appears. Step 1's document
    assertions pass.
-5. Write the unit tests for the pure function and run them failing, then add
+5. **Done.** Write the unit tests for the pure function and run them failing, then add
    `web/src/app/trialCountdown.ts`: `24:00` at exactly a day, `23:59` one minute in, `00:01`
    at 30 seconds left, `ended` at zero and after, more than 99 hours unpadded, an
    unparseable end time yields nothing.
-6. Add the `trial` field to `WorkspaceDoc`, the clock hook, `TrialBanner.tsx` and its
+   **Measured** against a module that exported the names and returned nothing, so that
+   the failures were assertions and not a missing import: 8 of 9 failed. The ninth, "an
+   unparseable end time yields nothing", passes against a function that always yields
+   nothing, so it was first measured by the implementation, which without its check
+   renders `NaN:NaN`.
+6. **Done.** Add the `trial` field to `WorkspaceDoc`, the clock hook, `TrialBanner.tsx` and its
    component tests, and render it from `Shell`. Add two tests beside them: `App` given a
    workspace document with no `trial` key renders the shell and no banner (P24), and the
    workspace query is fetched a second time when the window regains focus (P22). The
    existing fixtures in `web/src/App.test.tsx` are left without the key on purpose; they
    are the first of those two tests' evidence. Step 2's specs pass.
-7. Mutations, each built before its failure is believed (AGENTS.md, Traps), each
+7. **Done.** Mutations, each built before its failure is believed (AGENTS.md, Traps), each
    reverted: render the banner unconditionally (the `shell.spec.ts` absence assertion and
    the unset component test must fail); round down instead of up (the `00:01` assertions
    must fail); make `ended` never fire (the ended scenario must fail); send
@@ -546,11 +566,43 @@ assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
    digits-only check (the `1790000000.5` and `-1` assertions must fail, F5); format the
    end time per request instead of at startup (the two out-of-range startup assertions
    must fail, F4).
-8. Run the whole suite once: the Accept block, in order.
+   **Measured, all nine, each on a tree that built (`npm run build` exit 0, or the module
+   imported), each reverted with `git checkout`:**
+
+   | Mutation | What failed |
+   | --- | --- |
+   | Banner rendered unconditionally | `shell.spec.ts` absence: count 1, expected 0. Both unset tests in `App.test.tsx` |
+   | Rounded down | `00:01` in the spec read `00:00`; three unit tests |
+   | `ended` never fires | The spec read "Your trial has 00:00 left." for "Trial ended."; five unit tests |
+   | `subscribe_url` at the top level | The five-key pin, in both places |
+   | Banner for any arrived document | `shell.spec.ts` absence: count 1, expected 0. Both unset tests in `App.test.tsx` |
+   | No timer in the clock hook | The one-page scenario at its second reading: `23:59` for `00:01`; two unit tests |
+   | Strip above the shell | Both placement scenarios: scroll height 836 for 800, the strip outside `<main>`, and at 1280 the signed-in block's bottom edge at 835.9 |
+   | Digits-only check | `1790000000.5` and `-1` did not refuse startup |
+   | UTC conversion per request | Both out-of-range values did not refuse startup |
+8. **Done.** Run the whole suite once: the Accept block, in order. Results are under each clause below.
 
 ## Accept
 
 Each is run from the repository root and its exit code read directly, not through a pipe.
+
+**The build's own run, 2026-10-08, at `95f527e`, once, in order.** This is the builder's
+record and not the verification, which a different session runs.
+
+| Clause | Result |
+| --- | --- |
+| AC1 | Exit 0, 112 passed. The collection exits 0 and lists 31 tests |
+| AC2 | Exit 0: 2,254 passed, 3 xfailed |
+| AC3 | `ruff check` exit 0; `ruff format --check` exit 0 |
+| AC4 | Exit 0 |
+| AC5 | lint exit 0; typecheck exit 0; test exit 0, 1,107 passed in 104 files |
+| AC6 | Exit 0, 82 passed, no `flaky` line; the listing exits 0 and names the countdown scenario, the `/setup` scenario and the placement scenario at both sizes |
+| AC7 | Exit 0, 49 passed; `git status --porcelain` over the baselines prints nothing |
+| AC8 | `git ls-files --error-unmatch` exit 0; `git diff --quiet` against merge base `85bea5a` exit 0 |
+| AC9 | Passed inside AC6: "a workspace with no trial end set shows no trial banner" |
+| AC10 | Prints nothing |
+| AC11 | Prints 0, exit 1, the expected answer |
+| AC12 | Exit 0, 107 passed |
 
 - **AC1.** `uv run pytest -q tests/test_config.py tests/test_api_workspace.py tests/test_operator_usage.py`
   exits 0. Then
@@ -595,12 +647,25 @@ unchanged when `trial` is null. No baseline shows the banner, so its look is pro
 nothing here: the placement scenario proves where it sits, and locator assertions prove
 what it says. Any repaint is a finding and stops the build.
 
-Actual: to be recorded at build.
+Actual: 0 of 41. The visual project passed, 49 of 49, and no baseline file changed.
 
 ## Questions for the maintainer
 
 None of these is decided by this plan. Each has a recommendation, and the build uses the
 answer given at approval.
+
+**Answered by the maintainer on 2026-10-08, with the approval of this plan as written at
+`85ba862` ("PROD-04 approve"). The build uses these exactly.**
+
+- **Q-A:** "Your trial has 23:59 left." then a "Subscribe" link; after the end, "Trial
+  ended." with the same link; a screen reader says "23 hours 59 minutes left", with
+  "1 hour" and "1 minute" in the singular.
+- **Q-B:** everyone signed in.
+- **Q-C:** a trial end set with no subscribe address shows the countdown with no link.
+- **Q-D:** the customer's own device clock runs the countdown.
+- **Q-E:** the strip sits at the head of the main column.
+- **Q-F:** every credential on a trial workspace may read the subscribe address, under
+  the written rule that the address never holds a secret.
 
 **Q-A. The words.** Drafts, following docs/DESIGN.md section 5 (sentences, no exclamation
 marks, a control says what happens):
@@ -695,7 +760,58 @@ under Q-E.
 
 ## Deviations from the approved plan
 
-None yet.
+Recorded as each happened, during the build of 2026-10-08.
+
+- **D1. The time's words reach a screen reader as a second, visually hidden sentence, not
+  as a label on the digits.** "What changes" says the time carries an accessible label in
+  words. Measured in Chromium's accessibility tree before the component was written: for
+  a paragraph "Your trial has 23:59 left." whose digits sit in a `span` with
+  `aria-label="23 hours 59 minutes left"`, the tree reads `paragraph: Your trial has 23:59
+  left.` The label is not there, because a plain `span` takes no name. Had it been
+  honoured, the sentence would also have said "left" twice. So the strip renders the
+  visible sentence hidden from assistive technology and, beside it, the same sentence
+  with the time in words, visually hidden: the tree then reads `paragraph: Your trial has
+  23 hours 59 minutes left.` The approved words are unchanged. The Playwright spec
+  asserts the accessibility tree itself, at `23:59`, at `00:01` and after the end. One
+  more test id exists than the plan lists: `trial-message` is the visible sentence, and
+  `trial-message-spoken` the spoken one.
+- **D2. The placement scenario runs on `/people`, not on `/setup`.** Step 2 calls `/setup`
+  "a page shorter than the window". It is not, for an administrator: measured on the
+  trial server at 1280 by 800, `/setup` is 1570 pixels tall without the strip and 1606
+  with it, and at 800 by 800 it is 1632 and 1668. So "scroll height equals the window's
+  height" fails there with the strip in the right place. `/`, `/people`, `/inbox`,
+  `/activity`, `/search` and `/schema` each measured 800 with and without the strip at
+  both sizes, with the strip's top edge at the top of `<main>` (0 wide, 62 narrow), which
+  are P17's numbers. The scenario uses `/people`, a fixed route that does not depend on
+  which object types exist, and first asserts that the page is no taller than the window
+  with the strip hidden, so a page that grows later fails with that sentence and not with
+  a wrong one about the strip. The separate scenario that the banner is present on
+  `/setup` is as planned.
+- **D3. The narrow placement scenario signs in at 1280 and then resizes to 800.** Below
+  the breakpoint the signed-in block that the shared sign-in helper waits for is inside a
+  closed menu, so a sign-in at 800 fails at the helper. Every existing narrow scenario
+  does the same.
+- **D4. The copy constant is pinned to the approved words by one unit test, and the
+  Playwright spec writes the sentences out.** Judgment area 6 says the component and its
+  tests take the copy from one constant so a wording change is one line. The component
+  tests do. But a test that imports the constant it checks cannot fail when the constant
+  changes, and these are words the maintainer approved, so `trialCountdown.test.ts` has
+  one test that writes them out and `e2e/trial-banner.spec.ts` asserts the sentences as a
+  customer reads them. A wording change is therefore the constant, that one test, and the
+  spec.
+
+Three things the build wrote that the approved answers do not settle. None changes an
+approved word, and each is the maintainer's to change:
+
+- **A zero is spoken as written.** With 30 seconds left a screen reader is given "Your
+  trial has 0 hours 1 minute left.", and at exactly a day "24 hours 0 minutes left". The
+  answer to Q-A gives the form and the two singulars and says nothing about dropping a
+  zero, so nothing is dropped.
+- **The strip's accessible name is "Trial".** The plan calls it a labelled region and
+  gives no label.
+- **The startup log line `trial_end_set` and the `.env.example` comment** are operator
+  text, written here; the refusal sentence is "must be an ISO 8601 date and time with a
+  UTC offset or Z, such as 2026-10-09T15:00:00Z", after the variable's name.
 
 ## Durable content moved out of this plan
 
