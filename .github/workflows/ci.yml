@@ -14,8 +14,12 @@
 # every other job, and fails unless each one ended the way the classification allows,
 # including when `changes` itself failed and the heavy jobs skipped as a consequence.
 #
+# The backend suite runs as four shard jobs, `backend-test-1` to `backend-test-4`; the
+# comment above them says why.
+#
 # tests/test_ci_workflow.py pins this shape, and tests/test_ci_changes.py the
-# documentation rule. A change to this file is a change to what judges every change:
+# documentation rule. scripts/mutate_ci_workflow.py proves the shard rules can fail and
+# runs `ci-ok`'s script against made-up results. A change to this file is a change to what judges every change:
 # say so in the plan (CONTRIBUTING.md, "What CI runs").
 
 name: CI
@@ -208,11 +212,18 @@ jobs:
       - run: npm --prefix web run lint
       - run: npm --prefix web run typecheck
 
-  backend-test:
+  # The backend suite, as four shards. Each job runs the tests whose node id hashes to it
+  # (`--shard k/4`, tests/conftest.py), so every test runs in exactly one of them. They are
+  # four named jobs and not a matrix: `ci-ok` judges each job by `needs.<job>.result`, and
+  # what that holds for a matrix's legs taken together is not documented. Private
+  # repositories get 2-vCPU runners, where workers inside one job measured only 1.34 times
+  # faster; separate runners are what shorten the wait. The four are identical but for
+  # the shard number and the artifact name, and tests/test_ci_workflow.py keeps them so.
+  backend-test-1:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -236,11 +247,119 @@ jobs:
       # DD-32: the real-model fixtures fail rather than skip without the model. The script
       # verifies the digest on a cache hit too.
       - run: uv run python scripts/fetch_model.py
-      - run: uv run pytest -q --junitxml=report.xml
+      - run: uv run pytest -q --junitxml=report.xml --shard 1/4
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: backend-junit
+          name: backend-junit-1
+          path: report.xml
+          retention-days: 7
+
+  backend-test-2:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      # tests/test_generated_api_types_fresh.py runs `npx --prefix web openapi-typescript`.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch_model.py') }}
+      - run: uv sync --frozen
+      - run: npm --prefix web ci
+      # DD-32: the real-model fixtures fail rather than skip without the model. The script
+      # verifies the digest on a cache hit too.
+      - run: uv run python scripts/fetch_model.py
+      - run: uv run pytest -q --junitxml=report.xml --shard 2/4
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-junit-2
+          path: report.xml
+          retention-days: 7
+
+  backend-test-3:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      # tests/test_generated_api_types_fresh.py runs `npx --prefix web openapi-typescript`.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch_model.py') }}
+      - run: uv sync --frozen
+      - run: npm --prefix web ci
+      # DD-32: the real-model fixtures fail rather than skip without the model. The script
+      # verifies the digest on a cache hit too.
+      - run: uv run python scripts/fetch_model.py
+      - run: uv run pytest -q --junitxml=report.xml --shard 3/4
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-junit-3
+          path: report.xml
+          retention-days: 7
+
+  backend-test-4:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      # tests/test_generated_api_types_fresh.py runs `npx --prefix web openapi-typescript`.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: models
+          key: model-${{ hashFiles('scripts/fetch_model.py') }}
+      - run: uv sync --frozen
+      - run: npm --prefix web ci
+      # DD-32: the real-model fixtures fail rather than skip without the model. The script
+      # verifies the digest on a cache hit too.
+      - run: uv run python scripts/fetch_model.py
+      - run: uv run pytest -q --junitxml=report.xml --shard 4/4
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-junit-4
           path: report.xml
           retention-days: 7
 
@@ -312,7 +431,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, guards, secrets, sast, backend-lint, frontend-lint, backend-test, frontend-test, e2e, image]
+    needs: [changes, guards, secrets, sast, backend-lint, frontend-lint, backend-test-1, backend-test-2, backend-test-3, backend-test-4, frontend-test, e2e, image]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -332,7 +451,7 @@ jobs:
             r=$(result "$job")
             [ "$r" = success ] || { echo "::error::$job ended $r; it must succeed on every change"; fail=1; }
           done
-          for job in backend-lint frontend-lint backend-test frontend-test e2e image; do
+          for job in backend-lint frontend-lint backend-test-1 backend-test-2 backend-test-3 backend-test-4 frontend-test e2e image; do
             r=$(result "$job")
             [ "$r" = "$heavy_ok" ] || { echo "::error::$job ended $r; with code=$code it must end $heavy_ok"; fail=1; }
           done
