@@ -31,6 +31,7 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { useAuth } from "./auth/useAuth";
 import { Sidebar } from "./app/Sidebar";
 import { ShellTopBar } from "./app/ShellTopBar";
+import { TrialBanner } from "./app/TrialBanner";
 import { useSearchHotkey } from "./app/useSearchHotkey";
 import { useIsWideViewport } from "./hooks/useIsWideViewport";
 import { useObjectTypes } from "./hooks/useObjectTypes";
@@ -82,6 +83,11 @@ function Shell() {
       {/* `min-w-0` is load-bearing beside a flex sibling: without it a wide table's intrinsic
           width pushes `main` past the viewport instead of scrolling inside its own card. */}
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+        {/* Only for a workspace on trial: a document that has arrived and whose `trial` is an
+            object. `null` and no key at all are the same case, and then nothing is rendered
+            here, so a self-hosted workspace's markup is what it was. The first child of
+            `main`, so it sits at the head of the main column whichever shell is showing. */}
+        {workspace?.trial ? <TrialBanner trial={workspace.trial} /> : null}
         <Routes>
           <Route path="/" element={<IndexRoute />} />
           {/* Two routes, not one: below 960px `/inbox` is the list and

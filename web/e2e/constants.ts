@@ -253,15 +253,35 @@ export const RELAY_TOKEN = ["e2e", "relay", "token", "not", "a", "secret"].join(
 export const CODE_PORT = 8935;
 export const CODE_BASE_URL = `http://localhost:${CODE_PORT}`;
 
-function prepareCodeDataDir(): string {
-  const file = path.join(HERE, ".e2e-datadir-code");
+/** A fresh, empty data directory for a server that needs no credential prepared ahead of
+ * it, recorded for the workers the way the credentials above are. */
+function prepareBareDataDir(tag: string): string {
+  const file = path.join(HERE, `.e2e-datadir-${tag}`);
   if (isWorkerProcess()) return readFileSync(file, "utf8").trim();
-  const dataDir = mkdtempSync(path.join(tmpdir(), "gw-e2e-code-"));
+  const dataDir = mkdtempSync(path.join(tmpdir(), `gw-e2e-${tag}-`));
   writeFileSync(file, dataDir);
   return dataDir;
 }
 
-export const CODE_DATA_DIR = prepareCodeDataDir();
+export const CODE_DATA_DIR = prepareBareDataDir("code");
+
+/**
+ * The trial banner (change 30) runs against a fourth app server, configured as a workspace on
+ * trial: `GW_TRIAL_ENDS_AT` and `GW_SUBSCRIBE_URL` are set, sign-in is by password, and embedding
+ * is off. Its own server because the emailed-code server's first administrator is sent at most
+ * four codes a run against a cap of five an hour, and a banner spec signing in there would
+ * spend the fifth. Its first administrator comes from `GW_BOOTSTRAP_ADMIN_*`, as that server's
+ * does: started with no account, sign-in answers 401.
+ *
+ * The end time is far in the future and fixed, because the spec pins the browser's clock
+ * around it (`page.clock.setFixedTime`) rather than waiting: the countdown is the browser's own
+ * arithmetic on the browser's own clock, so nothing here depends on today's date.
+ */
+export const TRIAL_PORT = 8936;
+export const TRIAL_BASE_URL = `http://localhost:${TRIAL_PORT}`;
+export const TRIAL_ENDS_AT = "2030-01-02T00:00:00Z";
+export const TRIAL_SUBSCRIBE_URL = "https://subscribe.example.com/e2e";
+export const TRIAL_DATA_DIR = prepareBareDataDir("trial");
 
 /**
  * Drives the real `/login` screen with an arbitrary local account's credentials, and waits for
