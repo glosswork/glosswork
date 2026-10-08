@@ -54,14 +54,24 @@ The maintainer approves each of these in this plan before any code.
    that is the operator's restart, on the operator's clock. Considered and declined: the
    server sending seconds remaining, or its own time for the browser to correct against.
    Either is more accurate on a wrong clock and both make the end-to-end test unable to
-   set the time it asserts on without a test-only server setting. The adversarial pass
-   should attack this choice.
+   set the time it asserts on without a test-only server setting.
+
+   **Amended by the adversarial pass (F14).** The two directions are not equal. A clock
+   that runs ahead says "Trial ended" early, on a workspace that still works. A clock that
+   runs behind is the one that matters: the banner promises time that does not exist, and
+   a save is refused while it still reads, say, "00:10 left". And the reason above for
+   declining server time is stronger than the facts: an end-to-end test could still assert
+   it, with an end time computed when the test server starts and a looser assertion, at
+   the price of losing the exact `HH:MM` scenarios and the crossing scenario. The design
+   stays as written. The choice is the maintainer's, under Q-D, with both costs stated.
 
 3. **"Trial ended" follows the end time, not the freeze.** The banner switches when the
    end time passes. The workspace freezes when the operator restarts it with
-   `GW_READ_ONLY=true`, which is the same moment by intent and some seconds later in
-   practice, plus the restart (P5, P6). In that gap the banner says the trial has ended
-   and an edit still saves. The banner therefore claims only that the trial ended. It does
+   `GW_READ_ONLY=true`, which is the same moment by intent and later in practice: however
+   long the operator's scheduled freeze takes to run, plus the restart, during which every
+   request fails (P5, P6). How long that is was not measured here, because it is the
+   control plane's (F15). In that gap the banner says the trial has ended and an edit
+   still saves. The banner therefore claims only that the trial ended. It does
    not say the workspace is read-only, because for those seconds that would be false.
    Considered and declined: also sending whether the workspace is read-only and switching
    on either. It would make a self-hosted read-only workspace's document change, and it
@@ -70,9 +80,16 @@ The maintainer approves each of these in this plan before any code.
 4. **A new key on the workspace document, visible at `read` scope.** `trial` is `null`
    unless the end time is set, and otherwise an object with the end time and the subscribe
    address. Every signed-in person and every `read` token can therefore read the subscribe
-   address during a trial. That address is already given to every caller whose write is
-   refused (P5), and the hosting plan accepts that a subscribe link only lets someone pay
-   (PLAN Q64). On a self-hosted workspace the only difference is one key whose value is
+   address during a trial. **This is a new disclosure, not an existing one (F6).** The
+   first draft of this plan said the address is already given to every caller whose write
+   is refused. Measured, that is true only of a credential that could have written, and
+   only once the workspace is frozen: a `read` token's write is refused for its scope
+   first, with a 403 that carries no address, frozen or not (P16). So today no `read`
+   credential ever receives the address, and nobody receives it while a trial is running.
+   After this change both do. The hosting plan accepts that a subscribe link only lets
+   someone pay (PLAN Q64), which holds only while the address carries nothing secret, so
+   that becomes a written rule for the operator (Constraints, and docs/DEPLOYMENT.md at
+   closeout) and a question for the maintainer (Q-F). On a self-hosted workspace the only difference is one key whose value is
    `null`, as `mcp_url` is when `GW_BASE_URL` is unset.
 
 5. **Everyone signed in sees the banner, not only administrators.** A trial that ends
@@ -85,6 +102,14 @@ The maintainer approves each of these in this plan before any code.
 
 7. **A new design decision and a new requirement.** Proposed text is under "Durable
    content".
+
+8. **Where the strip sits (F2).** The first draft put it above the sidebar and the top
+   bar, full width. Built that way it pushes the page 35 pixels past the bottom of the
+   window on every screen and takes the sign-out control below the fold (P17). The plan
+   now puts it at the head of the main column: to the right of the sidebar on a wide
+   window, directly under the top bar on a narrow one. That placement was built and
+   measured with no overflow at three window sizes. It is a visible choice and is put to
+   the maintainer under Q-E.
 
 ## Premises
 
@@ -185,14 +210,28 @@ macOS, Node 22.17.1, pydantic 2.13.4, `@playwright/test` 1.62.1.
   `2026-10-09T12:00:01Z` it read `4 2026-10-09T12:00:01.000Z`. So one spec can assert an
   exact `HH:MM` against a fixed end time, then cross the end and assert "ended", with no
   waiting and no test-only server setting.
-  **Not established:** that the real application signs in and renders under a pinned
-  clock. Checklist step 2 establishes it before anything is built on it.
+  **Established by the adversarial pass, on a throwaway build of this plan (F10):** the
+  real application signs in with the clock pinned before navigation, and the banner
+  follows the clock when it is moved on an open page with no reload. Run: a
+  `playwright-core` 1.62.1 script against a real `uvicorn` on port 8941 serving a built
+  `web/dist`, with `GW_TRIAL_ENDS_AT=2030-01-02T00:00:00Z`. With the clock at
+  `2030-01-01T00:01:00Z` the banner read `23:59`; after `setFixedTime` to
+  `2030-01-01T23:59:30Z` it read `00:01`; after `2030-01-02T00:00:00Z` it read the ended
+  text with no time element. The same three readings came back with the browser's time
+  zone set to UTC, to Pacific/Kiritimati (14 hours ahead) and to America/St_Johns (a
+  half-hour zone). Checklist step 2 still checks it first, because the throwaway build is
+  not the build.
 
 - **P12. The existing hosted test server cannot carry this spec.** Read at
   `web/e2e/email-code.spec.ts:7-10`: its first administrator is sent at most four codes a
   run, retries included, against a cap of five an hour, and password sign-in is off there.
   A banner spec signing in on that server would spend the fifth and sixth. So the spec
-  gets its own server, with password sign-in. Ports 8931 to 8935 are taken
+  gets its own server, with password sign-in. **That server needs its own first
+  administrator (F12):** a server started with only a data directory, standalone sign-in,
+  embedding off and the two trial variables answers the e2e administrator's sign-in with
+  401, because nothing created the account. The emailed-code server gets its
+  administrator from `GW_BOOTSTRAP_ADMIN_EMAIL` and `GW_BOOTSTRAP_ADMIN_PASSWORD`, and
+  this one does the same. Ports 8931 to 8935 are taken
   (`web/e2e/constants.ts`); `grep -rn 8936 web/e2e web/playwright.config.ts` prints
   nothing.
 
@@ -214,13 +253,115 @@ macOS, Node 22.17.1, pydantic 2.13.4, `@playwright/test` 1.62.1.
   it must not call `levelAllows` and is not named `ReadOnlyBanner`. docs/DESIGN.md 7.5
   says the access banner is the only one that uses the human colour family.
 
+The premises below were established by the adversarial pass on 2026-10-08, on a throwaway
+build of this plan in a separate worktree at `a8604c8`, never committed. Each is a
+measurement, with the finding it supports.
+
+- **P16. A `read` credential is never handed the subscribe address today.** Run, against
+  a real server started with `GW_READ_ONLY=true` and `GW_SUBSCRIBE_URL` set:
+  `POST /api/v1/object-types` with a `read` token answers 403 `insufficient_scope` with
+  no address in the body; the same call with an `admin` token answers 409
+  `workspace_read_only` with the address. On a server that is not frozen the `read` token
+  gets the same 403. `GET /api/v1/workspace` with no credential answers 401. (F6)
+
+- **P17. The sidebar is exactly as tall as the window, so anything placed above the shell
+  is added to the page's height.** Read at `web/src/app/Sidebar.tsx:226` (`h-screen`) and
+  `web/src/App.tsx:80` (`min-h-screen`). Measured in Chromium at 1280 by 800 with a
+  35-pixel strip rendered above the shell: the sidebar ran from 35 to 835, the signed-in
+  block's bottom edge was at 835, and the document's scroll height was 835 against a
+  window of 800. Without the strip all three are 800. With the strip as the first thing
+  inside `<main>` instead, at 1280 by 800 the sidebar ran from 0 to 800, the strip from
+  0 to 35 at x 224, and the scroll height was 800; at 800 by 800 the strip sat from 62
+  to 97, directly under the top bar, with a scroll height of 800. (F2)
+
+- **P18. The operator's usage read calls the same service method.** Read at
+  `src/glosswork/services/usage.py:480`: `GET /api/v1/usage` calls
+  `WorkspaceService.get_workspace()`. So anything that can fail while that method builds
+  the `trial` value fails the hosting operator's read of the workspace as well as the
+  browser's. (F4)
+
+- **P19. An end time at the edge of the calendar is accepted at startup and fails at
+  request time, if the conversion to UTC is left to the request.** Run:
+  `GW_TRIAL_ENDS_AT=9999-12-31T23:59:59-14:00` loads; `timeutil.format_datetime` on it
+  raises `OverflowError: date value out of range`, and so does
+  `0001-01-01T00:00:00+14:00`. A server started that way answered `/readyz` with 200,
+  `GET /api/v1/workspace` with 500 `internal_error` and `GET /api/v1/usage` with 500, and
+  the shell rendered with no workspace block and no banner. (F4)
+
+- **P20. pydantic's type accepts more than a bare whole number.** Extending P7's table,
+  the same way: `1790000000.5` is accepted as `2026-09-21T14:13:20Z`; `-1` is accepted as
+  `1969-12-31T23:59:59Z`; `2026-10-09 15:00:00Z` with a space is accepted; a trailing
+  space, a trailing newline and a value wrapped in quotes are each refused; a value with
+  no offset is refused with pydantic's own sentence, "Input should have timezone info",
+  which names the variable through `load_settings` and gives no example. A check for
+  digits only refused `1790000000` and let `1790000000.5` and `-1` through. (F5)
+
+- **P21. The assertion "no banner once the signed-in block is visible" can pass on a
+  workspace that is about to show one.** The signed-in block comes from `GET /api/v1/me`
+  and the banner from `GET /api/v1/workspace`, two separate reads. Run, against the trial
+  server: with the workspace read held for 800 ms, the banner's count was 0 at the moment
+  `current-principal` became visible in 8 sign-ins of 8, and so was the count of
+  `workspace-people-agents`, the sidebar line drawn from the same document. With no
+  delay it was 0 of 8 on the home page, and it happened once unprompted on `/setup`. (F3)
+
+- **P22. An open tab re-reads the workspace document only when it is reloaded or returned
+  to.** Run: a tab open on the trial server while that server was restarted with no trial
+  end. Left alone for three seconds, and after a click on a sidebar link, the banner was
+  still there and no new read had been made. After a `visibilitychange` event the
+  document was read once and the banner was gone. That re-read is the query library's
+  default (`web/src/app/queryClient.ts` sets only `retry`), not something this
+  repository has chosen. (F11)
+
+- **P23. Two files in one directory whose names differ only in the case of one letter do
+  not build on macOS.** The first draft named `web/src/app/trialBanner.ts` beside
+  `web/src/app/TrialBanner.tsx`. Built that way, `npm run build` exited 2 with
+  `TS2305: Module '"./app/TrialBanner"' has no exported member` and `TS1261: Already
+  included file name ... differs from file name ... only in casing`. No two source files
+  in `web/src` differ only in case today. (F7)
+
+- **P24. The frontend's type check does not notice a workspace fixture without the new
+  key.** Run, with `trial` added to `WorkspaceDoc` as a required field:
+  `npm --prefix web run typecheck` exits 0. With the shell written as "render when
+  `workspace.trial !== null`", `npm --prefix web run test` exits 1: seven tests in
+  `web/src/App.test.tsx` fail with `TypeError: Cannot read properties of undefined
+  (reading 'ends_at')`, because their document has no `trial` key and `undefined` is not
+  `null`. (F8)
+
+- **P25. A clock hook called from `Shell` re-renders the whole shell every second.**
+  Measured over five seconds on the trial server: 5 renders of `Shell` with the hook
+  called there, 0 with the hook called inside the banner component. (F9)
+
+- **P26. This plan file, as first committed, fails a guard that runs on every pipeline.**
+  Run on a clean checkout of `a8604c8`:
+  `uv run pytest -q tests/test_documentation_structure.py` exits 1,
+  `test_every_cited_design_decision_exists` naming this file, because the proposed
+  requirement text cited the new decision by a number that has no heading yet. The guard
+  is in the structural lane. With the citation written in words the same command exits
+  0. (F1)
+
 ## What changes
 
 **The setting.** `Settings.trial_ends_at`, from `GW_TRIAL_ENDS_AT`. Optional. Blank is
 unset. Anything else must be an ISO 8601 date and time with a UTC offset or `Z`, such as
-`2026-10-09T15:00:00Z`; a value with no offset, a bare date or a bare number refuses
-startup, naming the variable and giving that example. A time already in the past is
-legal: a frozen workspace is restarted with it. It may be set without `GW_SUBSCRIBE_URL`,
+`2026-10-09T15:00:00Z`. The rule, restated after F4 and F5 so that each part is testable:
+
+- Leading and trailing whitespace is removed first, so a stray space or newline is not a
+  refusal.
+- **Any value Python's `float()` accepts is refused**, before the datetime type sees it.
+  That covers `1790000000`, `1790000000.5` and `-1` (P20), which the type would otherwise
+  read as seconds since 1970.
+- A value with no offset and a bare date are refused.
+- **The value is converted to UTC once, at startup, and a value that cannot be converted
+  is refused there** (P19). What the setting holds afterwards is a UTC time that
+  `format_datetime` cannot fail on.
+- **Every refusal of this variable is the same sentence**, naming `GW_TRIAL_ENDS_AT` and
+  giving the example above, whichever rule refused it. pydantic's own wording does not
+  reach the operator for this variable (P20).
+
+A time already in the past is legal: a frozen workspace is restarted with it. A time far
+in the future is legal too, and reads oddly rather than wrongly: the banner shows
+`100:00` for a hundred hours and `8760:00` for a year, so an operator who mistypes the
+year gets a banner that says so (F16). It may be set without `GW_SUBSCRIBE_URL`,
 and then the banner has no link. `.env.example` ships it blank with a comment. At startup,
 when it is set, one `info` line `trial_end_set` carries the end time and whether a
 subscribe address is set, as `read_only_mode` does for the freeze.
@@ -228,6 +369,8 @@ subscribe address is set, as `read_only_mode` does for the freeze.
 **The service.** `WorkspaceService.get_workspace` returns a `trial` value on the
 document: `None` when the setting is unset, and otherwise the end time and
 `settings.subscribe_url`. No clock is read on the server, and no database read is added.
+**Nothing in building that value can raise**: the conversion that could was done at
+startup (P19), because this method is also behind the operator's usage read (P18).
 
 **The document.** `GET /api/v1/workspace` gains a fifth key:
 
@@ -248,30 +391,50 @@ subscribe address and no trial sends nothing new.
 **The browser.** Three small pieces, with the logic outside the component (AGENTS.md
 non-negotiable 3):
 
-- `web/src/app/trialBanner.ts`: a pure function from the end time and a millisecond clock
-  reading to either `{ kind: "running", timeLeft }` or `{ kind: "ended" }`, and the copy
-  constants. `timeLeft` is hours and minutes left, each at least two digits, **rounded up
+- `web/src/app/trialCountdown.ts`: a pure function from the end time and a millisecond
+  clock reading to either `{ kind: "running", timeLeft }` or `{ kind: "ended" }`, and the
+  copy constants. The name is deliberately not the component's name in another case
+  (P23, F7). `timeLeft` is hours and minutes left, each at least two digits, **rounded up
   to the minute**, so a trial with 30 seconds left reads `00:01` and never `00:00`, and a
   full day reads `24:00`. At or after the end time the state is `ended`. An end time the
   browser cannot parse yields no banner.
-- A hook that returns the current time and re-renders once a second while a trial is
-  set, and sets no timer otherwise.
-- `web/src/app/TrialBanner.tsx`: one full-width strip above the sidebar or top bar,
-  `data-testid="trial-banner"`, with the time in `data-testid="trial-time-left"` and the
+- `web/src/app/useTrialClock.ts`: a hook that returns the current time and re-renders
+  its caller once a second. **It is called from the banner component and from nowhere
+  else**, so the shell and the page under it do not re-render with it (P25, F9). With no
+  trial the banner is not mounted, so no timer exists.
+- `web/src/app/TrialBanner.tsx`: one strip across the head of the main column (judgment
+  area 8, Q-E), `data-testid="trial-banner"`, with the time in `data-testid="trial-time-left"` and the
   link in `data-testid="trial-subscribe"`. The link opens the subscribe address in the
   same tab. The strip is a labelled region and is **not** a live region, so a screen
   reader is not interrupted every minute; the time carries an accessible label in words
   ("23 hours 59 minutes left"). It uses the `warn` tokens while running and the neutral
   ones once ended; it does not use the human family (P15).
 
-`Shell` in `web/src/App.tsx` renders the strip only when `workspace.trial` is not null.
-When it is null the rendered markup is what it is today, element for element.
+`Shell` in `web/src/App.tsx` renders the strip as the first child of `<main>`, before
+the routes, and only when the document has arrived and its `trial` is an object. **A
+document whose `trial` is `null` and a document with no `trial` key at all are the same
+case: no banner** (P24, F8). In that case the rendered markup is what it is today,
+element for element. The strip is in the page's normal flow and is not pinned: on a long
+page it scrolls away with the top of the page, as the page heading does. The strip
+cancels `<main>`'s own padding so that it runs edge to edge of the column; the sidebar,
+the top bar and their heights are not edited (P17).
+
+**What an open tab does (F11, P22).** The countdown itself is always right for the end
+time the tab holds, because it is recomputed from the clock on every tick and not
+counted down. What goes stale is the document. A tab that is open when the operator
+restarts the workspace with a different trial end, or with none after the person
+subscribes, keeps the banner it had until the person reloads or comes back to the tab,
+at which point the query library re-reads the document. This change adds no polling.
+It does pin that re-read with a test, since the banner now depends on a library default.
 
 **The tests.** Backend: settings parsing and refusals in `tests/test_config.py`; the
-document's two shapes and the rewritten key pin in `tests/test_api_workspace.py`. Frontend
-unit: the pure function's boundaries, and the component in its three states. End to end:
-a new server configured as a workspace on trial and `web/e2e/trial-banner.spec.ts`, plus
-one assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
+document's two shapes and the rewritten key pin in `tests/test_api_workspace.py`; one
+test in `tests/test_operator_usage.py` that the usage read answers with a trial end set.
+Frontend unit: the pure function's boundaries; the component in its three states; the
+shell with a document that has no `trial` key; and the workspace query re-reading when
+the window regains focus. End to end: a new server configured as a workspace on trial
+and `web/e2e/trial-banner.spec.ts`, which also asserts where the strip sits, plus one
+assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
 
 **The documents**, at closeout: see "Durable content".
 
@@ -294,6 +457,21 @@ one assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
 
 - With `GW_TRIAL_ENDS_AT` unset or blank, `document.querySelector('[data-testid="trial-banner"]')`
   is null on every page, and the shell's markup is unchanged.
+- **An assertion that the banner is absent is made only after the workspace document is
+  known to have arrived** (P21, F3): the test first waits for
+  `workspace-people-agents`, which is drawn from the same document. A presence assertion
+  is a retrying locator assertion, never a count read once.
+- The clock hook is imported by `TrialBanner.tsx` and by nothing else (F9).
+- With a trial set, a page shorter than the window does not scroll, and the signed-in
+  block stays inside the window (F2). This is a Playwright assertion, because layout is
+  never proven in jsdom.
+- Nothing on the request path can fail because of the trial end's value (F4).
+- The banner renders no clock time and no date, only a length of time, so no time zone
+  or daylight-saving rule can change what it says (F16).
+- The banner modules read no role, scope or access level, unless Q-B is answered
+  "administrators only" (F17).
+- `GW_SUBSCRIBE_URL` is treated as public to every credential on the workspace. The
+  operator never puts a token or any other secret in it (F6).
 - No business logic in the route or in the component's render body. The service composes
   the `trial` value; the pure function decides the state.
 - The server reads no clock for this feature.
@@ -305,14 +483,22 @@ one assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
 ## Checklist
 
 1. Write the backend assertions and run them against the unfixed tree, recording how each
-   fails: the setting is read; blank is unset; no offset, a bare date and a bare number
-   each refuse startup naming `GW_TRIAL_ENDS_AT`; a past time is accepted; `.env.example`
-   ships the name blank; the document has `trial: null` unset and the object set, with
-   `subscribe_url` null when that is unset; the key set is exactly five.
+   fails: the setting is read; blank and whitespace alone are unset; a value with a
+   trailing space or newline is accepted; each of no offset, a bare date, `1790000000`,
+   `1790000000.5`, `-1`, a value wrapped in quotes, `9999-12-31T23:59:59-14:00` and
+   `0001-01-01T00:00:00+14:00` refuses startup, and each refusal names `GW_TRIAL_ENDS_AT`
+   and contains the example `2026-10-09T15:00:00Z`; a past time is accepted; an offset
+   time is held as its UTC equal; `.env.example` ships the name blank; the document has
+   `trial: null` unset and the object set, with `subscribe_url` null when that is unset;
+   the key set is exactly five; `GET /api/v1/usage` answers 200 with the operator
+   credential when a trial end is set. Every test name contains `trial`, which AC1 reads.
 2. Add the trial server to `web/playwright.config.ts` and `web/e2e/constants.ts`
    (port 8936, its own data directory, `GW_AUTH_MODE=standalone`, embedding off,
    `GW_TRIAL_ENDS_AT=2030-01-02T00:00:00Z`,
-   `GW_SUBSCRIBE_URL=https://subscribe.example.com/e2e`), write
+   `GW_SUBSCRIBE_URL=https://subscribe.example.com/e2e`, and, as the emailed-code server
+   has them and for the reason in P12, `GW_BOOTSTRAP_ADMIN_EMAIL`,
+   `GW_BOOTSTRAP_ADMIN_PASSWORD`, `GW_COOKIE_SECURE=false`, `GW_BASE_URL`,
+   `GW_WORKSPACE_NAME` and `GW_LOGIN_IP_MAX_ATTEMPTS=1000`), write
    `web/e2e/trial-banner.spec.ts` and the `shell.spec.ts` assertion, and run them against
    the unfixed tree, recording how each fails. **First** confirm what P11 left open: with
    the clock pinned before navigation, the existing password sign-in reaches
@@ -322,6 +508,15 @@ one assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
    and the link's `href` is the configured address; with it at `2030-01-01T23:59:30Z` it
    reads `00:01`; after moving it to `2030-01-02T00:00:00Z` the banner reads the ended
    copy with no time element; the banner is present on `/setup` as well as `/`.
+   **The three clock readings are one scenario on one page, with no navigation and no
+   reload between them** (F10): that is the only thing that proves the countdown moves
+   by itself. One more scenario asserts where the strip sits (F2), at 1280 by 800 and at
+   800 by 800, on `/setup`, a page shorter than the window: the strip's top edge is at
+   the top of `<main>`; `document.documentElement.scrollHeight` equals
+   `window.innerHeight`; and at 1280 the bottom edge of `current-principal` is no lower
+   than `window.innerHeight`. The `shell.spec.ts` assertion follows the constraint from
+   F3: wait for `workspace-people-agents`, read `GET /api/v1/workspace` in the same run
+   and assert its `trial` is `null`, then assert the banner's count is 0.
 3. Add the setting, its validator and the startup log line to `src/glosswork/config.py`
    and `src/glosswork/app.py`, and the entry to `.env.example`. Step 1's settings
    assertions pass.
@@ -329,47 +524,76 @@ one assertion in `web/e2e/shell.spec.ts` that the ordinary server has no banner.
    rewrite the four-key pin as a five-key pin in both places it appears. Step 1's document
    assertions pass.
 5. Write the unit tests for the pure function and run them failing, then add
-   `web/src/app/trialBanner.ts`: `24:00` at exactly a day, `23:59` one minute in, `00:01`
+   `web/src/app/trialCountdown.ts`: `24:00` at exactly a day, `23:59` one minute in, `00:01`
    at 30 seconds left, `ended` at zero and after, more than 99 hours unpadded, an
    unparseable end time yields nothing.
 6. Add the `trial` field to `WorkspaceDoc`, the clock hook, `TrialBanner.tsx` and its
-   component tests, and render it from `Shell`. Step 2's specs pass.
+   component tests, and render it from `Shell`. Add two tests beside them: `App` given a
+   workspace document with no `trial` key renders the shell and no banner (P24), and the
+   workspace query is fetched a second time when the window regains focus (P22). The
+   existing fixtures in `web/src/App.test.tsx` are left without the key on purpose; they
+   are the first of those two tests' evidence. Step 2's specs pass.
 7. Mutations, each built before its failure is believed (AGENTS.md, Traps), each
    reverted: render the banner unconditionally (the `shell.spec.ts` absence assertion and
    the unset component test must fail); round down instead of up (the `00:01` assertions
    must fail); make `ended` never fire (the ended scenario must fail); send
-   `subscribe_url` at the top level of the document (the five-key pin must fail).
+   `subscribe_url` at the top level of the document (the five-key pin must fail). Added
+   by the adversarial pass: render the banner whenever the document has arrived, whether
+   or not it has a trial (the `shell.spec.ts` absence assertion must fail, F3); remove
+   the timer from the clock hook (the one-page clock scenario must fail at its second
+   reading, F10); move the strip out of `<main>` to above the shell (the placement
+   scenario must fail on scroll height, F2); replace the `float()` refusal with a
+   digits-only check (the `1790000000.5` and `-1` assertions must fail, F5); format the
+   end time per request instead of at startup (the two out-of-range startup assertions
+   must fail, F4).
 8. Run the whole suite once: the Accept block, in order.
 
 ## Accept
 
 Each is run from the repository root and its exit code read directly, not through a pipe.
 
-- **AC1.** `uv run pytest -q tests/test_config.py tests/test_api_workspace.py` exits 0,
-  and its collected tests include the ones step 1 names.
+- **AC1.** `uv run pytest -q tests/test_config.py tests/test_api_workspace.py tests/test_operator_usage.py`
+  exits 0. Then
+  `uv run pytest -q --collect-only -k trial tests/test_config.py tests/test_api_workspace.py tests/test_operator_usage.py`
+  exits 0 and its output lists a test for each clause of step 1. (Measured on the unfixed
+  tree: that second command exits 5, pytest's code for "nothing collected".)
 - **AC2.** `uv run pytest -q` exits 0.
 - **AC3.** `uv run ruff check .` exits 0, and `uv run ruff format --check .` exits 0, read
   separately.
 - **AC4.** `uv run mypy src` exits 0.
 - **AC5.** `npm --prefix web run lint` exits 0; `npm --prefix web run typecheck` exits 0;
   `npm --prefix web run test` exits 0.
-- **AC6.** `npm --prefix web run e2e -- --project=e2e` exits 0, with no test reported
-  flaky, and its list output names every scenario of `trial-banner.spec.ts`.
+- **AC6.** `npm --prefix web run e2e -- --project=e2e` exits 0, with its output kept
+  in a file; that file's closing tally has no `flaky` line; and
+  `npm --prefix web run e2e -- --project=e2e --list trial-banner.spec.ts` exits 0 and
+  lists the countdown scenario, the placement scenario and the `/setup` scenario.
 - **AC7.** `npm --prefix web run e2e -- --project=visual` exits 0, and afterwards
   `git status --porcelain web/e2e/ui-visual.spec.ts-snapshots` prints nothing.
-- **AC8.** A fence, not coverage:
-  `git diff --quiet origin/main -- src/glosswork/compiler.py src/glosswork/filters.py src/glosswork/sqlexpr.py src/glosswork/fieldtypes.py src/glosswork/scopes.py src/glosswork/services/schema.py src/glosswork/services/access.py src/glosswork/migrations.py src/glosswork/mcp_server tests/test_read_only_mode.py tests/test_mcp_read_only.py tests/test_one_read_only_predicate.py`
+- **AC8.** A fence, not coverage. First
+  `git ls-files --error-unmatch` over the same twelve paths exits 0, because `git diff`
+  over a path that does not exist exits 0 and would pass for the wrong reason (measured).
+  Then, against the merge base and not the tip of `main`, so that another change merging
+  meanwhile cannot turn it red (measured, F13):
+  `git diff --quiet "$(git merge-base origin/main HEAD)" -- src/glosswork/compiler.py src/glosswork/filters.py src/glosswork/sqlexpr.py src/glosswork/fieldtypes.py src/glosswork/scopes.py src/glosswork/services/schema.py src/glosswork/services/access.py src/glosswork/migrations.py src/glosswork/mcp_server tests/test_read_only_mode.py tests/test_mcp_read_only.py tests/test_one_read_only_predicate.py`
   exits 0.
 - **AC9.** The self-host case, against a real server rather than a test client: the
   `shell.spec.ts` assertion in AC6 that `page.getByTestId("trial-banner")` has count 0
-  after `current-principal` is visible, on the server that sets no trial end. Step 7's
-  first mutation is the record that it can fail.
-- **AC10.** `git diff --text origin/main -- uv.lock web/package-lock.json` prints nothing.
+  on the server that sets no trial end, made after `workspace-people-agents` is visible
+  and after the same run has read `trial: null` from `GET /api/v1/workspace` (F3). Step
+  7's first mutation and its fifth are the record that it can fail.
+- **AC10.** `git diff --text "$(git merge-base origin/main HEAD)" -- uv.lock web/package-lock.json`
+  prints nothing.
+- **AC11.** A fence, not coverage: `grep -c useTrialClock web/src/App.tsx` prints 0
+  (and so exits 1, which is the expected answer here).
+- **AC12.** `uv run pytest -q -m structural` exits 0, named on its own because this plan
+  file broke it once (P26).
 
 ## Baseline repaint
 
 Expected: 0 of 41 (P13). The visual server sets no trial end, and the shell's markup is
-unchanged when `trial` is null. Any repaint is a finding and stops the build.
+unchanged when `trial` is null. No baseline shows the banner, so its look is proven by
+nothing here: the placement scenario proves where it sits, and locator assertions prove
+what it says. Any repaint is a finding and stops the build.
 
 Actual: to be recorded at build.
 
@@ -386,6 +610,7 @@ marks, a control says what happens):
 | Counting down | "Your trial has **23:59** left." then the link | "Trial ends in **23:59**." then the link |
 | Ended | "Trial ended." then the link | "Trial ended. Subscribe to keep making changes." |
 | The link | "Subscribe" | "Subscribe now" |
+| What a screen reader says for the time | "23 hours 59 minutes left", with "1 hour" and "1 minute" in the singular | "23:59 left", read as digits |
 
 Why the first row's recommendation: "ends in 23:59" can be read as a time of day, one
 minute before midnight, and that is a wrong promise about when the trial ends. "has 23:59
@@ -403,14 +628,70 @@ time with no link. Alternative: refuse startup. Refusing would take a customer's
 workspace down over a missing link, which is worse than a banner without one. P6 is why
 this is not hypothetical today.
 
-**Q-D. The browser's clock decides the countdown** (judgment area 2). Recommended: accept
-it. A wrong laptop clock gives a wrong countdown by the same amount; the freeze itself is
-unaffected.
+**Q-D. The browser's clock decides the countdown** (judgment area 2, sharpened by F14).
+Recommended: accept it, knowing what it costs. A person whose device clock is behind by
+ten minutes sees "00:10 left" at the moment the workspace freezes, and their next save is
+refused. A person whose clock is ahead sees "Trial ended" early on a workspace that still
+works. The freeze itself is never affected. How many devices have a clock wrong by
+minutes was not measured; the common case is a clock set by hand after a wrong time zone,
+which is wrong by whole hours.
+Alternative: the workspace also sends its own time and the browser corrects for the
+difference. The countdown is then right on any device. It costs the exact end-to-end
+scenarios (`23:59`, `00:01`, and crossing the end on an open page), which fall back to
+unit tests, and it is a different mechanism from the one this plan was attacked on, so
+choosing it sends the plan round for a second adversarial pass before it is built.
+
+**Q-E. Where the strip sits** (judgment area 8, F2). Recommended: at the head of the main
+column, to the right of the sidebar on a wide window and under the top bar on a narrow
+one. It was built and measured: nothing else on the page moves. Alternative: across the
+whole window, above the sidebar too, as the first draft had it. That reads more like a
+notice about the whole workspace, but as measured it pushes every page 35 pixels past
+the window and the sign-out control off the bottom. Making it fit means changing how
+the shell and the sidebar get their height, which was not designed or built in this
+pass, so choosing it sends the plan back for that design before it is built.
+
+**Q-F. Every credential on a trial workspace can read the subscribe address** (judgment
+area 4, F6). Recommended: accept it, with the written rule that the address never carries
+a secret. This is new: today a `read` token is never given the address, and nobody is
+given it before the freeze. It is in line with Q64, under which a subscribe link only
+lets someone pay. Alternative: leave the address out of the document for a `read` token
+and for a member's session. That makes the document differ by caller, which it does not
+today, and hides the link from the people Q-B recommends showing the banner to.
 
 ## Adversarial pass
 
-Not yet run. A different session runs it against this file and folds findings in here as
-F1..Fn.
+Run once, on 2026-10-08, by a session that did not write this plan, against the file at
+`a8604c8`. Every finding below was built before it was recorded: on a throwaway copy of
+the repository with the plan's design implemented the way the plan read, four real
+servers on ports 8941 to 8944, and Chromium driven by this repository's
+`playwright-core` 1.62.1. The throwaway build was never committed and is not the build.
+The measurements are premises P16 to P26 and the amended P11 and P12.
+
+| | Finding | Disposition |
+| --- | --- | --- |
+| F1 | **This plan file turned a pipeline guard red.** It cited the new decision by a number with no heading yet, and `test_every_cited_design_decision_exists` failed on a clean checkout (P26). AC2 could not have passed before closeout. | Fixed in place: the citation is written in words. AC12 names the structural run. |
+| F2 | **The strip, placed above the shell as drafted, breaks the page's height.** Every page became 35 pixels taller than the window and the sign-out control went below the fold (P17). No Accept criterion could see it: jsdom has no layout and no baseline shows the banner. | Amended: the strip moves to the head of the main column, measured clean at three window sizes; a placement scenario and a mutation are added; the choice goes to the maintainer as Q-E. |
+| F3 | **The self-host proof could pass on a workspace about to show a banner.** With the workspace read 800 ms slow, the banner's count was 0 when the signed-in block appeared in 8 sign-ins of 8, on a server with a trial (P21). | Amended: absence is asserted only after the document is known to have arrived and has been read as `trial: null` in the same run. A mutation that draws the banner for any arrived document is added. |
+| F4 | **An end time at the edge of the calendar starts a workspace that then fails.** `/readyz` answered 200 while the workspace document and the operator's usage read both answered 500 (P18, P19). | Amended: the value is converted to UTC and checked at startup, and nothing on the request path can raise. Two startup refusals, a usage test and a mutation are added. |
+| F5 | **"A bare number is refused" was satisfiable by a check that lets numbers through.** A digits-only check passed `1790000000.5` and `-1`; and the refusal for a missing offset gave no example, which the plan promised (P20). | Amended: anything `float()` accepts is refused, whitespace is trimmed, and every refusal is one sentence with the example. The named values are in step 1 and a mutation is added. |
+| F6 | **The subscribe address at `read` scope is a new disclosure, and the plan said it was an existing one.** A `read` token's write is refused for scope before the freeze is consulted, so it never sees the address today (P16). | Judgment area 4 corrected. A constraint and an operator rule are added. Put to the maintainer as Q-F, recommended accept under Q64. |
+| F7 | **The two module names the plan chose do not build on macOS.** They differed only in the case of one letter (P23). On Linux, where CI runs, the same tree would have resolved differently. | Amended: the pure module is `trialCountdown.ts`. |
+| F8 | **"Not null" is not "an object".** A workspace document with no `trial` key crashed the whole shell, in seven existing tests, and the type check did not notice the fixture (P24). | Amended: `null` and absent are one case. A test is added, and the existing fixtures are left as its evidence. |
+| F9 | **The plan did not say where the clock hook is called.** Called from the shell, it re-rendered the shell and every page under it once a second (P25). | Amended: the hook is called only from the banner. A constraint and the AC11 fence are added. |
+| F10 | **A countdown that never moves could pass, if the spec reloaded between clock readings.** Measured the other way: on one open page the banner followed the clock through all three readings, in three time zones, after a real sign-in. That also establishes what P11 left open. | Amended: the three readings are one scenario with no navigation. A mutation that removes the timer is added. P11 updated. |
+| F11 | **A tab left open holds the document it loaded.** After the workspace restarted with no trial end, the banner stayed through three idle seconds and an in-app navigation, and went on return to the tab (P22). The same applies to a trial end that arrives after a person has signed in. | Accepted and written down, with no polling added. The re-read on focus is pinned by a test, since the banner now depends on it. Goes to docs/DEPLOYMENT.md at closeout. |
+| F12 | **The trial test server as listed has nobody to sign in as.** Sign-in answered 401 (P12). | Amended: step 2 names the full environment. |
+| F13 | **Four Accept clauses were weaker than they read.** AC1 and AC6 each ended in a clause that is not a command. AC8 and AC10 compared against the tip of `main`: on real history, a branch that touched nothing failed AC8's form with exit 1 once `main` moved, and the merge-base form exited 0. A path that does not exist passed AC8 with exit 0. | Rewritten as commands, each run once here. |
+| F14 | **The browser-clock choice was argued more strongly than the facts allow**, and its harmful direction was not named: a clock that is behind promises time while saves are refused. | Design unchanged. Judgment area 2 and Q-D now state both directions and the true cost of the alternative. Not measured: how common a wrong device clock is. |
+| F15 | **The gap after "Trial ended" is not "some seconds", and the frozen UI is not silent.** The gap is the operator's schedule plus a restart in which requests fail; its length is the control plane's and was not measured. On a frozen server, creating an object type in the browser showed the API's full sentence, subscribe address included, so "the browser shows a bare 409" is not true of every screen. | Judgment area 3 corrected. The closeout edit to docs/DEPLOYMENT.md section 6a re-measures what a refused edit shows before it repeats that paragraph. The recommended ended text stays "Trial ended.". |
+| F16 | **Attacked and held.** Time zones and daylight saving: the banner is a length of time computed from two instants, and read the same in three zones. A past end time: "Trial ended" from the first paint. More than 99 hours: `100:00`, and `8760:00` for a mistyped year, which is odd and not wrong. The filter compiler, the schema engine and the access model: the throwaway build touched `config.py`, `services/workspace.py`, `envelopes.py` and the browser only; the one line in `mcp_server` that names the workspace service is the freeze predicate; AC8's twelve paths all exist. The whole backend suite, run once on the throwaway build, failed in four places and passed 2,220: the three pins this plan already names (the `.env.example` test and the two four-key pins) and F1. The control plane and the kit do not read the workspace document. | No change, beyond the constraint that the banner never renders a clock time. |
+| F17 | **Q-B had no test either way**: the spec signs in as an administrator only. | Amended: answered "everyone", the banner modules read no role, by constraint. Answered "administrators only", the build adds component tests for all three roles before the component, and says so in Deviations. |
+
+**Did the pass change the design?** No different mechanism, no new component, and no new
+entry on the full-lane list. One visible thing moved: the strip's place on the page (F2),
+which is the maintainer's to confirm under Q-E. Two answers would change the design and
+send the plan back before it is built: the alternative under Q-D, and the alternative
+under Q-E.
 
 ## Deviations from the approved plan
 
@@ -423,7 +704,9 @@ Nothing has moved yet. At closeout:
 - **PRD.md**, a new requirement after FR-P11, proposed text: "With `GW_TRIAL_ENDS_AT` set,
   the workspace document reports the trial's end time and the subscribe address, and the
   web UI shows the time left and a subscribe link on every signed-in page, then that the
-  trial has ended. Unset means no banner and no other change (DD-47)."
+  trial has ended. Unset means no banner and no other change", closed at closeout with
+  the new decision's number in parentheses. The number is not written in this file,
+  because a guard reads it as a citation of a decision that has no heading yet (P26).
 - **docs/DESIGN_DECISIONS.md**, a new decision, proposed text: "A trial is a time the
   operator configures, and the browser counts it down. The workspace is told when its
   trial ends by one optional setting and reports it, with the subscribe address, in the
@@ -435,13 +718,19 @@ Nothing has moved yet. At closeout:
   gains "and, where a trial end time is configured, the trial".
 - **docs/DESIGN.md**: a component entry in section 7 for the trial banner (tokens, the
   approved copy, the rounding rule, not a live region), one sentence in 8.1 that it sits
-  above the sidebar and the top bar and is absent without a trial, and the time-left form
-  in section 5's formatting paragraph.
+  at the head of the main column (or wherever Q-E is answered) and is absent without a
+  trial, and the time-left form in section 5's formatting paragraph.
 - **docs/DEPLOYMENT.md** section 6a: the variable's row, the accepted forms, that it is
   read at startup, that the banner follows the end time and the freeze follows
-  `GW_READ_ONLY`, and that the countdown uses the reader's own clock. The paragraph "The
-  browser does not explain the refusal yet" stays, amended to say a workspace on trial
-  now shows that the trial ended.
+  `GW_READ_ONLY`, and that the countdown uses the reader's own clock, with both
+  directions of a wrong clock stated (Q-D). Also, from the adversarial pass: every
+  credential on the workspace can read the subscribe address once a trial end is set, so
+  it never carries a secret (F6); a tab that is already open shows a changed or removed
+  trial end only after a reload or a return to the tab (F11); and an end time far in the
+  future is shown as it is, in hours (F16). The paragraph "The browser does not explain
+  the refusal yet" is re-measured before it is repeated, because at least one screen
+  already shows the refusal's full sentence (F15), and is amended to say a workspace on
+  trial now shows that the trial ended.
 - **`.env.example`**: the entry, in the commit that adds the setting.
 - **CHANGELOG.md** is not edited by this change: CONTRIBUTING, "Releases", says it is
   written once per release. The release that carries this change names
