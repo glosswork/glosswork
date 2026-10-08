@@ -12,6 +12,11 @@ import {
   RELAY_BASE_URL,
   RELAY_PORT,
   RELAY_TOKEN,
+  TRIAL_BASE_URL,
+  TRIAL_DATA_DIR,
+  TRIAL_ENDS_AT,
+  TRIAL_PORT,
+  TRIAL_SUBSCRIBE_URL,
   E2E_PORT,
   OIDC_ADMIN_GROUP,
   OIDC_CLIENT_ID,
@@ -236,6 +241,32 @@ export default defineConfig({
         GW_WORKSPACE_NAME: E2E_WORKSPACE_NAME,
         GW_RELAY_URL: `${RELAY_BASE_URL}/v1/relay/send`,
         GW_RELAY_TOKEN: RELAY_TOKEN,
+      },
+    },
+    {
+      // A workspace on trial (change 30): a trial end time and a subscribe address, sign-in by
+      // password. Embedding is off because nothing here searches, and this server's only spec
+      // is `trial-banner.spec.ts`. No other server sets a trial end, so the functional server
+      // is the self-hosted case `shell.spec.ts` asserts has no banner, and the visual project
+      // never reaches this one, so no baseline repaints.
+      command: `bash -c "npm run build && cd .. && uv run uvicorn glosswork.app:app --port ${TRIAL_PORT}"`,
+      url: `${TRIAL_BASE_URL}/healthz`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        GW_DATA_DIR: TRIAL_DATA_DIR,
+        GW_LOGIN_IP_MAX_ATTEMPTS: "1000",
+        GW_EMBEDDING_ENABLED: "false",
+        GW_BOOTSTRAP_ADMIN_EMAIL: E2E_ADMIN_EMAIL,
+        GW_BOOTSTRAP_ADMIN_PASSWORD: E2E_ADMIN_PASSWORD,
+        GW_COOKIE_SECURE: "false",
+        GW_AUTH_MODE: "standalone",
+        GW_BASE_URL: TRIAL_BASE_URL,
+        GW_WORKSPACE_NAME: E2E_WORKSPACE_NAME,
+        GW_TRIAL_ENDS_AT: TRIAL_ENDS_AT,
+        GW_SUBSCRIBE_URL: TRIAL_SUBSCRIBE_URL,
       },
     },
   ],

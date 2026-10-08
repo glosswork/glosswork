@@ -409,11 +409,12 @@ rebuilding from resolved rows would silently destroy references the person canno
 ### DD-28: The workspace document is one bounded read
 
 The workspace document carries the deployment's name, the count of its active people, the count
-of its registered agent labels, and the MCP URL built from the configured base URL.
+of its registered agent labels, the MCP URL built from the configured base URL, and, where a trial
+end time is configured, the trial (DD-47).
 
 **Why.** The browser orients itself in one call, and a count is not a list.
 
-**Held by.** `tests/test_api_workspace.py`.
+**Held by.** `tests/test_api_workspace.py`, `tests/test_config.py`, `web/e2e/trial-banner.spec.ts`.
 
 **See.** `docs/DESIGN.md` section 8.1.
 
@@ -719,3 +720,24 @@ behind it either, because the lock decides who connects and not whose header is 
 **Held by.** `tests/test_config.py`, `tests/test_infra.py`, `container_tests/test_tls_lock.py`.
 
 **See.** `docs/DEPLOYMENT.md` section 4a.
+
+### DD-47: A trial is a time the operator configures, and the browser counts it down
+
+The workspace is told when its trial ends by one optional setting, `GW_TRIAL_ENDS_AT`, and reports
+it, with the subscribe address, as the `trial` key of the workspace document. It stores nothing
+and enforces nothing: freezing is DD-38's, and the two are set independently, so the banner turns
+to "Trial ended." when the end time passes and the freeze follows when the operator restarts the
+workspace with `GW_READ_ONLY`. Unset means `trial` is `null`, and then the browser draws no banner
+and runs no timer. The browser counts down from its own clock, so a device clock that is wrong
+shows a countdown that is wrong by the same amount, in either direction, and the freeze is
+unaffected.
+
+**Why.** The same image serves a hosted trial and a self-hosted deployment that has no trial
+(PLAN Q6, Q73), and a workspace that enforced its own trial would be a second freeze predicate.
+The end time is converted to UTC and checked once, at startup, so nothing on the request path can
+fail because of its value. The subscribe address is public to every credential on a workspace on
+trial, `read` tokens included, so it must never carry a token or any other secret.
+
+**Held by.** `tests/test_api_workspace.py`, `tests/test_config.py`, `web/e2e/trial-banner.spec.ts`.
+
+**See.** `docs/DESIGN.md` sections 7.13 and 8.1; `docs/DEPLOYMENT.md` section 6a; `PRD.md` FR-P12.

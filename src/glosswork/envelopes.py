@@ -296,21 +296,28 @@ def me_doc(principal: PrincipalRow, actor: ActorContext) -> dict[str, Any]:
 
 
 def workspace_doc(workspace: WorkspaceDocument) -> dict[str, Any]:
-    """``GET /api/v1/workspace`` (DD-28). **Exactly four keys**: two counts with no names
+    """``GET /api/v1/workspace`` (DD-28). **Exactly five keys**: two counts with no names
     in them, the operator-set name they sit under (``null`` when ``GW_WORKSPACE_NAME`` is
-    unset), and the deployment's MCP URL (``null`` when ``GW_BASE_URL`` is unset).
+    unset), the deployment's MCP URL (``null`` when ``GW_BASE_URL`` is unset), and the
+    trial (``null`` when ``GW_TRIAL_ENDS_AT`` is unset).
 
     The fourth key has a reader rather than being on spec: the first-run screen has to print
     the URL an agent should connect to, and the browser cannot compose it correctly because
     the ``/mcp`` transport's own allowlists are built from ``GW_BASE_URL`` (DD-15).
-    ``WorkspaceService.mcp_url`` carries the argument. The key set stays pinned by equality
-    in ``tests/test_api_workspace.py``: a fifth key needs a reader too.
+    ``WorkspaceService.mcp_url`` carries the argument. The fifth has one too: the trial
+    banner, which counts down to ``ends_at`` and links to ``subscribe_url``. The subscribe
+    address appears only inside a non-null ``trial``. The key set stays pinned by equality
+    in ``tests/test_api_workspace.py``: a sixth key needs a reader too.
     """
+    trial = workspace.trial
     return {
         "name": workspace.name,
         "people": workspace.people,
         "agents": workspace.agents,
         "mcp_url": workspace.mcp_url,
+        "trial": None
+        if trial is None
+        else {"ends_at": trial.ends_at, "subscribe_url": trial.subscribe_url},
     }
 
 

@@ -296,7 +296,9 @@ on hover**, not long text alone — a clipped `short_text` hides exactly as much
 hover shows the **stored** value rather than the displayed one, which is what makes "ISO form only
 on hover" and 7.3's "its key is on hover" true without either needing its own implementation.
 Cells rendering a derived summary rather than a stored value (a relation, an attachment
-count) carry none.
+count) carry none. A length of time left is hours and minutes as `HH:MM`, rounded up to the
+minute, so 30 seconds left reads `00:01` and never `00:00`, and it reads `100:00` past a hundred
+hours; it is never a clock time or a date, so no time zone or daylight-saving rule can change it.
 
 *Money is not formatted by the field's currency and locale (`$68,000`): **no field config
 carries a currency** — `CONFIG_KEYS` in `src/glosswork/fieldtypes.py`
@@ -513,6 +515,23 @@ about *which* view is loaded and what happens to it: the saved-view list, `Save`
 one row and those six controls have no other home; collapsing them is what makes the row fit at
 800px with a named view loaded.
 
+### 7.13 Trial banner (DD-47)
+
+One strip at the head of the main column, on every signed-in page, shown only when the
+workspace document's `trial` is an object. `warn-soft` fill, `warn-line` border and `warn` text
+while the trial runs; `sunk` fill, `line` border and `ink-2` text once it has ended. It does not
+use the human family, which 7.5 keeps for itself. It is in the page's normal flow and not pinned,
+so on a long page it scrolls away with the page heading.
+
+Words: "Your trial has **23:59** left." then a **Subscribe** link, and after the end "Trial ended."
+with the same link. With no subscribe address it shows the same words and no link. A screen
+reader is given the sentence with the time in words ("Your trial has 23 hours 59 minutes left.",
+with "1 hour" and "1 minute" in the singular, and a zero said as written) as a second, visually
+hidden sentence, because a label on the digits is not in the browser's accessibility tree. The
+strip is a labelled region named "Trial" and not a live region, so a reader is not interrupted
+every minute. Test hooks: `trial-banner`, `trial-message`, `trial-message-spoken`,
+`trial-time-left`, `trial-subscribe`.
+
 ---
 
 ## 8. Screens
@@ -566,6 +585,11 @@ hidden by CSS. Two CSS-hidden shells put two `current-principal` test ids in the
 strictly. The breakpoint lives in `web/src/index.css` as `--breakpoint-shell` and in the hook as
 a media-query string, pinned against each other by a test because a custom property is not
 readable by `matchMedia`.
+
+*The trial banner (7.13) is the first child of `<main>`, before the routes, so it sits to the
+right of the sidebar on a wide window and under the top bar on a narrow one, and no page grows
+taller than the window because of it. It is absent, element for element, when the workspace has
+no trial.*
 
 ### 8.2 Table page
 

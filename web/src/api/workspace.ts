@@ -9,6 +9,16 @@
  */
 import { apiRequest } from "./client";
 
+/** A hosted trial, as the workspace reports it (change 30). */
+export interface WorkspaceTrial {
+  /** When the trial ends: ISO 8601 in UTC, whole seconds and a `Z`. The browser counts down to
+   * it on its own clock; the workspace sends no clock reading of its own. */
+  ends_at: string;
+  /** `GW_SUBSCRIBE_URL`, or `null` when the operator has set none: the banner then has no
+   * link. Readable by every credential on the workspace, so it never carries a secret. */
+  subscribe_url: string | null;
+}
+
 export interface WorkspaceDoc {
   /**
    * `GW_WORKSPACE_NAME`, or `null` when the operator has not set one.
@@ -42,6 +52,15 @@ export interface WorkspaceDoc {
    * `routes/mcpUrl.ts` holds that fallback.
    */
   mcp_url: string | null;
+  /**
+   * The trial, or `null` when `GW_TRIAL_ENDS_AT` is unset, which is every self-hosted
+   * workspace.
+   *
+   * **`null` and absent are one case: no banner.** Optional in the type because a document
+   * without the key is a thing the shell has met, in its own tests' fixtures, and "not null"
+   * is not "an object": reading `ends_at` off `undefined` takes the whole shell down.
+   */
+  trial?: WorkspaceTrial | null;
 }
 
 export async function getWorkspace(): Promise<WorkspaceDoc> {

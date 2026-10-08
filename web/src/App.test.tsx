@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -293,5 +293,98 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 
     expect(await screen.findByTestId("login-email")).toBeInTheDocument();
+  });
+});
+
+/**
+ * The trial banner's place in the shell (change 30). What the banner says is
+ * `app/TrialBanner.test.tsx`; this is whether the shell mounts it.
+ *
+ * **Every absence here is asserted after the workspace document has arrived**, by first
+ * finding the sidebar line drawn from that same document. Before it arrives there is no
+ * banner on any workspace, including one about to show one.
+ */
+describe("App, on a workspace with or without a trial", () => {
+  const FAR_FUTURE = "2999-01-01T00:00:00Z";
+  const LONG_PAST = "2001-01-01T00:00:00Z";
+  const WORKSPACE = { name: "Northwind", people: 6, agents: 3, mcp_url: null };
+
+  it("renders the shell and no banner for a workspace document with no trial key at all", async () => {
+    // The file's own default handler, on purpose: its document has no `trial` key. "Not null"
+    // is not "an object", and a shell that reads `ends_at` off `undefined` renders nothing.
+    renderWithProviders(<App />);
+
+    expect(await screen.findByTestId("workspace-people-agents")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Initiative" })).toBeInTheDocument();
+    expect(screen.queryByTestId("trial-banner")).toBeNull();
+  });
+
+  it("renders no banner when the workspace's trial is null", async () => {
+    server.use(
+      http.get("/api/v1/workspace", () => HttpResponse.json({ ...WORKSPACE, trial: null })),
+    );
+    renderWithProviders(<App />);
+
+    expect(await screen.findByTestId("workspace-people-agents")).toBeInTheDocument();
+    expect(screen.queryByTestId("trial-banner")).toBeNull();
+  });
+
+  it("renders the banner as the first thing in main when the workspace has a trial", async () => {
+    server.use(
+      http.get("/api/v1/workspace", () =>
+        HttpResponse.json({
+          ...WORKSPACE,
+          trial: { ends_at: FAR_FUTURE, subscribe_url: "https://subscribe.example.com/plan" },
+        }),
+      ),
+    );
+    renderWithProviders(<App />);
+
+    const banner = await screen.findByTestId("trial-banner");
+    expect(within(banner).getByTestId("trial-time-left")).toBeInTheDocument();
+    expect(within(banner).getByTestId("trial-subscribe")).toHaveAttribute(
+      "href",
+      "https://subscribe.example.com/plan",
+    );
+    expect(screen.getByRole("main").firstElementChild).toBe(banner);
+  });
+
+  it("says the trial ended for a trial whose end time has passed", async () => {
+    server.use(
+      http.get("/api/v1/workspace", () =>
+        HttpResponse.json({ ...WORKSPACE, trial: { ends_at: LONG_PAST, subscribe_url: null } }),
+      ),
+    );
+    renderWithProviders(<App />);
+
+    const banner = await screen.findByTestId("trial-banner");
+    expect(within(banner).queryByTestId("trial-time-left")).toBeNull();
+    expect(within(banner).queryByRole("link")).toBeNull();
+  });
+
+  it("reads the workspace document again when the person comes back to the tab", async () => {
+    // The banner depends on this. A tab that is open when the workspace is restarted with no
+    // trial end, as it is after the person subscribes, keeps its banner until the document is
+    // read again, and nothing here polls. Returning to the tab is what re-reads it, and that
+    // is the query library's default rather than a setting this repository makes, so it is
+    // pinned here.
+    let reads = 0;
+    server.use(
+      http.get("/api/v1/workspace", () => {
+        reads += 1;
+        return HttpResponse.json({
+          ...WORKSPACE,
+          trial: reads === 1 ? { ends_at: FAR_FUTURE, subscribe_url: null } : null,
+        });
+      }),
+    );
+    renderWithProviders(<App />);
+    expect(await screen.findByTestId("trial-banner")).toBeInTheDocument();
+    expect(reads).toBe(1);
+
+    window.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() => expect(screen.queryByTestId("trial-banner")).toBeNull());
+    expect(reads).toBe(2);
   });
 });

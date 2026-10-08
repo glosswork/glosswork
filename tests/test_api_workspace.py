@@ -29,6 +29,9 @@ the whole reason this is a new route rather than a widened admin one.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -67,16 +70,19 @@ def _body(client: TestClient, headers: dict[str, str] | None = None) -> dict[str
 
 
 class TestShape:
-    def test_the_document_has_exactly_four_keys(self, client: TestClient) -> None:
-        """Pinned by equality, not by ``in``: this document is read by one sidebar block and one
-        first-run screen, and a key added here without a reader is a disclosure nobody asked for.
-        The counterpart to DD-25's two sidecars naming what they withhold.
+    def test_the_document_has_exactly_five_keys_and_the_fifth_is_trial(
+        self, client: TestClient
+    ) -> None:
+        """Pinned by equality, not by ``in``: this document is read by one sidebar block, one
+        first-run screen and one banner, and a key added here without a reader is a disclosure
+        nobody asked for. The counterpart to DD-25's two sidecars naming what they withhold.
 
         ``mcp_url`` is the fourth key, and it has a reader: the first-run screen's prompt block
         (``docs/DESIGN.md`` 8.5) has to print the URL an agent should connect to, and the browser
-        cannot compose it. See ``TestMcpUrl``.
+        cannot compose it. See ``TestMcpUrl``. ``trial`` is the fifth, read by the trial banner.
+        See ``TestTrial``.
         """
-        assert set(_body(client)) == {"name", "people", "agents", "mcp_url"}
+        assert set(_body(client)) == {"name", "people", "agents", "mcp_url", "trial"}
 
     def test_the_counts_are_integers_and_never_null(self, client: TestClient) -> None:
         body = _body(client)
@@ -171,6 +177,120 @@ class TestMcpUrl:
             tokens = mint_scope_tokens(based_app.state.services)
             based.headers["Authorization"] = f"Bearer {tokens['admin']}"
             assert _body(based)["mcp_url"] == "https://northwind.glosswork.app/mcp"
+
+
+class TestTrial:
+    """``trial`` (change 30): when a hosted trial ends and where to subscribe.
+
+    ``null`` unless ``GW_TRIAL_ENDS_AT`` is set, which is every self-hosted workspace, and
+    otherwise the end time with the subscribe address. The workspace reads no clock for it and
+    enforces nothing: the browser counts down, and the freeze is ``GW_READ_ONLY``'s.
+
+    Each configured case builds a second app, for the reason
+    ``test_name_is_the_setting_when_it_is_set`` gives.
+    """
+
+    def test_trial_is_null_when_no_trial_end_is_set(self, client: TestClient) -> None:
+        """The ``client`` fixture builds an app with no ``GW_TRIAL_ENDS_AT``."""
+        body = _body(client)
+        assert "trial" in body, body
+        assert body["trial"] is None
+
+    def test_trial_carries_the_end_time_and_the_subscribe_address(self, tmp_path: Any) -> None:
+        """The end time goes out in the one form every timestamp here has, whole seconds and
+        a ``Z``, never the operator's input echoed: this one was written with an offset."""
+        with _trial_client(
+            tmp_path,
+            trial_ends_at="2026-10-09T11:00:00-04:00",
+            subscribe_url="https://example.com/subscribe",
+        ) as trial:
+            assert _body(trial)["trial"] == {
+                "ends_at": "2026-10-09T15:00:00Z",
+                "subscribe_url": "https://example.com/subscribe",
+            }
+
+    def test_trial_subscribe_url_is_null_when_no_subscribe_address_is_set(
+        self, tmp_path: Any
+    ) -> None:
+        """A trial end with no subscribe address is legal: the banner counts down with no
+        link, and the key is present and ``null`` so the browser reads one shape."""
+        with _trial_client(tmp_path, trial_ends_at="2026-10-09T15:00:00Z") as trial:
+            assert _body(trial)["trial"] == {
+                "ends_at": "2026-10-09T15:00:00Z",
+                "subscribe_url": None,
+            }
+
+    def test_trial_is_null_and_no_address_is_sent_with_only_a_subscribe_address(
+        self, tmp_path: Any
+    ) -> None:
+        """The subscribe address rides only inside a non-null ``trial``, so a workspace with
+        a subscribe address and no trial sends nothing new, anywhere in the document."""
+        with _trial_client(tmp_path, subscribe_url="https://example.com/subscribe") as plain:
+            response = plain.get(WORKSPACE_PATH)
+            assert response.json()["trial"] is None
+            assert "example.com/subscribe" not in response.text
+
+    def test_trial_is_readable_at_read_scope(self, tmp_path: Any) -> None:
+        """Every credential on a workspace on trial may read the subscribe address, under the
+        written rule that the address never holds a secret. Asserted because it is a
+        disclosure this change adds on purpose: a ``read`` token is never handed the address
+        by a refused write."""
+        with _trial_client(
+            tmp_path,
+            trial_ends_at="2026-10-09T15:00:00Z",
+            subscribe_url="https://example.com/subscribe",
+        ) as trial:
+            tokens: dict[str, str] = trial.scope_tokens  # type: ignore[attr-defined]
+            body = _body(trial, auth(tokens["read"]))
+            assert body["trial"]["subscribe_url"] == "https://example.com/subscribe"
+
+    def test_trial_end_is_logged_once_at_startup(
+        self, tmp_path: Any, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """As ``read_only_mode`` is for the freeze: the end time, and whether a subscribe
+        address is set, never the address itself."""
+        with _trial_client(
+            tmp_path,
+            trial_ends_at="2026-10-09T15:00:00Z",
+            subscribe_url="https://example.com/subscribe",
+        ):
+            pass
+        lines = [line for line in _log_lines(capfd) if line.get("event") == "trial_end_set"]
+        assert len(lines) == 1, lines
+        assert lines[0]["level"] == "info"
+        assert lines[0]["setting"] == "GW_TRIAL_ENDS_AT"
+        assert lines[0]["trial_ends_at"] == "2026-10-09T15:00:00Z"
+        assert lines[0]["subscribe_url_set"] is True
+        assert "example.com" not in json.dumps(lines)
+
+    def test_trial_end_is_not_logged_when_it_is_unset(
+        self, tmp_path: Any, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        with _trial_client(tmp_path):
+            pass
+        assert not [line for line in _log_lines(capfd) if line.get("event") == "trial_end_set"]
+
+
+def _log_lines(capfd: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
+    """The application's structured log lines, one JSON object each (FR-P5)."""
+    return [
+        json.loads(line) for line in capfd.readouterr().out.splitlines() if line.startswith("{")
+    ]
+
+
+@contextmanager
+def _trial_client(tmp_path: Any, **overrides: Any) -> Iterator[TestClient]:
+    """A second app with the given settings, signed in as an administrator."""
+    from glosswork.app import create_app
+
+    configured: FastAPI = create_app(
+        Settings(data_dir=tmp_path, embedding_enabled=False, **overrides)
+    )
+    with TestClient(configured) as test_client:
+        tokens = mint_scope_tokens(configured.state.services)
+        test_client.scope_tokens = tokens  # type: ignore[attr-defined]
+        test_client.headers["Authorization"] = f"Bearer {tokens['admin']}"
+        yield test_client
 
 
 class TestCounts:
@@ -317,7 +437,13 @@ class TestAccess:
         response = client.get(WORKSPACE_PATH, headers=auth(api_tokens["read"]))
         assert response.status_code == 200, response.text
         assert response.headers["content-type"].startswith("application/json"), response.text
-        assert set(response.json()) == {"name", "people", "agents", "mcp_url"}, response.text
+        assert set(response.json()) == {
+            "name",
+            "people",
+            "agents",
+            "mcp_url",
+            "trial",
+        }, response.text
 
     def test_an_anonymous_request_is_refused(self, anon_client: TestClient) -> None:
         """The request edge fails closed (DD-15).

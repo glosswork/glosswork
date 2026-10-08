@@ -333,3 +333,24 @@ test("the sidebar fits, and the signed-in person is reachable", async ({ page })
   await sidebar.evaluate((el) => el.scrollTo(0, el.scrollHeight));
   await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
 });
+
+test("a workspace with no trial end set shows no trial banner", async ({ page }) => {
+  // The self-hosted case (change 30): this server sets no `GW_TRIAL_ENDS_AT`. A workspace on
+  // trial is `trial-banner.spec.ts`, on its own server.
+  await page.setViewportSize(WIDE);
+  await signInAsE2eAdmin(page);
+
+  // Absence is asserted only once the workspace document has arrived. The signed-in block
+  // comes from a different read, so "no banner" at that moment is also true of a workspace
+  // about to show one. This line is drawn from the same document the banner is.
+  await expect(page.getByTestId("workspace-people-agents")).toBeVisible();
+
+  // And the document itself, read in the same run: `null`, not merely absent, so this cannot
+  // pass against a server that does not report the key at all.
+  const document = await apiContext.get("/api/v1/workspace");
+  expect(document.ok(), await document.text()).toBeTruthy();
+  const body = (await document.json()) as Record<string, unknown>;
+  expect(body).toHaveProperty("trial", null);
+
+  await expect(page.getByTestId("trial-banner")).toHaveCount(0);
+});

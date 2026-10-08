@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -364,3 +365,127 @@ def test_a_stray_name_under_gw_tls_refuses_startup_naming_it(
     assert message.startswith(f"{stray}: not a setting. "), message
     assert all(name in message for name in TLS_VARIABLES), message
     assert "a-value-the-message-must-not-print" not in message
+
+
+# ------------------------------------------------------ the trial end time (change 30)
+
+TRIAL_VARIABLE = "GW_TRIAL_ENDS_AT"
+# The one example every refusal of the variable carries, whichever rule refused it.
+TRIAL_EXAMPLE = "2026-10-09T15:00:00Z"
+
+
+def test_trial_end_is_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every self-hosted workspace: no trial end, so no banner and no new behaviour."""
+    monkeypatch.delenv(TRIAL_VARIABLE, raising=False)
+    assert load_settings().trial_ends_at is None
+
+
+def test_trial_end_is_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In the form the hosting control plane stores, microseconds and a ``Z``."""
+    monkeypatch.setenv(TRIAL_VARIABLE, "2026-09-30T12:00:00.000000Z")
+    assert load_settings().trial_ends_at == datetime(2026, 9, 30, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("value", ["", "   ", "\n", " \t\n"], ids=repr)
+def test_trial_end_blank_or_whitespace_alone_is_unset(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """``.env.example`` ships the variable blank, so blank cannot refuse startup."""
+    monkeypatch.setenv(TRIAL_VARIABLE, value)
+    assert load_settings().trial_ends_at is None
+
+
+@pytest.mark.parametrize(
+    "value", ["2026-10-09T15:00:00Z ", "2026-10-09T15:00:00Z\n", "  2026-10-09T15:00:00Z"], ids=repr
+)
+def test_trial_end_with_a_stray_space_or_newline_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """The datetime type refuses a trailing space and a trailing newline on its own, so
+    the value is trimmed before it is parsed."""
+    monkeypatch.setenv(TRIAL_VARIABLE, value)
+    assert load_settings().trial_ends_at == datetime(2026, 10, 9, 15, 0, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-09-30T12:00:00",
+        "2026-09-30",
+        "1790000000",
+        "1790000000.5",
+        "-1",
+        '"2026-10-09T15:00:00Z"',
+        "9999-12-31T23:59:59-14:00",
+        "0001-01-01T00:00:00+14:00",
+    ],
+    ids=[
+        "no-offset",
+        "bare-date",
+        "whole-number",
+        "decimal-number",
+        "negative-number",
+        "wrapped-in-quotes",
+        "past-the-end-of-the-calendar",
+        "before-the-start-of-the-calendar",
+    ],
+)
+def test_trial_end_that_is_not_a_time_with_an_offset_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """One sentence for every refusal, naming the variable and giving the example.
+
+    The three numbers are the ones the datetime type would read as seconds since 1970,
+    and a mistyped number silently becoming a trial end is a value nobody can diagnose
+    from a banner. The last two parse, and fail only when converted to UTC: left to the
+    request, the workspace starts and then answers 500.
+    """
+    monkeypatch.setenv(TRIAL_VARIABLE, value)
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings()
+    message = str(exc_info.value)
+    assert TRIAL_VARIABLE in message, message
+    assert TRIAL_EXAMPLE in message, message
+
+
+def test_trial_end_refusals_are_all_the_same_sentence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Whichever rule refused it, so the datetime type's own wording, which gives no
+    example, never reaches the operator for this variable."""
+    messages = set()
+    for value in ("2026-09-30T12:00:00", "-1", "not-a-time", "9999-12-31T23:59:59-14:00"):
+        monkeypatch.setenv(TRIAL_VARIABLE, value)
+        with pytest.raises(ConfigError) as exc_info:
+            load_settings()
+        messages.add(str(exc_info.value))
+    assert len(messages) == 1, messages
+
+
+def test_trial_end_in_the_past_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A frozen workspace is restarted with its trial end still set."""
+    monkeypatch.setenv(TRIAL_VARIABLE, "2001-01-01T00:00:00Z")
+    assert load_settings().trial_ends_at == datetime(2001, 1, 1, tzinfo=UTC)
+
+
+def test_trial_end_with_an_offset_is_held_as_its_utc_equal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Converted once, at startup, so nothing on the request path converts it."""
+    monkeypatch.setenv(TRIAL_VARIABLE, "2026-09-30T08:00:00-04:00")
+    held = load_settings().trial_ends_at
+    assert held == datetime(2026, 9, 30, 12, 0, 0, tzinfo=UTC)
+    assert held is not None and held.utcoffset() == timedelta(0)
+
+
+def test_trial_end_is_allowed_without_a_subscribe_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing link never takes a customer's workspace down: the banner then counts
+    down with no link."""
+    monkeypatch.delenv("GW_SUBSCRIBE_URL", raising=False)
+    monkeypatch.setenv(TRIAL_VARIABLE, TRIAL_EXAMPLE)
+    settings = load_settings()
+    assert settings.trial_ends_at is not None
+    assert settings.subscribe_url is None
+
+
+def test_env_example_ships_the_trial_end_blank() -> None:
+    lines = [line.strip() for line in _env_example_path().read_text().splitlines()]
+    assert f"{TRIAL_VARIABLE}=" in lines

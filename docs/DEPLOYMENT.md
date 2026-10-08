@@ -1154,7 +1154,8 @@ deployment, `GET /api/v1/object-types/{key}/export` (`read` scope, REST-only) re
 ## 6a. Read-only mode
 
 A deployment can refuse writes while it keeps serving reads, search and export (DD-38). A hosted
-workspace is frozen this way when its trial ends; on your own deployment it suits a migration
+workspace is frozen this way when its trial ends, and shows a banner counting the trial down
+before then (the end of this section); on your own deployment it suits a migration
 window, or a deployment kept for reference after its data moved elsewhere.
 
 ```bash
@@ -1168,8 +1169,9 @@ docker run -d --name glosswork -p 8000:8000 -v gw-data:/data \
 | --- | --- | --- |
 | `GW_READ_ONLY` | `false` | `true` refuses every REST and MCP write outside the open list below. A boolean like every other: a blank value refuses startup naming the variable |
 | `GW_SUBSCRIBE_URL` | unset | Where a refused write tells its caller to go. Must be an absolute `http` or `https` URL, or startup is refused naming the variable. Blank is unset. It may be set without `GW_READ_ONLY` |
+| `GW_TRIAL_ENDS_AT` | unset | When a hosted trial ends, as an ISO 8601 date and time with a UTC offset or `Z`, such as `2026-10-09T15:00:00Z`. With it set, the web UI shows the time left on every signed-in page, then that the trial has ended (DD-47). Blank is unset. Anything else refuses startup naming the variable, including a bare date, a time with no offset, and any plain number. It may be set without `GW_SUBSCRIBE_URL`, and then the banner has no link |
 
-**Both are read at startup, so turning the mode on or off is a restart**, on the same volume.
+**All three are read at startup, so turning the mode on or off is a restart**, on the same volume.
 Nothing is migrated and nothing is stored: set `GW_READ_ONLY=false` and restart to make the
 deployment writable again. Where your platform restarts the container when its configuration
 changes, changing the variable there does this for you. While the mode is on, the startup log
@@ -1241,9 +1243,31 @@ sessions, sign-in creates a session, the embedding worker finishes work queued b
 and in `oidc` or `both` mode a first sign-in creates a principal. Do not checksum a read-only volume
 and expect it to stay the same.
 
-**The browser does not explain the refusal yet.** The web UI shows a refused edit as "API request
-failed with status 409", without the message or the subscribe URL, and nothing in the UI says the
-deployment is read-only. Agents and REST clients get the full message.
+**What the browser shows for a refused edit depends on the screen.** A screen that shows its error
+through the shared alert prints the refusal's full sentence, subscribe address included. Others
+print the bare "API request failed with status 409". Agents and REST clients always get the full
+message. (Read from the code, not measured on a frozen server, screen by screen.) Nothing in the UI
+says a deployment is read-only unless it is a workspace on trial, whose banner says the trial ended.
+
+### The trial banner
+
+With `GW_TRIAL_ENDS_AT` set, the workspace document (`GET /api/v1/workspace`) carries a `trial`
+key with the end time and the subscribe address, and every signed-in page shows a strip at the head
+of the main column: "Your trial has 23:59 left." with a Subscribe link, then "Trial ended." once
+the time has passed. Unset, `trial` is `null` and the page carries no banner markup and no timer.
+
+- **The banner and the freeze are two switches.** The banner follows `GW_TRIAL_ENDS_AT`. The
+  freeze follows `GW_READ_ONLY`. Whoever hosts the workspace sets both, and between the end time
+  and the restart that freezes it the banner says the trial ended while an edit still saves.
+- **The countdown uses the reader's own clock.** A device clock that is behind shows time left
+  after the workspace is frozen, and a refused edit follows. A clock that is ahead shows "Trial
+  ended." early, on a workspace that still works. The freeze is never affected.
+- **Every credential on the workspace can read the subscribe address once a trial end is set**,
+  `read` tokens included. The address must never carry a token or any other secret.
+- **An open tab shows a changed or removed trial end only after a reload or a return to the tab.**
+  There is no polling. The countdown itself is always right for the end time the tab holds.
+- **An end time far in the future is shown as it is**, in hours: a hundred hours reads `100:00` and
+  a mistyped year reads in the thousands of hours.
 
 ## 7. Re-indexing, and what it costs
 

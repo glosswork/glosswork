@@ -49,6 +49,7 @@ from glosswork.services import ServiceBundle, build_services
 from glosswork.services.embedding import EmbeddingProvider
 from glosswork.services.embedding_worker import EmbeddingWorker
 from glosswork.services.oidc import JwksSource
+from glosswork.timeutil import format_datetime
 
 DATABASE_FILENAME = "glosswork.sqlite3"
 
@@ -213,6 +214,24 @@ def _report_read_only_at_startup(settings: Settings, logger: Any) -> None:
     logger.warning(
         "read_only_mode",
         setting="GW_READ_ONLY",
+        subscribe_url_set=settings.subscribe_url is not None,
+    )
+
+
+def _report_trial_end_at_startup(settings: Settings, logger: Any) -> None:
+    """Say once, at startup, that this workspace is on a trial and when it ends (change 30).
+
+    At ``info`` rather than ``warning``: a trial is how a hosted workspace is meant to run,
+    not a degraded one. Only whether a subscribe URL is set is logged, as
+    ``read_only_mode`` does, so an operator can see from the log that a banner will count
+    down with no link.
+    """
+    if settings.trial_ends_at is None:
+        return
+    logger.info(
+        "trial_end_set",
+        setting="GW_TRIAL_ENDS_AT",
+        trial_ends_at=format_datetime(settings.trial_ends_at),
         subscribe_url_set=settings.subscribe_url is not None,
     )
 
@@ -404,6 +423,7 @@ def create_app(
         # worth saying even to an operator starting against an unmigrated database.
         _report_missing_base_url_at_startup(settings, logger)
         _report_read_only_at_startup(settings, logger)
+        _report_trial_end_at_startup(settings, logger)
         logger.info(
             "startup",
             data_dir=str(settings.data_dir),
