@@ -815,39 +815,31 @@ approved word, and each is the maintainer's to change:
 
 ## Durable content moved out of this plan
 
-Nothing has moved yet. At closeout:
+Moved at closeout, in the commit after this one, which also deletes this file. The decision
+number is not written here for the reason P26 gives: the new decision is the one after
+DD-46, and its heading arrives in that commit.
 
-- **PRD.md**, a new requirement after FR-P11, proposed text: "With `GW_TRIAL_ENDS_AT` set,
-  the workspace document reports the trial's end time and the subscribe address, and the
-  web UI shows the time left and a subscribe link on every signed-in page, then that the
-  trial has ended. Unset means no banner and no other change", closed at closeout with
-  the new decision's number in parentheses. The number is not written in this file,
-  because a guard reads it as a citation of a decision that has no heading yet (P26).
-- **docs/DESIGN_DECISIONS.md**, a new decision, proposed text: "A trial is a time the
-  operator configures, and the browser counts it down. The workspace is told when its
-  trial ends by one optional setting and reports it, with the subscribe address, in the
-  workspace document. It stores nothing and enforces nothing: freezing is DD-38's, and
-  the two are set independently. **Why.** The same image serves a hosted trial and a
-  self-hosted deployment that has no trial, and a workspace that enforced its own trial
-  would be a second freeze predicate. **Held by.** `tests/test_api_workspace.py`,
-  `tests/test_config.py`, and the trial banner's Playwright spec." DD-28's first sentence
-  gains "and, where a trial end time is configured, the trial".
-- **docs/DESIGN.md**: a component entry in section 7 for the trial banner (tokens, the
-  approved copy, the rounding rule, not a live region), one sentence in 8.1 that it sits
-  at the head of the main column (or wherever Q-E is answered) and is absent without a
-  trial, and the time-left form in section 5's formatting paragraph.
-- **docs/DEPLOYMENT.md** section 6a: the variable's row, the accepted forms, that it is
-  read at startup, that the banner follows the end time and the freeze follows
-  `GW_READ_ONLY`, and that the countdown uses the reader's own clock, with both
-  directions of a wrong clock stated (Q-D). Also, from the adversarial pass: every
-  credential on the workspace can read the subscribe address once a trial end is set, so
-  it never carries a secret (F6); a tab that is already open shows a changed or removed
-  trial end only after a reload or a return to the tab (F11); and an end time far in the
-  future is shown as it is, in hours (F16). The paragraph "The browser does not explain
-  the refusal yet" is re-measured before it is repeated, because at least one screen
-  already shows the refusal's full sentence (F15), and is amended to say a workspace on
-  trial now shows that the trial ended.
-- **`.env.example`**: the entry, in the commit that adds the setting.
+- **PRD.md**: a new requirement, FR-P12, after FR-P11, closed with the new decision's number.
+- **docs/DESIGN_DECISIONS.md**: a new decision after DD-46, "A trial is a time the operator
+  configures, and the browser counts it down", with its why and what holds it. DD-28's first
+  sentence gains "and, where a trial end time is configured, the trial", and DD-28 now also
+  lists `tests/test_config.py` and the trial banner's Playwright spec among what holds it.
+- **docs/DESIGN.md**: section 5's formatting paragraph gains the time-left form (hours and
+  minutes, rounded up to the minute, no clock time); section 7 gains 7.13, the trial banner
+  (tokens, the approved words, not a live region, the spoken sentence as D1 built it); section
+  8.1 gains a note that the strip sits at the head of the main column and is absent without a
+  trial.
+- **docs/DEPLOYMENT.md** section 6a: the `GW_TRIAL_ENDS_AT` row and its accepted forms; that
+  it is read at startup; that the banner follows the end time and the freeze follows
+  `GW_READ_ONLY`; that the countdown uses the reader's own clock, both directions of a wrong
+  clock stated (Q-D); that every credential can read the subscribe address once a trial end
+  is set (F6, Q-F); that an open tab changes only after a reload or a return to it (F11);
+  that a far-future end time is shown in hours (F16). The paragraph "The browser does not
+  explain the refusal yet" was re-measured by reading the code, not by running a frozen
+  server: screens that show an error through the shared alert print the server's full
+  sentence, and others print the bare status. It is amended to say that and that a trial
+  workspace now says the trial ended.
+- **`.env.example`**: the entry, already in the commit that added the setting.
 - **CHANGELOG.md** is not edited by this change: CONTRIBUTING, "Releases", says it is
-  written once per release. The release that carries this change names
-  `GW_TRIAL_ENDS_AT` among the variables a deployment should check its environment for.
+  written once per release. The release that carries this change names `GW_TRIAL_ENDS_AT`
+  among the variables a deployment should check its environment for.
