@@ -148,26 +148,28 @@ for (const viewport of [WIDE, NARROW]) {
 
     expect(geometry, "no <main> or no trial banner on the page").not.toBeNull();
     if (geometry === null) return;
-    expect(geometry.stripHeight, "the strip is collapsed to zero height").toBeGreaterThan(0);
-    expect(geometry.insideMain, "the strip is outside <main>").toBe(true);
-    expect(geometry.stripTop, "the strip is not at the top of <main>").toBe(geometry.mainTop);
-    expect(geometry.stripLeft, "the strip does not start at <main>'s left edge").toBe(
+    // Soft assertions: each is a separate claim about where the strip is, and a strip in the
+    // wrong place should say every way in which it is wrong, not only the first.
+    expect.soft(geometry.stripHeight, "the strip is collapsed to zero height").toBeGreaterThan(0);
+    expect.soft(geometry.insideMain, "the strip is outside <main>").toBe(true);
+    expect.soft(geometry.stripTop, "the strip is not at the top of <main>").toBe(geometry.mainTop);
+    expect.soft(geometry.stripLeft, "the strip does not start at <main>'s left edge").toBe(
       geometry.mainLeft,
     );
     // The subject first: a page that is taller than the window on its own says nothing about
     // what the strip adds, and would fail the next line for the wrong reason.
-    expect(
+    expect.soft(
       geometry.scrollHeightWithoutStrip,
       "this page is taller than the window even without the strip; assert on a shorter one",
     ).toBe(geometry.innerHeight);
-    expect(geometry.scrollHeight, "the strip made the page taller than the window").toBe(
+    expect.soft(geometry.scrollHeight, "the strip made the page taller than the window").toBe(
       geometry.innerHeight,
     );
     if (viewport === WIDE) {
       // The sign-out control lives in this block; pushed below the fold it is out of reach on
       // a page that does not scroll.
-      expect(geometry.personBottom, "current-principal is not on the page").not.toBeNull();
-      expect(geometry.personBottom ?? Infinity).toBeLessThanOrEqual(geometry.innerHeight);
+      expect.soft(geometry.personBottom, "current-principal is not on the page").not.toBeNull();
+      expect.soft(geometry.personBottom ?? Infinity).toBeLessThanOrEqual(geometry.innerHeight);
     }
   });
 }
