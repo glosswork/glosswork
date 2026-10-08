@@ -572,6 +572,8 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
   chains to the named CA; no request from any other caller is read. With some of them set, startup
   is refused naming what is missing, and with any other name under `GW_TLS_` present it is refused
   naming that. With none, nothing changes (DD-46).
+- **FR-P12.** With `GW_TRIAL_ENDS_AT` set, the workspace document reports the trial's end and the web
+  UI shows the time left and a subscribe link on every signed-in page, then that it ended (DD-47).
 
 ## 7. Architecture decisions
 
