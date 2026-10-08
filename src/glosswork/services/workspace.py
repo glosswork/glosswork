@@ -18,6 +18,7 @@ from glosswork.config import Settings
 from glosswork.db import Database
 from glosswork.errors import WorkspaceReadOnlyError
 from glosswork.repositories.interfaces import AgentLabelRepository, PrincipalRepository
+from glosswork.timeutil import format_datetime
 
 #: The path the MCP surface is served on. ``app.py`` attaches it as a ``Route`` on this
 #: exact path rather than a ``Mount``, so there is no trailing-slash variant and no setting
@@ -29,6 +30,18 @@ MCP_PATH = "/mcp"
 #: are the same kind of fact: a fixed path this application serves, whose origin half is
 #: the only deployment-specific part.
 SIGN_IN_PATH = "/login"
+
+
+@dataclass(slots=True)
+class TrialDocument:
+    """The ``trial`` value of the workspace document (change 30): when a hosted trial
+    ends, and where to subscribe. It exists only when ``GW_TRIAL_ENDS_AT`` is set."""
+
+    #: The end time in the canonical form, whole seconds and a ``Z``, never the
+    #: operator's input echoed.
+    ends_at: str
+    #: ``GW_SUBSCRIBE_URL``, or ``None`` when it is unset: the banner then has no link.
+    subscribe_url: str | None
 
 
 @dataclass(slots=True)
@@ -44,6 +57,8 @@ class WorkspaceDocument:
     #: See ``WorkspaceService.get_workspace`` for why this is composed here rather
     #: than in the browser.
     mcp_url: str | None
+    #: ``None`` unless ``GW_TRIAL_ENDS_AT`` is set, which is every self-hosted workspace.
+    trial: TrialDocument | None
 
 
 class WorkspaceService:
@@ -92,6 +107,29 @@ class WorkspaceService:
             people=people,
             agents=agents,
             mcp_url=self.mcp_url(),
+            trial=self.trial(),
+        )
+
+    def trial(self) -> TrialDocument | None:
+        """When this workspace's trial ends and where to subscribe, or ``None`` when no
+        trial end is configured (change 30).
+
+        No clock is read: the browser counts down, and the freeze is
+        ``GW_READ_ONLY``'s. **Nothing here can raise**, which matters because
+        :meth:`get_workspace` is also behind the operator's usage read: the setting was
+        converted to UTC at startup, so ``format_datetime`` has nothing left to fail on.
+
+        The subscribe address leaves the process here only beside a trial end, so a
+        workspace with a subscribe address and no trial reports nothing new. Every
+        credential that can read the workspace document can read it, which is why the
+        operator never puts a secret in it.
+        """
+        ends_at = self._settings.trial_ends_at
+        if ends_at is None:
+            return None
+        return TrialDocument(
+            ends_at=format_datetime(ends_at),
+            subscribe_url=self._settings.subscribe_url,
         )
 
     def refuse_write_if_read_only(self, attempted: str) -> None:

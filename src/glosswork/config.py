@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import AwareDatetime, Field, TypeAdapter, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,24 @@ RELAY_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 # names them. They are the only names allowed under ``GW_TLS_``: see ``_check_tls``.
 TLS_VARIABLE_PREFIX = "GW_TLS_"
 TLS_VARIABLES = ("GW_TLS_CERT_FILE", "GW_TLS_KEY_FILE", "GW_TLS_CLIENT_CA_FILE")
+
+# The one sentence every refusal of ``GW_TRIAL_ENDS_AT`` carries, whichever rule refused
+# it. pydantic's own wording for a time with no offset gives no example, so it never
+# reaches the operator for this variable.
+TRIAL_ENDS_AT_REFUSAL = (
+    "must be an ISO 8601 date and time with a UTC offset or Z, such as 2026-10-09T15:00:00Z"
+)
+
+_AWARE_DATETIME = TypeAdapter(AwareDatetime)
+
+
+def _is_a_number(value: str) -> bool:
+    """Whether Python's ``float()`` accepts ``value``."""
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
 
 
 class Settings(BaseSettings):
@@ -233,6 +252,17 @@ class Settings(BaseSettings):
     # Independent of ``GW_READ_ONLY``: self-host has no subscribe page, and a trial banner
     # needs the link while the trial is still running.
     subscribe_url: str | None = None
+    # When a hosted trial ends (change 30). Optional, and **blank counts as unset**, as
+    # ``GW_SUBSCRIBE_URL`` does. With it set, the workspace document reports it beside the
+    # subscribe address and the web UI counts down to it; with it unset, as on every
+    # self-hosted workspace, there is no banner and nothing else changes. The workspace
+    # stores nothing and enforces nothing for it: the freeze is ``GW_READ_ONLY`` above, set
+    # independently. Read once at startup, so changing it is a restart.
+    #
+    # Held as a UTC time: the validator below converts it once, so nothing on the request
+    # path can fail on its value. A time already in the past is legal, because a frozen
+    # workspace is restarted with it still set.
+    trial_ends_at: datetime | None = None
     # Email-code sign-in (change 9). The workspace never sends email itself: it asks the
     # hosting control plane's relay to, with a request naming one of two templates and
     # typed fields (docs/DEPLOYMENT.md section 5a). Codes are on exactly when both are set,
@@ -308,6 +338,40 @@ class Settings(BaseSettings):
                 "must be an absolute http or https URL, such as https://example.com/subscribe"
             )
         return value
+
+    @field_validator("trial_ends_at", mode="before")
+    @classmethod
+    def _utc_trial_end(cls, value: object) -> object:
+        """Blank is unset; anything else must be a date and time with an offset, and is
+        held as its UTC equal. Every refusal is ``TRIAL_ENDS_AT_REFUSAL``.
+
+        Before parsing, because the datetime type alone is wrong in both directions. It
+        refuses a trailing space or newline, so the value is trimmed first. And it reads
+        ``1790000000``, ``1790000000.5`` and ``-1`` as seconds since 1970, so anything
+        ``float()`` accepts is refused before the type sees it: a mistyped number that
+        silently became a trial end could not be diagnosed from a banner.
+
+        The conversion to UTC happens here, once, because it can fail:
+        ``9999-12-31T23:59:59-14:00`` parses, and is past the end of the calendar in UTC.
+        Left to the request, that value starts a workspace whose workspace document and
+        operator usage read both answer 500.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            text = value.isoformat()
+        elif isinstance(value, str):
+            text = value.strip()
+        else:
+            raise ValueError(TRIAL_ENDS_AT_REFUSAL)
+        if not text:
+            return None
+        if _is_a_number(text):
+            raise ValueError(TRIAL_ENDS_AT_REFUSAL)
+        try:
+            return _AWARE_DATETIME.validate_python(text).astimezone(UTC)
+        except (ValidationError, OverflowError, ValueError):
+            raise ValueError(TRIAL_ENDS_AT_REFUSAL) from None
 
     @field_validator("max_attachment_bytes")
     @classmethod

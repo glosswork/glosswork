@@ -132,6 +132,23 @@ def usage(client: TestClient, headers: dict[str, str] | None = None) -> Any:
     return client.get("/api/v1/usage", headers=headers or operator())
 
 
+def test_usage_answers_with_a_trial_end_set(tmp_path: Path) -> None:
+    """The usage read calls the service method that builds the workspace document, so
+    whatever a trial end's value could do to that method it would do to the hosting
+    operator's read as well (change 30). The end time is converted once, at startup, and
+    this is the read that would answer 500 if it were converted per request instead."""
+    settings = _settings(
+        tmp_path,
+        operator_token=OPERATOR_TOKEN,
+        trial_ends_at="2026-10-09T15:00:00Z",
+        subscribe_url="https://example.com/subscribe",
+    )
+    with TestClient(create_app(settings)) as trial:
+        response = usage(trial)
+    assert response.status_code == 200, response.text
+    assert set(response.json()) == RESPONSE_KEYS, response.text
+
+
 # ---------------------------------------------------------- a tenant PAT is refused
 
 
