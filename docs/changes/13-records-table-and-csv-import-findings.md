@@ -1050,11 +1050,39 @@ The fix run of 2026-10-12, after the verification failed at `0bc0b27`:
   visible sentence, the absence of every record row and of the count, and the chip's computed
   border and text colour against the theme's `bad` colour and against an accepted chip beside
   it. Before, they read the chip's accessible name, which passed while the page showed every
-  record. Run at `0bc0b27` before the fix, four failed: the typed `@tod` chip, `@tod` in the
-  Advanced builder and the saved view picked after load each found no `This filter could not
-  be applied.`, and the default-view scenario, which already showed the message, failed on
-  the chip's painted colour alone. One unit assertion that pinned the old behaviour ("keeps
-  the rows on screen") now asserts the opposite.
+  record. The whole new spec against the code at `0bc0b27`, as the verifier ran it: five
+  failed and 24 passed. Four are refusals: the typed `@tod` chip, `@tod` in the Advanced
+  builder and the saved view picked after load each found no `This filter could not be
+  applied.`, and the default-view scenario, which already showed the message, failed on the
+  chip's painted colour alone. The fifth is the calendar scenario, which now looks for the
+  drawn icon (D13). An earlier version of this entry said four. One unit assertion that
+  pinned the old behaviour ("keeps the rows on screen") now asserts the opposite.
+
+The second fix run of 2026-10-12, after the recheck passed at `c591850`:
+
+- **D15. The Advanced builder sends a typed value when typing pauses, not on every key. This
+  changes something the approved plan listed as unchanged, on the maintainer's decision.**
+  "What does not change" says the Advanced builder sends on every complete change. With D11
+  that made a good relative date blink: `@today-7d` typed there was nine requests, seven of
+  them refused, and the table was replaced by `This filter could not be applied.` about six
+  times before settling on the right answer (the verifier's recheck, 2026-10-12). Asked what
+  to do about it, with the first option put to him as "The builder waits a moment after the
+  last keystroke before sending, so a half-typed value is never sent", the maintainer
+  answered: "Fix it in this change, debounce the input."
+  A key in a value box that can be half-typed is shown at once and sent after 300 ms without
+  another key. The 300 is the codebase's existing `FILTER_DEBOUNCE_MS`
+  (`web/src/hooks/useDebouncedValue.ts`); the builder uses the number and its own timer, not
+  that hook, because a debounced value cannot be told to send now. Enter anywhere in the
+  builder, focus leaving a control in it, and the builder closing each send the pending value
+  immediately, whole, and once. Choosing a field, an operator or an option, adding or
+  removing a node, `NOT`, the group type and `Clear filter` are sent at once, as before. A
+  filter from a saved view or a restored tab never passes through the builder's sending and
+  is not delayed. Chips are unchanged: the rule for which widgets are typed moved, unedited,
+  from the chip popover into a module both now import.
+  The Search page's inline builder is the same component, so it waits in the same way.
+  Measured at `c591850` before the fix, the new browser scenario failed on all three of its
+  facts: nine filters sent where one is right, eight refusals among the answers, and the
+  refusal notice seen in the page while typing. After it: one request, one 200, no notice.
 
 ## Durable content moved out of this plan
 
