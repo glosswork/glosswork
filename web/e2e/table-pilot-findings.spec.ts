@@ -217,9 +217,29 @@ function sentFilter(request: Request): unknown {
   return (JSON.parse(request.postData() ?? "{}") as { filter?: unknown }).filter ?? null;
 }
 
+/**
+ * The first **record** row. Not `tbody tr`: while the first page is loading the table body
+ * holds one skeleton row, and a test that took that for the table being ready scrolled a page
+ * that was not yet tall enough to scroll.
+ */
+const firstDataRow = (page: Page) =>
+  page.getByTestId("records-table").locator('tbody tr[data-testid^="row-"]').first();
+
+/** Scrolls the window down and waits until it has actually moved that far. */
+async function scrollWindowTo(page: Page, top: number): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate((value) => {
+        window.scrollTo(0, value);
+        return window.scrollY;
+      }, top),
+    )
+    .toBe(top);
+}
+
 async function openTable(page: Page, typeKey: string = TYPE_KEY): Promise<void> {
   await page.goto(`/${typeKey}`);
-  await expect(page.getByTestId("records-table").locator("tbody tr").first()).toBeVisible();
+  await expect(firstDataRow(page)).toBeVisible();
 }
 
 async function signInAndOpenTable(page: Page): Promise<void> {
@@ -776,8 +796,7 @@ const SHELL_ROUTES = [
 test.describe("#16 a table taller than the viewport", () => {
   test("after scrolling, the sidebar and the filter chips are still in view", async ({ page }) => {
     await signInAndOpenTable(page);
-    await page.evaluate(() => window.scrollTo(0, 1500));
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
+    await scrollWindowTo(page, 1500);
 
     const firstLink = page.getByTestId("sidebar").getByRole("link").first();
     expect.soft(await insideViewportVertically(page, firstLink), "sidebar's first link in view").toBe(true);
@@ -806,8 +825,7 @@ test.describe("#16 a table taller than the viewport", () => {
     await signInAsE2eAdmin(page);
     await page.setViewportSize({ width: 800, height: 800 });
     await openTable(page);
-    await page.evaluate(() => window.scrollTo(0, 1500));
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
+    await scrollWindowTo(page, 1500);
     const bar = await page.getByTestId("shell-top-bar").boundingBox();
     expect(bar).not.toBeNull();
     expect(bar!.y + bar!.height).toBeLessThanOrEqual(0);
@@ -873,7 +891,7 @@ async function leaveAndReturn(page: Page, typeKey: string): Promise<void> {
   await expect(page).toHaveURL(/\/activity$/);
   await sidebar.locator(`a[href="/${typeKey}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/${typeKey}$`));
-  await expect(page.getByTestId("records-table").locator("tbody tr").first()).toBeVisible();
+  await expect(firstDataRow(page)).toBeVisible();
 }
 
 async function addOtherTypeChip(page: Page): Promise<void> {
@@ -1026,7 +1044,7 @@ const bodyCell = (page: Page, fieldName: string, recordKey: string) =>
 /** The key of the first row the table is showing: a row that is certainly inside the viewport,
  * which a geometric assertion needs and a fixed key does not promise. */
 async function firstRowKey(page: Page): Promise<string> {
-  const testId = await table(page).locator("tbody tr").first().getAttribute("data-testid");
+  const testId = await firstDataRow(page).getAttribute("data-testid");
   expect(testId).toMatch(/^row-PLF-/);
   return testId!.slice("row-".length);
 }
@@ -1211,7 +1229,7 @@ test.describe("#18 pinned columns", () => {
       }
     }, SESSION_PREFIX);
     await page.reload();
-    await expect(table(page).locator("tbody tr").first()).toBeVisible();
+    await expect(firstDataRow(page)).toBeVisible();
     await page.getByRole("button", { name: "Current view", exact: true }).click();
     await page.getByLabel("Saved view").selectOption({ label: viewName });
     await page.keyboard.press("Escape");
@@ -1229,8 +1247,7 @@ test.describe("#18 pinned columns", () => {
   }) => {
     await signInAndOpenTable(page);
     await scrollTableSideways(page, 800);
-    await page.evaluate(() => window.scrollTo(0, 1500));
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
+    await scrollWindowTo(page, 1500);
 
     const crossing = await page.evaluate(() => {
       const toolbar = document.querySelector('[data-testid="table-toolbar"]')!;
