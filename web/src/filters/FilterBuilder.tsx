@@ -23,11 +23,27 @@
  *
  * It is deliberately **behaviour, not markup**: the gate changes nothing about what this
  * component renders, so `ui-visual.spec.ts`'s `search-scoped.png`, which deliberately contains
- * this builder, is unaffected by it. This builder has no explicit commit boundary (Apply, Enter,
- * close); the chip popovers have one. Here a complete tree commits as soon as it becomes
- * complete, which is the smallest rule that satisfies the gate.
+ * this builder, is unaffected by it. This builder has no Apply button; the chip popovers have
+ * one. Here a complete tree commits as soon as it becomes complete, with one exception.
+ *
+ * **A typed value is sent when typing pauses, not on every key.** "Complete" is true of a text
+ * value at its first character, so `@today-7d` typed into a date condition was nine requests,
+ * and seven of its nine prefixes are tokens the server refuses. Since a refused filter empties
+ * the table and says why (`TableView.tsx`), the table was replaced by an error six times in the
+ * second and a half it took to type a good value. So a key in a value box that can be
+ * half-typed (`typedValueWidget.ts`) is shown at once and **sent after `FILTER_DEBOUNCE_MS`
+ * without another key**. Everything else is sent at once, as before: choosing a field, an
+ * operator or an option, adding or removing a node, `NOT`, the group type, `Clear filter`.
+ *
+ * Waiting must never lose what was typed, so the pending value is sent **immediately** by
+ * Enter anywhere in the builder, by focus leaving a control in it, and by the builder
+ * unmounting, which is what closing the popover it sits in does. None of them waits out the
+ * delay and none sends twice.
+ *
+ * A filter that arrives from outside (`initialFilter`: a saved view, a restored tab) does not
+ * pass through here at all, so it is never delayed.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FieldDoc, SystemFieldDoc } from "../api/objectTypes";
 import type { FilterActions } from "./FilterActions";
 import { isFilterComplete } from "./completeness";
@@ -40,6 +56,7 @@ import {
   setGroupKind,
   toggleNot,
 } from "./filterTree";
+import { FILTER_DEBOUNCE_MS } from "../hooks/useDebouncedValue";
 import { toFilterableFields } from "./filterableFields";
 import type { FilterNode, GroupKind } from "./types";
 import { FilterNodeView } from "./FilterNodeView";
@@ -65,16 +82,54 @@ export function FilterBuilder({
     [fields, systemFields],
   );
 
-  const commit = (next: FilterNode | null) => {
-    setTree(next);
+  /** The live `onChange`: the pending send below can fire from a timer or at unmount, long
+   * after the render that scheduled it. */
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+  /** A typed change that has been shown and not yet sent, and the timer that will send it. */
+  const pending = useRef<{ tree: FilterNode | null } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const send = (next: FilterNode | null) => {
     // The gate. `isFilterComplete` is the one rule (`completeness.ts`), mirrored from
     // `src/glosswork/filters.py` and imported by the tests too, so the test and the product
     // cannot judge "complete" differently. An incomplete tree is held in local state and the
     // consumer keeps the last complete filter it was given.
     if (isFilterComplete(next)) {
-      onChange(next);
+      onChangeRef.current(next);
     }
   };
+
+  /** Send what is pending now, if anything is. Safe to call at any time, any number of times. */
+  const flush = () => {
+    clearTimeout(timer.current);
+    const waiting = pending.current;
+    if (waiting === null) return;
+    pending.current = null;
+    send(waiting.tree);
+  };
+
+  const commit = (next: FilterNode | null, typing = false) => {
+    setTree(next);
+    clearTimeout(timer.current);
+    if (!typing) {
+      // This tree already contains whatever was pending, so it replaces it.
+      pending.current = null;
+      send(next);
+      return;
+    }
+    pending.current = { tree: next };
+    timer.current = setTimeout(flush, FILTER_DEBOUNCE_MS);
+  };
+
+  useEffect(() => {
+    // Closing the popover this builder sits in unmounts it. What was typed is sent, not lost.
+    return flush;
+    // `flush` reads only refs, so the one registered at mount is as good as any later one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const defaultCondition = () => {
     const first = filterableFields[0];
@@ -83,9 +138,9 @@ export function FilterBuilder({
 
   const actions: FilterActions = useMemo(() => {
     return {
-      updateCondition: (path, condition) => {
+      updateCondition: (path, condition, typing) => {
         if (tree === null) return;
-        commit(replaceCondition(tree, path, condition));
+        commit(replaceCondition(tree, path, condition), typing);
       },
       removeNode: (path) => {
         if (tree === null) return;
@@ -116,6 +171,13 @@ export function FilterBuilder({
     <div
       className="flex flex-col items-start gap-2 rounded-card border border-line bg-surface p-3"
       data-testid="filter-builder"
+      // Enter and leaving a control are this builder's commit points for a typed value: both
+      // send it at once. `onBlur` is React's bubbling focus-out, so it fires for any control
+      // inside. Neither does anything when nothing is pending.
+      onKeyDown={(event) => {
+        if (event.key === "Enter") flush();
+      }}
+      onBlur={flush}
     >
       {tree === null ? (
         <EmptyState

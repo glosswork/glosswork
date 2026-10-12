@@ -684,8 +684,8 @@ test.describe("#15 a date filter", () => {
     await expectRowCount(page, unfiltered);
 
     const row = await startAdvancedCondition(page, "last_used", "lt");
-    // The builder sends on every complete change, so each key of the token is a refused
-    // request; what matters is what the page shows once the last one has answered.
+    // The builder sends a typed value once typing pauses, so this is one refused request, for
+    // the token as typed.
     await row.getByLabel("Last used value", { exact: true }).pressSequentially("@tod");
 
     await expectFilterRefused(page, "Unknown date token '@tod'");
@@ -696,6 +696,113 @@ test.describe("#15 a date filter", () => {
     await expectChipMarkedRefused(page, page.getByTestId("filter-chip-0"));
     await page.getByRole("button", { name: /^Remove filter: Last used/ }).click();
     await expectRowCount(page, unfiltered);
+  });
+
+  /**
+   * Every `/query` request and its status for as long as the returned `stop` is not called, and
+   * whether the refusal notice was ever in the page in that time. The notice is watched from
+   * inside the page by a `MutationObserver`, so a blink between two samples cannot be missed.
+   */
+  async function watchQueries(page: Page): Promise<{
+    filters: () => unknown[];
+    statuses: () => number[];
+    sawRefusal: () => Promise<boolean>;
+  }> {
+    const filters: unknown[] = [];
+    const statuses: number[] = [];
+    page.on("request", (request) => {
+      if (isQueryRequest(request)) filters.push(sentFilter(request));
+    });
+    page.on("response", (response) => {
+      if (isQueryRequest(response.request())) statuses.push(response.status());
+    });
+    await page.evaluate(() => {
+      const flagged = window as unknown as { __sawRefusal: boolean };
+      flagged.__sawRefusal = false;
+      const look = () => {
+        if (document.querySelector('[data-testid="table-filter-refused"]')) {
+          flagged.__sawRefusal = true;
+        }
+      };
+      new MutationObserver(look).observe(document.body, { childList: true, subtree: true });
+      look();
+    });
+    return {
+      filters: () => filters,
+      statuses: () => statuses,
+      sawRefusal: () =>
+        page.evaluate(() => (window as unknown as { __sawRefusal: boolean }).__sawRefusal),
+    };
+  }
+
+  const tokenFilter = { field: "last_used", op: "gte", value: "@today-7d" };
+
+  test("a relative date typed key by key into the Advanced builder is sent once, whole, and never shows a refusal", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    const row = await startAdvancedCondition(page, "last_used", "gte");
+    const watch = await watchQueries(page);
+
+    // A person's pace: slower than a script, faster than the builder's pause. Seven of this
+    // token's nine prefixes are tokens the server refuses (`@`, `@t`, ... `@today-`, `@today-7`),
+    // and each used to be a request, a 422 and the table replaced by the refusal.
+    const box = row.getByLabel("Last used value", { exact: true });
+    await box.pressSequentially("@today-7d", { delay: 80 });
+    // What is typed shows at once; only the sending waits.
+    await expect(box).toHaveValue("@today-7d");
+
+    // Every fixture record is from January 2026, so nothing is on or after seven days ago.
+    const expected = await apiCount(TYPE_KEY, tokenFilter);
+    expect(expected).toBe(0);
+    await expect(page.getByTestId("table-empty-filtered")).toBeVisible();
+    await expect(page.getByTestId("filter-chips").getByText("Last used is on or after @today-7d")).toBeVisible();
+
+    // Soft, all three: they are three facts, and each has to be measured whether or not the
+    // one before it holds.
+    expect.soft(watch.filters(), "the filters sent while typing").toEqual([tokenFilter]);
+    expect.soft(watch.statuses(), "their answers").toEqual([200]);
+    expect.soft(await watch.sawRefusal(), "the refusal notice appeared while typing").toBe(false);
+  });
+
+  test("a value typed into the Advanced builder and committed at once is sent whole, by Enter, by leaving the box and by closing", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    const unfiltered = await apiCount(TYPE_KEY, null);
+    const filtered = await apiCount(TYPE_KEY, { field: "variant", op: "eq", value: "v2" });
+    expect(filtered).toBeGreaterThan(0);
+    expect(filtered).toBeLessThan(unfiltered);
+
+    const commits: [string, (box: Locator) => Promise<void>][] = [
+      ["Enter", (box) => box.press("Enter")],
+      ["leaving the box", (box) => box.press("Tab")],
+      ["closing the builder", () => page.keyboard.press("Escape")],
+    ];
+    for (const [name, commitNow] of commits) {
+      const row = await startAdvancedCondition(page, "variant", "eq");
+      const box = row.getByLabel("Variant value", { exact: true });
+      const watch = await watchQueries(page);
+      // No pause at all between the last key and the commit: nothing has been sent yet.
+      await box.pressSequentially("v2");
+      const sent = page.waitForRequest(isQueryRequest, { timeout: 5_000 });
+      await commitNow(box);
+      expect(sentFilter(await sent), name).toEqual({ field: "variant", op: "eq", value: "v2" });
+      await expectRowCount(page, filtered);
+      // Sent once, whole: not `v` and then `v2`, and not a second time when the pause ends.
+      await page.waitForTimeout(600);
+      expect(watch.filters(), name).toEqual([{ field: "variant", op: "eq", value: "v2" }]);
+
+      // What was typed is still what the builder holds.
+      if (name !== "closing the builder") await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Advanced", exact: true }).click();
+      await expect(
+        page.getByTestId("filter-node-root").getByLabel("Variant value", { exact: true }),
+      ).toHaveValue("v2");
+      await page.getByTestId("filter-builder").getByRole("button", { name: "Clear filter" }).click();
+      await page.keyboard.press("Escape");
+      await expectRowCount(page, unfiltered);
+    }
   });
 
   test("the Advanced builder holds back the same date and sends the same instant", async ({

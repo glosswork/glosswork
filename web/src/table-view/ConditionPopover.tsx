@@ -12,7 +12,7 @@
  * - **close** — the popover dismissing for any reason, which is this component unmounting.
  *
  * with one exception the answer names: a control that **cannot be half-typed** commits as soon
- * as it changes. That is `isTypedValueWidget` below, and it is a property of the widget
+ * as it changes. That is `filters/typedValueWidget.ts`, and it is a property of the widget
  * `ValueInput` renders rather than a list kept here: a `<select>`, a checkbox group and an
  * operator that takes no value at all are all finished the moment they change, and a text or
  * number box is not.
@@ -40,33 +40,12 @@ import type { RefObject } from "react";
 import type { ChipCondition } from "../filters/chipFilter";
 import { isConditionComplete, valueCardinality } from "../filters/completeness";
 import type { FilterableField } from "../filters/filterableFields";
+import { isTypedValueWidget } from "../filters/typedValueWidget";
 import { ValueInput } from "../filters/ValueInput";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Checkbox";
 import { btnSmClass, compactSelectClass, fieldLabelClass } from "../ui/classes";
 import { operatorWord } from "../ui/vocabulary";
-
-/**
- * Can this condition's value be half-typed?
- *
- * The answer decides whether a change commits immediately ("a select or a boolean, which cannot
- * be half-typed, commits on change") and it is read off the widget `ValueInput` will
- * render, branch for branch: no widget at all for a `NO_VALUE_OPS` operator; a `<select>` or a
- * checkbox group for a select field, a boolean and a `user_ref`; a text or number box for
- * everything else, including the comma-separated list a `relation` gets for `linked_to_any` and
- * the two boxes of a `between`.
- *
- * Not exported: it is measured through the behaviour it produces — typing commits nothing until
- * Apply, choosing commits at once — rather than by a unit test of its own, which would assert the
- * table and not the rule.
- */
-function isTypedValueWidget(field: FilterableField, op: string): boolean {
-  const cardinality = valueCardinality(op);
-  if (cardinality === "none") return false;
-  if (field.type === "single_select" || field.type === "multi_select") return false;
-  if (cardinality !== "one") return true;
-  return field.type !== "boolean" && field.type !== "user_ref";
-}
 
 function sameChip(a: ChipCondition, b: ChipCondition): boolean {
   return JSON.stringify(a) === JSON.stringify(b);

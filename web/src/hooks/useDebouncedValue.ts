@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 
-/** The default delay the old audit filters used, from before filters moved to an explicit
- * commit boundary. The hook's one consumer, the relation picker's title search
- * (`record-detail/RelationPicker.tsx`), declares its own `RELATION_SEARCH_DEBOUNCE_MS` rather
- * than reusing this one. */
+/**
+ * How long a filter waits after the last key before it is sent.
+ *
+ * Two users: this hook's default, and the tree builder (`filters/FilterBuilder.tsx`), which
+ * sends a typed value after this long without another key. The builder imports the number and
+ * not the hook: it has to send at once on Enter, on blur and on close, and a debounced value
+ * cannot be told to hurry. The relation picker's title search
+ * (`record-detail/RelationPicker.tsx`) declares its own `RELATION_SEARCH_DEBOUNCE_MS`.
+ */
 export const FILTER_DEBOUNCE_MS = 300;
 
 /**
@@ -11,9 +16,8 @@ export const FILTER_DEBOUNCE_MS = 300;
  *
  * The one live consumer is the relation picker's title search
  * (`record-detail/RelationPicker.tsx`), which passes its own `delayMs` instead of the default
- * above. Filter composers deliberately do not debounce: `docs/DESIGN.md` 8.7 and
- * `table-view/ConditionPopover.tsx` commit a condition to the network only once it is
- * complete, so a half-typed value never reaches it at all. This hook is not a filter tool.
+ * above. A filter chip's popover does not debounce: `table-view/ConditionPopover.tsx` commits
+ * on Apply, Enter or close. The tree builder waits for a pause, with its own timer.
  *
  * Debouncing at the value rather than at the call site means every consumer of the derived query
  * key inherits it, and the input itself stays fully controlled and immediate.
