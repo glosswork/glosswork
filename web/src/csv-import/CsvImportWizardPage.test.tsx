@@ -47,6 +47,7 @@ interface CapturedImportRequest {
   fileText: string;
   dryRun: string | null;
   mode: string | null;
+  blankClears: string | null;
 }
 
 let importRequests: CapturedImportRequest[] = [];
@@ -61,14 +62,26 @@ const server = setupServer(
     const fileText = await file.text();
     const dryRun = formData.get("dry_run") as string | null;
     const mode = formData.get("mode") as string | null;
-    importRequests.push({ fileText, dryRun, mode });
+    const blankClears = formData.get("blank_clears") as string | null;
+    importRequests.push({ fileText, dryRun, mode, blankClears });
+    // With the flag, the mock reports one clear, so the summary has something to say.
+    const clears =
+      blankClears === "true"
+        ? { cleared: 1, cleared_by_field: { target_date: 1 } }
+        : { cleared: 0, cleared_by_field: {} };
 
     if (dryRun === "true") {
       const errors = dryRunErrorQueue[dryRunCallIndex] ?? [];
       dryRunCallIndex += 1;
-      return HttpResponse.json({ dry_run: true, created: 0, updated: 0, errors });
+      return HttpResponse.json({
+        dry_run: true,
+        created: 0,
+        updated: 0,
+        errors,
+        ...(errors.length === 0 ? clears : { cleared: 0, cleared_by_field: {} }),
+      });
     }
-    return HttpResponse.json({ dry_run: false, created: 1, updated: 0, errors: [] });
+    return HttpResponse.json({ dry_run: false, created: 1, updated: 0, errors: [], ...clears });
   }),
 );
 
@@ -330,5 +343,90 @@ describe("CsvImportWizardPage: attachment columns", () => {
     await uploadCsv(user, "Files\r\nsome-attachment-id");
 
     expect(screen.getByLabelText("Column mapping for Files")).toHaveValue("");
+  });
+});
+
+describe("CsvImportWizardPage: blank cells clear the field", () => {
+  const CLEAR = "Blank cells clear the field";
+
+  async function uploadForUpsert(user: ReturnType<typeof userEvent.setup>) {
+    renderWizard();
+    await uploadCsv(user, "Target Date,key\r\n,INIT-9");
+    await user.selectOptions(screen.getByLabelText("Import mode"), "upsert");
+    await user.selectOptions(screen.getByLabelText("Upsert key"), "key");
+  }
+
+  beforeEach(() => {
+    dryRunErrorQueue = [];
+  });
+
+  it("is absent in create mode, and present and off in upsert mode", async () => {
+    const user = userEvent.setup();
+    renderWizard();
+    await uploadCsv(user, "Target Date,key\r\n,INIT-9");
+    expect(screen.queryByRole("checkbox", { name: CLEAR })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Import mode"), "upsert");
+    expect(screen.getByRole("checkbox", { name: CLEAR })).not.toBeChecked();
+    expect(
+      screen.getByText(/On: a blank cell in a column you mapped removes whatever the record holds now/),
+    ).toBeInTheDocument();
+  });
+
+  it("discards the last dry run when it is ticked, so Commit waits for a new one", async () => {
+    const user = userEvent.setup();
+    await uploadForUpsert(user);
+    const commit = screen.getByRole("button", { name: "Commit" });
+
+    await user.click(screen.getByRole("button", { name: "Run dry-run" }));
+    await screen.findByText(/Dry run passed/);
+    expect(commit).toBeEnabled();
+    expect(importRequests[0].blankClears).toBeNull();
+    expect(screen.queryByTestId("import-clears-dry-run")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: CLEAR }));
+    expect(commit).toBeDisabled();
+    expect(screen.queryByText(/Dry run passed/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run dry-run" }));
+    expect(await screen.findByTestId("import-clears-dry-run")).toHaveTextContent(
+      "1 value will be cleared: Target Date (1).",
+    );
+    expect(importRequests[1].blankClears).toBe("true");
+    expect(commit).toBeEnabled();
+
+    // Unticking discards it again, in the other direction.
+    await user.click(screen.getByRole("checkbox", { name: CLEAR }));
+    expect(commit).toBeDisabled();
+  });
+
+  it("sends the flag on the commit and reports what was cleared", async () => {
+    const user = userEvent.setup();
+    await uploadForUpsert(user);
+    await user.click(screen.getByRole("checkbox", { name: CLEAR }));
+    await user.click(screen.getByRole("button", { name: "Run dry-run" }));
+    await screen.findByTestId("import-clears-dry-run");
+    await user.click(screen.getByRole("button", { name: "Commit" }));
+
+    await waitFor(() => expect(importRequests).toHaveLength(2));
+    expect(importRequests[1]).toMatchObject({ dryRun: "false", mode: "upsert", blankClears: "true" });
+    await waitFor(() =>
+      expect(screen.getByTestId("import-clears-commit")).toHaveTextContent(
+        "1 value cleared: Target Date (1).",
+      ),
+    );
+  });
+
+  it("is unticked and not sent after switching back to create mode", async () => {
+    const user = userEvent.setup();
+    await uploadForUpsert(user);
+    await user.click(screen.getByRole("checkbox", { name: CLEAR }));
+    await user.selectOptions(screen.getByLabelText("Import mode"), "create");
+    await user.click(screen.getByRole("button", { name: "Run dry-run" }));
+    await waitFor(() => expect(importRequests).toHaveLength(1));
+    expect(importRequests[0]).toMatchObject({ mode: "create", blankClears: null });
+
+    await user.selectOptions(screen.getByLabelText("Import mode"), "upsert");
+    expect(screen.getByRole("checkbox", { name: CLEAR })).not.toBeChecked();
   });
 });

@@ -16,6 +16,8 @@ import {
   isCanonicalInstant,
   localDayOfInstant,
 } from "../ui/datetime";
+import { chipSentence } from "./chipFilter";
+import type { FilterableField } from "./filterableFields";
 import {
   commitDateFilterText,
   DATE_FILTER_HINT,
@@ -252,5 +254,38 @@ describe("the day arithmetic itself", () => {
     expect(formatLocalDay("2026-01-07", new Date(2026, 5, 1))).toBe("7 Jan");
     expect(formatLocalDay("2026-01-07", new Date(2027, 5, 1))).toBe("7 Jan 2026");
     expect(formatLocalDay("not a day")).toBe("not a day");
+  });
+});
+
+describe("the chip's sentence for a datetime filter", () => {
+  const lastUsed: FilterableField = {
+    key: "last_used",
+    name: "Last used",
+    type: "datetime",
+    operators: ["lt", "lte", "gt", "gte", "eq", "neq", "between"],
+  };
+  const sentence = (op: string, value: unknown) =>
+    chipSentence(lastUsed, { condition: { field: "last_used", op, value }, negated: false });
+  /** The year the fixture instants are in, so the sentence carries no year whenever this runs. */
+  const inFixtureYear = new Date().getFullYear() === 2026;
+
+  it("reads a boundary instant as the day, the way the column does", () => {
+    process.env.TZ = "America/New_York";
+    const day = inFixtureYear ? "7 Jan" : "7 Jan 2026";
+    expect(sentence("lt", "2026-01-07T05:00:00Z")).toBe(`Last used is before ${day}`);
+    expect(sentence("lte", "2026-01-08T04:59:59Z")).toBe(`Last used is on or before ${day}`);
+    expect(sentence("between", ["2026-01-07T05:00:00Z", "2026-01-08T04:59:59Z"])).toBe(
+      `Last used is between ${day} and ${day}`,
+    );
+  });
+
+  it("reads any other instant as day and time", () => {
+    process.env.TZ = "America/New_York";
+    const day = inFixtureYear ? "6 Jan" : "6 Jan 2026";
+    expect(sentence("lt", "2026-01-06T18:30:00Z")).toBe(`Last used is before ${day} 13:30`);
+  });
+
+  it("reads a token as typed", () => {
+    expect(sentence("gte", "@today-7d")).toBe("Last used is on or after @today-7d");
   });
 });

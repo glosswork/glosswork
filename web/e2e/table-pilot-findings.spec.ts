@@ -828,3 +828,530 @@ test.describe("#16 a table taller than the viewport", () => {
     });
   }
 });
+
+// --------------------------------------------------------------------------------------------
+// #14: unsaved table state survives leaving the page
+// --------------------------------------------------------------------------------------------
+
+const SESSION_PREFIX = "gw.table-view.";
+const PAUSED_VIEW_NAME = "Paused only";
+const stageIsPaused = { field: "stage", op: "eq", value: "paused" };
+const SECOND_EMAIL = "e2e-pilot-second@example.com";
+const SECOND_PASSWORD = "e2e-pilot-second-passw0rd!";
+
+async function sessionKeys(page: Page): Promise<string[]> {
+  return page.evaluate((prefix) => {
+    const keys: string[] = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key !== null && key.startsWith(prefix)) keys.push(key);
+    }
+    return keys.sort();
+  }, SESSION_PREFIX);
+}
+
+async function seedSecondAccount(): Promise<void> {
+  const created = await apiContext.post("/api/v1/principals", {
+    data: {
+      type: "user",
+      display_name: "Pilot Second",
+      email: SECOND_EMAIL,
+      role: "member",
+      password: SECOND_PASSWORD,
+    },
+  });
+  // A retry into the same data directory finds the account already there.
+  expect(created.ok() || created.status() === 409 || created.status() === 422, await created.text())
+    .toBeTruthy();
+}
+
+/** Leaves a table by the sidebar and comes back by the sidebar: the reported journey. The link
+ * back is a bare path, which is why state kept only in the URL would not survive it. */
+async function leaveAndReturn(page: Page, typeKey: string): Promise<void> {
+  const sidebar = page.getByTestId("sidebar");
+  await sidebar.getByRole("link", { name: "Activity", exact: true }).click();
+  await expect(page).toHaveURL(/\/activity$/);
+  await sidebar.locator(`a[href="/${typeKey}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`/${typeKey}$`));
+  await expect(page.getByTestId("records-table").locator("tbody tr").first()).toBeVisible();
+}
+
+async function addOtherTypeChip(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "+ Add filter" }).click();
+  const popover = page.getByTestId("condition-popover");
+  await popover.getByLabel("Field").selectOption("stage");
+  const committed = page.waitForRequest(isQueryFor(OTHER_TYPE_KEY), { timeout: 5_000 });
+  await popover.getByLabel("Stage value").selectOption("active");
+  await committed;
+  await page.keyboard.press("Escape");
+}
+
+test.describe("#14 unsaved table state", () => {
+  test("a filter is still applied after leaving by the sidebar and coming back, per object type", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    await addStageChip(page);
+    const filtered = await apiCount(TYPE_KEY, stageIsActive);
+    await expectRowCount(page, filtered);
+
+    await leaveAndReturn(page, TYPE_KEY);
+    await expect
+      .soft(page.getByRole("button", { name: "Stage is Active", exact: true }))
+      .toBeVisible();
+    await expectRowCount(page, filtered);
+
+    // A reload keeps it too: it is the tab's state, not the page's.
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Stage is Active", exact: true })).toBeVisible();
+    await expectRowCount(page, filtered);
+
+    // A second type's table is untouched by the first one's filter.
+    await page.getByTestId("sidebar").locator(`a[href="/${OTHER_TYPE_KEY}"]`).click();
+    await expect(page.getByTestId("row-PLO-001")).toBeVisible();
+    await expect(page.getByTestId("filter-chip-0")).toHaveCount(0);
+  });
+
+  test("the restored filter is the first query: no unfiltered request goes out before it", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    await addStageChip(page);
+    await page.getByTestId("sidebar").getByRole("link", { name: "Activity", exact: true }).click();
+    await expect(page).toHaveURL(/\/activity$/);
+
+    const requests: Request[] = [];
+    page.on("request", (request) => {
+      if (isQueryRequest(request)) requests.push(request);
+    });
+    await page.getByTestId("sidebar").locator(`a[href="/${TYPE_KEY}"]`).click();
+    await expectRowCount(page, await apiCount(TYPE_KEY, stageIsActive));
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.map(sentFilter)).toEqual(requests.map(() => stageIsActive));
+  });
+
+  test("choosing a saved view replaces the stored state", async ({ page }) => {
+    await seedSavedView(
+      TYPE_KEY,
+      PAUSED_VIEW_NAME,
+      stageIsPaused,
+      ["name", "stage", "variant", "last_used", "due"],
+      false,
+    );
+    await signInAndOpenTable(page);
+    await addStageChip(page);
+
+    await page.getByRole("button", { name: "Current view", exact: true }).click();
+    const loaded = page.waitForRequest(isQueryRequest, { timeout: 5_000 });
+    await page.getByLabel("Saved view").selectOption({ label: PAUSED_VIEW_NAME });
+    expect(sentFilter(await loaded)).toEqual(stageIsPaused);
+    await page.keyboard.press("Escape");
+    const paused = await apiCount(TYPE_KEY, stageIsPaused);
+    await expectRowCount(page, paused);
+
+    await leaveAndReturn(page, TYPE_KEY);
+    await expect
+      .soft(page.getByRole("button", { name: `Current view: ${PAUSED_VIEW_NAME}` }))
+      .toBeVisible();
+    await expect.soft(page.getByRole("button", { name: "Stage is Paused", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stage is Active", exact: true })).toHaveCount(0);
+    await expectRowCount(page, paused);
+  });
+
+  test("after signing out and in again the table is unfiltered and the tab holds no table state", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    await addStageChip(page);
+    expect.soft(await sessionKeys(page), "state written while signed in").toEqual([
+      `${SESSION_PREFIX}${TYPE_KEY}`,
+    ]);
+
+    await page.getByTestId("current-principal").getByRole("button", { name: "Sign out" }).click();
+    await expect(page.getByTestId("login-email")).toBeVisible();
+    expect(await sessionKeys(page), "state left behind by sign-out").toEqual([]);
+
+    await signInAndOpenTable(page);
+    await expect(page.getByTestId("filter-chip-0")).toHaveCount(0);
+    await expectRowCount(page, await apiCount(TYPE_KEY, null));
+  });
+
+  test("a session that ends without signing out leaves nothing for the next person who signs in", async ({
+    page,
+    context,
+  }) => {
+    await seedSecondAccount();
+    await signInAndOpenTable(page);
+    await addStageChip(page);
+    await openTable(page, OTHER_TYPE_KEY);
+    await addOtherTypeChip(page);
+    // Two entries, both the first account's. This is what makes the absence below mean
+    // something: without it, "no key is left" is true of a product that never stored one.
+    expect(await sessionKeys(page), "state written by the first account").toEqual([
+      `${SESSION_PREFIX}${TYPE_KEY}`,
+      `${SESSION_PREFIX}${OTHER_TYPE_KEY}`,
+    ]);
+
+    // The session ends without the sign-out route ever running: it expired, or it was ended
+    // from another tab. The tab, and its storage, are still here.
+    await context.clearCookies();
+    await signInAs(page, SECOND_EMAIL, SECOND_PASSWORD);
+    // The second account has opened no table at all, so nothing was removed by a read.
+    expect(await sessionKeys(page), "the first account's state after the second signed in").toEqual(
+      [],
+    );
+  });
+});
+
+// --------------------------------------------------------------------------------------------
+// #18: columns can be pinned
+// --------------------------------------------------------------------------------------------
+
+const table = (page: Page) => page.getByTestId("records-table");
+/** The table's own sideways scroller. */
+const tableWrap = (page: Page) => table(page).locator("xpath=..");
+/** A column's header cell, found from its resize handle, which every field column has. */
+const headerCell = (page: Page, fieldKey: string) =>
+  page.getByTestId(`resize-handle-${fieldKey}`).locator("xpath=..");
+const bodyCell = (page: Page, fieldName: string, recordKey: string) =>
+  page
+    .getByRole("button", { name: `Edit ${fieldName} for ${recordKey}`, exact: true })
+    .locator("xpath=ancestor::td[1]");
+
+/** The key of the first row the table is showing: a row that is certainly inside the viewport,
+ * which a geometric assertion needs and a fixed key does not promise. */
+async function firstRowKey(page: Page): Promise<string> {
+  const testId = await table(page).locator("tbody tr").first().getAttribute("data-testid");
+  expect(testId).toMatch(/^row-PLF-/);
+  return testId!.slice("row-".length);
+}
+
+async function leftOf(locator: Locator): Promise<number> {
+  const box = await locator.boundingBox();
+  expect(box, "the cell has no box").not.toBeNull();
+  return Math.round(box!.x);
+}
+
+async function scrollTableSideways(page: Page, left: number): Promise<void> {
+  await tableWrap(page).evaluate((element, value) => {
+    element.scrollLeft = value;
+  }, left);
+  await expect.poll(() => tableWrap(page).evaluate((element) => element.scrollLeft)).toBe(left);
+}
+
+async function openColumns(page: Page): Promise<Locator> {
+  await page.getByTestId("columns-chip").getByRole("button").first().click();
+  const picker = page.getByTestId("column-picker");
+  await expect(picker).toBeVisible();
+  return picker;
+}
+
+async function headerOrder(page: Page): Promise<string[]> {
+  return (await table(page).locator("thead th").allTextContents()).map((text) =>
+    text.replace(/[▲▼]\d*/g, "").trim(),
+  );
+}
+
+test.describe("#18 pinned columns", () => {
+  test("the display field stays put while the table scrolls sideways, and a far column moves", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    const rowKey = await firstRowKey(page);
+    const wrapLeft = await leftOf(tableWrap(page));
+    const farBefore = await leftOf(headerCell(page, fillerKey(4)));
+
+    await scrollTableSideways(page, 800);
+
+    // One pixel inside the wrapper: its own left border.
+    expect.soft(await leftOf(headerCell(page, "name")), "Name header").toBe(wrapLeft + 1);
+    expect.soft(await leftOf(bodyCell(page, "Name", rowKey)), "Name cell").toBe(wrapLeft + 1);
+    expect.soft(await leftOf(headerCell(page, fillerKey(4))), "a far column").toBe(farBefore - 800);
+    // The stuck cell is what is painted there, not a cell scrolling under it.
+    expect
+      .soft(await isTopmostAtCentre(bodyCell(page, "Name", rowKey)), "Name cell is topmost")
+      .toBe(true);
+    // Only pinned fields stay: the Key column has scrolled away with the rest.
+    const keyLink = page.getByTestId(`row-${rowKey}`).getByRole("link", { name: rowKey });
+    expect((await keyLink.boundingBox())!.x).toBeLessThan(wrapLeft);
+  });
+
+  test("a second field can be pinned beside the first and unpinned again", async ({ page }) => {
+    await signInAndOpenTable(page);
+    const wrapLeft = await leftOf(tableWrap(page));
+    let picker = await openColumns(page);
+    await expect(picker.getByRole("button", { name: "Unpin Name", exact: true })).toBeVisible();
+    await picker.getByRole("button", { name: "Pin Stage", exact: true }).click();
+    await expect(picker.getByRole("button", { name: "Unpin Stage", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await scrollTableSideways(page, 800);
+    const nameBox = (await headerCell(page, "name").boundingBox())!;
+    expect(Math.round(nameBox.x)).toBe(wrapLeft + 1);
+    expect(await leftOf(headerCell(page, "stage")), "Stage header beside Name").toBe(
+      Math.round(nameBox.x + nameBox.width),
+    );
+    expect(
+      await leftOf(bodyCell(page, "Stage", await firstRowKey(page))),
+      "Stage cell beside Name",
+    ).toBe(Math.round(nameBox.x + nameBox.width));
+
+    picker = await openColumns(page);
+    await picker.getByRole("button", { name: "Unpin Stage", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await scrollTableSideways(page, 0);
+    const stageAtRest = await leftOf(headerCell(page, "stage"));
+    await scrollTableSideways(page, 800);
+    expect(await leftOf(headerCell(page, "stage")), "Stage released").toBe(stageAtRest - 800);
+    expect(await leftOf(headerCell(page, "name")), "Name still pinned").toBe(wrapLeft + 1);
+  });
+
+  test("inline edit, resize and reorder work on a pinned column and on an unpinned one", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    const recordKey = await firstRowKey(page);
+
+    // Inline edit: the pinned display field, then an unpinned field, on the last record.
+    for (const [fieldName, value] of [
+      ["Name", "A finding, edited in place"],
+      ["Variant", "v-edited"],
+    ] as const) {
+      const cell = page.getByRole("button", { name: `Edit ${fieldName} for ${recordKey}`, exact: true });
+      await cell.click();
+      const input = page.getByTestId(`row-${recordKey}`).getByRole("textbox");
+      await input.fill(value);
+      await input.press("Enter");
+      await expect(cell).toHaveText(value);
+    }
+
+    // Resize: drag each handle 40px to the right.
+    for (const fieldKey of ["name", "variant"]) {
+      const before = (await headerCell(page, fieldKey).boundingBox())!.width;
+      const handle = (await page.getByTestId(`resize-handle-${fieldKey}`).boundingBox())!;
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + handle.height / 2, {
+        steps: 4,
+      });
+      await page.mouse.up();
+      await expect
+        .poll(
+          async () => Math.round((await headerCell(page, fieldKey).boundingBox())!.width - before),
+          { message: `${fieldKey} grew by the drag` },
+        )
+        .toBe(40);
+    }
+
+    // Reorder: move an unpinned column up, then the pinned one down. Pinning reorders nothing
+    // by itself, and a pinned column that is moved stays pinned.
+    expect((await headerOrder(page)).slice(3, 6)).toEqual(["Name", "Stage", "Variant"]);
+    const picker = await openColumns(page);
+    await picker.getByRole("button", { name: "Move Variant up", exact: true }).click();
+    await picker.getByRole("button", { name: "Move Name down", exact: true }).click();
+    await expect(picker.getByRole("button", { name: "Unpin Name", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    expect((await headerOrder(page)).slice(3, 6)).toEqual(["Variant", "Name", "Stage"]);
+    const wrapLeft = await leftOf(tableWrap(page));
+    await scrollTableSideways(page, 800);
+    expect(await leftOf(headerCell(page, "name")), "Name pinned after the move").toBe(wrapLeft + 1);
+  });
+
+  test("pins are saved with a view, and a view saved before pinning existed pins the display field", async ({
+    page,
+  }) => {
+    await seedSavedView(
+      TYPE_KEY,
+      PAUSED_VIEW_NAME,
+      stageIsPaused,
+      ["name", "stage", "variant", "last_used", "due"],
+      false,
+    );
+    const viewName = `Pinned ${Date.now()}`;
+    await signInAndOpenTable(page);
+    const wrapLeft = await leftOf(tableWrap(page));
+
+    // Pin Stage, unpin Name, and save that as a view.
+    const picker = await openColumns(page);
+    await picker.getByRole("button", { name: "Pin Stage", exact: true }).click();
+    await picker.getByRole("button", { name: "Unpin Name", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Current view", exact: true }).click();
+    await page.getByLabel("New view name").fill(viewName);
+    const saved = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/object-types/${TYPE_KEY}/saved-views`)
+        && response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Save as new" }).click();
+    const body = (await (await saved).json()) as { config: { columns: { pinned?: string[] } } };
+    expect(body.config.columns.pinned).toEqual(["stage"]);
+    await page.keyboard.press("Escape");
+
+    // A view with no `pinned` member at all: the display field is pinned.
+    await page.getByRole("button", { name: `Current view: ${viewName}` }).click();
+    await page.getByLabel("Saved view").selectOption({ label: PAUSED_VIEW_NAME });
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Stage is Paused", exact: true })).toBeVisible();
+    const pausedFirst = (await apiQuery(TYPE_KEY, stageIsPaused)).records[0].key;
+    await scrollTableSideways(page, 800);
+    expect(await leftOf(bodyCell(page, "Name", pausedFirst)), "display field pinned").toBe(
+      wrapLeft + 1,
+    );
+
+    // Reload, select the saved view: its pins are back, exactly.
+    await page.evaluate((prefix) => {
+      for (const key of Object.keys(window.sessionStorage)) {
+        if (key.startsWith(prefix)) window.sessionStorage.removeItem(key);
+      }
+    }, SESSION_PREFIX);
+    await page.reload();
+    await expect(table(page).locator("tbody tr").first()).toBeVisible();
+    await page.getByRole("button", { name: "Current view", exact: true }).click();
+    await page.getByLabel("Saved view").selectOption({ label: viewName });
+    await page.keyboard.press("Escape");
+    await scrollTableSideways(page, 0);
+    const nameAtRest = await leftOf(headerCell(page, "name"));
+    await scrollTableSideways(page, 400);
+    expect(await leftOf(headerCell(page, "stage")), "Stage pinned by the view").toBe(wrapLeft + 1);
+    expect(await leftOf(headerCell(page, "name")), "Name not pinned by the view").toBe(
+      nameAtRest - 400,
+    );
+  });
+
+  test("with the window scrolled too, the stuck toolbar is above the pinned column", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    await scrollTableSideways(page, 800);
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
+
+    const crossing = await page.evaluate(() => {
+      const toolbar = document.querySelector('[data-testid="table-toolbar"]')!;
+      const bar = toolbar.getBoundingClientRect();
+      // A pinned body cell that the toolbar currently overlaps, if there is one.
+      const pinned = Array.from(document.querySelectorAll("tbody td")).filter(
+        (cell) => getComputedStyle(cell).position === "sticky",
+      );
+      const under = pinned.find((cell) => {
+        const rect = cell.getBoundingClientRect();
+        return rect.top < bar.bottom && rect.bottom > bar.top;
+      });
+      const x = under ? under.getBoundingClientRect().left + 20 : -1;
+      const top = x < 0 ? null : document.elementFromPoint(x, bar.top + bar.height / 2);
+      return {
+        pinnedCells: pinned.length,
+        toolbarTop: Math.round(bar.top),
+        overlapsPinned: under !== undefined,
+        toolbarIsTopmost: top !== null && toolbar.contains(top),
+      };
+    });
+    expect(crossing.pinnedCells, "sticky body cells").toBeGreaterThan(0);
+    expect(crossing.toolbarTop).toBe(0);
+    expect(crossing.overlapsPinned, "the toolbar crosses a pinned cell").toBe(true);
+    expect(crossing.toolbarIsTopmost).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------------------------
+// #19: the import wizard can clear a field, and only after a dry run said so
+// --------------------------------------------------------------------------------------------
+
+const IMPORT_TYPE_KEY = "e2e_pilot_import";
+const CLEAR_LABEL = "Blank cells clear the field";
+
+async function seedImportType(): Promise<void> {
+  const existing = await apiContext.get(`/api/v1/object-types/${IMPORT_TYPE_KEY}`);
+  if (!existing.ok()) {
+    const created = await apiContext.post("/api/v1/object-types", {
+      data: {
+        key: IMPORT_TYPE_KEY,
+        name: "Pilot import",
+        name_plural: "Pilot imports",
+        description: "An end-to-end fixture type for clearing a field by CSV import.",
+        key_prefix: "PLI",
+        fields: [
+          {
+            key: "name",
+            name: "Name",
+            type: "short_text",
+            description: "The record's short display name.",
+            required: true,
+          },
+          {
+            key: "notes",
+            name: "Notes",
+            type: "long_text",
+            description: "Free-form notes, the field the import clears.",
+          },
+        ],
+      },
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    const record = await apiContext.post(`/api/v1/object-types/${IMPORT_TYPE_KEY}/records`, {
+      data: { name: "Imported one", notes: "remove me" },
+    });
+    expect(record.ok(), await record.text()).toBeTruthy();
+  }
+  // A retry starts from the value again.
+  const reset = await apiContext.patch("/api/v1/records/PLI-001", {
+    data: { values: { notes: "remove me" }, force: true },
+  });
+  expect(reset.ok(), await reset.text()).toBeTruthy();
+}
+
+test.describe("#19 the import wizard", () => {
+  test("offers the clear only for an upsert, reports it in the dry run, and commits only what a dry run reported", async ({
+    page,
+  }) => {
+    await seedImportType();
+    await signInAsE2eAdmin(page);
+    await page.goto(`/${IMPORT_TYPE_KEY}/import`);
+    await page.getByLabel("Upload CSV file").setInputFiles({
+      name: "clear.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("key,Name,Notes\nPLI-001,Imported one,\n"),
+    });
+    await page.getByLabel("Column mapping for key").selectOption("key");
+    await page.getByLabel("Column mapping for Name").selectOption("name");
+    await page.getByLabel("Column mapping for Notes").selectOption("notes");
+
+    // Create mode: there is no existing value to clear, so there is no box.
+    await expect(page.getByLabel("Import mode")).toHaveValue("create");
+    await expect(page.getByRole("checkbox", { name: CLEAR_LABEL })).toHaveCount(0);
+
+    await page.getByLabel("Import mode").selectOption("upsert");
+    await page.getByLabel("Upsert key").selectOption("key");
+    const box = page.getByRole("checkbox", { name: CLEAR_LABEL });
+    await expect(box).toBeVisible();
+    await expect(box).not.toBeChecked();
+    await expect(page.getByText("Off: a blank cell leaves the record's value as it is.")).toBeVisible();
+
+    // A dry run with the box off reports no clears and enables Commit.
+    const commit = page.getByRole("button", { name: "Commit", exact: true });
+    await page.getByRole("button", { name: "Run dry-run" }).click();
+    await expect(page.getByText("Dry run passed: 0 would be created, 1 would be updated.")).toBeVisible();
+    await expect(page.getByTestId("import-clears-dry-run")).toHaveCount(0);
+    await expect(commit).toBeEnabled();
+
+    // Ticking the box discards that dry run: Commit cannot clear what no dry run reported.
+    await box.check();
+    await expect(commit).toBeDisabled();
+    await expect(page.getByText(/Dry run passed/)).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Run dry-run" }).click();
+    await expect(page.getByTestId("import-clears-dry-run")).toHaveText(
+      "1 value will be cleared: Notes (1).",
+    );
+    await expect(commit).toBeEnabled();
+    // Nothing is written by a dry run.
+    const untouched = await apiContext.get("/api/v1/records/PLI-001");
+    expect(((await untouched.json()) as { data: { notes?: string } }).data.notes).toBe("remove me");
+
+    await commit.click();
+    await expect(page.getByTestId("import-clears-commit")).toHaveText("1 value cleared: Notes (1).");
+    const cleared = await apiContext.get("/api/v1/records/PLI-001");
+    expect(((await cleared.json()) as { data: { notes?: string } }).data.notes).toBeUndefined();
+  });
+});

@@ -16,6 +16,7 @@ import { levelAllows, type ObjectTypeDetail } from "../api/objectTypes";
 import { ReadOnlyBanner } from "../access/ReadOnlyBanner";
 import { updateRecord, type QueryResult, type RecordDoc } from "../api/records";
 import type { SavedView } from "../api/savedViews";
+import { useAuth } from "../auth/useAuth";
 import { ownsFilterError } from "../filters/chipFilter";
 import type { FilterNode } from "../filters/types";
 import { BulkToolbar } from "./BulkToolbar";
@@ -30,6 +31,7 @@ import {
   SELECT_COLUMN_ID,
 } from "./columns";
 import { ColumnPicker } from "./ColumnPicker";
+import { pinPlacement, resolvePinned } from "./columnPins";
 import { DensityToggle } from "./DensityToggle";
 import { FilterChipRow } from "./FilterChipRow";
 import { readDensity, resolveDensity, writeDensity, type Density } from "../ui/density";
@@ -52,6 +54,11 @@ import { ViewMenu } from "./ViewMenu";
 import type { SortKey } from "./sortSpec";
 import { cycleSingleSort } from "./sortSpec";
 import { defaultTableViewConfig, parseTableViewConfig, serializeTableViewConfig } from "./tableViewConfig";
+import {
+  readTableViewSession,
+  resolveSelectedViewId,
+  writeTableViewSession,
+} from "./tableViewSession";
 import type { TableViewConfig } from "./types";
 import { useBulkDelete } from "./useBulkDelete";
 import { useBulkEdit } from "./useBulkEdit";
@@ -62,7 +69,14 @@ import { cx } from "../ui/cx";
 import { EmptyState } from "../ui/EmptyState";
 import {
   groupTdClass,
+  lastPinnedRuleCellClass,
+  lastPinnedRuleHeaderClass,
   numCellClass,
+  pinnedCellClass,
+  pinnedHeaderClass,
+  pinnedRuleCellClass,
+  pinnedRuleHeaderClass,
+  pinnedSelectedCellClass,
   recordsTableClassFor,
   rowClass,
   selectedRowClass,
@@ -103,7 +117,26 @@ export function TableView({ objectType }: TableViewProps) {
     [fields],
   );
 
-  const initial = useMemo(() => defaultTableViewConfig(fields), [fields]);
+  const principalId = useAuth().principal?.id ?? null;
+  const displayFieldKey = objectType.effective_display_field_key;
+
+  /**
+   * What this tab last held for this table, read once, at mount (`tableViewSession.ts`).
+   *
+   * It is the table's **initial state**, not something applied by an effect after the first
+   * render. An effect would send one unfiltered query first, and those unfiltered rows are what
+   * the table would then keep on screen if the restored filter were refused. When there is a
+   * restored entry the default saved view is not applied on top of it: the person's own last
+   * state wins over the type's default.
+   */
+  const [restored] = useState(() => readTableViewSession(objectType.key, principalId));
+  const initial = useMemo(
+    () =>
+      restored !== null
+        ? parseTableViewConfig(restored.config, fields)
+        : defaultTableViewConfig(fields),
+    [fields, restored],
+  );
   const [filter, setFilter] = useState<FilterNode | null>(initial.filter);
   const [sortKeys, setSortKeys] = useState<SortKey[]>(initial.sort);
   const [groupBy, setGroupBy] = useState<string | null>(initial.groupBy);
@@ -112,8 +145,14 @@ export function TableView({ objectType }: TableViewProps) {
     initial.columns.visibility,
   );
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>(initial.columns.sizing);
+  /** The pinned field keys, resolved: a config with no `pinned` member pins the display field. */
+  const [columnPinned, setColumnPinned] = useState<string[]>(() =>
+    resolvePinned(initial.columns.pinned, displayFieldKey),
+  );
   const [rowSelection, setRowSelection] = useState<Record<string, true>>({});
-  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [storedViewId, setSelectedViewId] = useState<string | null>(
+    restored?.selectedViewId ?? null,
+  );
   const [viewGeneration, setViewGeneration] = useState(0);
   const [conflict, setConflict] = useState<InlineEditConflict | null>(null);
   /** Whether the create dialog is mounted. `ui/Dialog`'s open/close model IS
@@ -176,11 +215,12 @@ export function TableView({ objectType }: TableViewProps) {
       setColumnOrder(config.columns.order);
       setColumnVisibility(config.columns.visibility);
       setColumnSizing(config.columns.sizing);
+      setColumnPinned(resolvePinned(config.columns.pinned, displayFieldKey));
       setViewDensity(config.density);
       setRowSelection({});
       setViewGeneration((generation) => generation + 1);
     },
-    [],
+    [displayFieldKey],
   );
 
   /** The last result that actually came back; see where it is read, below the records query. */
@@ -190,6 +230,11 @@ export function TableView({ objectType }: TableViewProps) {
   const savedViewMutations = useSavedViewMutations(objectType.key);
   const appliedDefaultRef = useRef(false);
   const savedViews = useMemo<SavedView[]>(() => savedViewsQuery.data ?? [], [savedViewsQuery.data]);
+  // A view id restored from the tab, or held since before somebody deleted the view, that is not
+  // in the list once the list arrives is "no view": `Save` must never be offered against a view
+  // that no longer exists. Derived rather than corrected in an effect, so nothing renders with
+  // the stale id in between.
+  const selectedViewId = resolveSelectedViewId(storedViewId, savedViewsQuery.data);
 
   useEffect(() => {
     // One-time synchronization from the saved-views query (an external system) into local
@@ -197,6 +242,9 @@ export function TableView({ objectType }: TableViewProps) {
     // become known." Deliberate, not a derived-render calculation.
     if (appliedDefaultRef.current || !savedViewsQuery.isSuccess) return;
     appliedDefaultRef.current = true;
+    // The tab's own restored state is already the table's state; the default is for a table
+    // opened with nothing remembered.
+    if (restored !== null) return;
     const defaultView = savedViews.find((view) => view.is_default);
     if (defaultView) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -237,9 +285,36 @@ export function TableView({ objectType }: TableViewProps) {
       columnOrder,
       columnVisibility,
       columnSizing,
+      columnPinned,
       density,
       mode: "table",
     });
+
+  /**
+   * Keep the tab's copy in step with the table. Written once the saved views have arrived (or
+   * there was a restored entry to begin with), and not before: an entry written in the moment
+   * between mount and the default view being applied would hold the unfiltered defaults, and
+   * the next visit would restore those instead of applying the default view.
+   */
+  const sessionReady = restored !== null || savedViewsQuery.isSuccess;
+  useEffect(() => {
+    if (!sessionReady || principalId === null) return;
+    writeTableViewSession(objectType.key, principalId, selectedViewId, currentConfig());
+    // `currentConfig` is rebuilt every render from exactly the values listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sessionReady,
+    principalId,
+    objectType.key,
+    selectedViewId,
+    filter,
+    sortKeys,
+    groupBy,
+    columnOrder,
+    columnVisibility,
+    columnSizing,
+    columnPinned,
+  ]);
 
   const handleSave = () => {
     if (selectedViewId) void savedViewMutations.saveExisting(selectedViewId, currentConfig());
@@ -432,6 +507,17 @@ export function TableView({ objectType }: TableViewProps) {
     },
   });
 
+  /**
+   * Where each pinned column sticks: `left` is the summed width of the pinned columns before it
+   * in the order the table is showing (`columnPins.ts`). Recomputed on every render, because a
+   * resize changes a width and a reorder changes which columns come first.
+   */
+  const pins = pinPlacement(
+    table.getVisibleLeafColumns().map((column) => column.id),
+    columnPinned,
+    (columnId) => table.getColumn(columnId)?.getSize() ?? 0,
+  );
+
   type TableRow = ReturnType<typeof table.getRowModel>["rows"][number];
 
   const renderRows = (rows: TableRow[]): React.ReactNode =>
@@ -455,7 +541,7 @@ export function TableView({ objectType }: TableViewProps) {
       return (
         <tr
           key={row.id}
-          className={cx(rowClass, row.getIsSelected() && selectedRowClass)}
+          className={cx(rowClass, "group", row.getIsSelected() && selectedRowClass)}
           data-testid={`row-${row.original.key}`}
         >
           {row.getVisibleCells().map((cell) => {
@@ -465,8 +551,15 @@ export function TableView({ objectType }: TableViewProps) {
                 className={cx(
                   tdClassFor(density),
                   (cellFieldType === "integer" || cellFieldType === "decimal") && numCellClass,
+                  cell.column.id in pins.offsets
+                    && (row.getIsSelected() ? pinnedSelectedCellClass : pinnedCellClass),
+                  cell.column.id in pins.offsets
+                    && (cell.column.id === pins.lastPinned
+                      ? lastPinnedRuleCellClass
+                      : pinnedRuleCellClass),
                 )}
                 key={cell.id}
+                style={{ left: pins.offsets[cell.column.id] }}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>
@@ -684,8 +777,10 @@ export function TableView({ objectType }: TableViewProps) {
           fields={fields}
           columnOrder={columnOrder.length ? columnOrder : fields.map((field) => field.key)}
           columnVisibility={columnVisibility}
+          columnPinned={columnPinned}
           onChangeOrder={setColumnOrder}
           onChangeVisibility={setColumnVisibility}
+          onChangePinned={setColumnPinned}
         />
         <DensityToggle density={density} onChange={chooseDensity} />
 
@@ -756,7 +851,19 @@ export function TableView({ objectType }: TableViewProps) {
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <th className={cx(thClassFor(density), "relative")} key={header.id} style={{ width: header.getSize() }}>
+                  <th
+                    className={cx(
+                      thClassFor(density),
+                      "relative",
+                      header.column.id in pins.offsets && pinnedHeaderClass,
+                      header.column.id in pins.offsets
+                        && (header.column.id === pins.lastPinned
+                          ? lastPinnedRuleHeaderClass
+                          : pinnedRuleHeaderClass),
+                    )}
+                    key={header.id}
+                    style={{ width: header.getSize(), left: pins.offsets[header.column.id] }}
+                  >
                     {!header.isPlaceholder &&
                       (DISPLAY_COLUMN_IDS.has(header.column.id) ? (
                         flexRender(header.column.columnDef.header, header.getContext())

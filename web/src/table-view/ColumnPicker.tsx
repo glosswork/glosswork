@@ -14,6 +14,7 @@
  */
 import type { FieldDoc } from "../api/objectTypes";
 import { moveColumn } from "./columnOrder";
+import { togglePinned } from "./columnPins";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 
@@ -21,16 +22,21 @@ export interface ColumnPickerProps {
   fields: FieldDoc[];
   columnOrder: string[];
   columnVisibility: Record<string, boolean>;
+  /** The pinned field keys (`columnPins.ts`). */
+  columnPinned: string[];
   onChangeOrder: (order: string[]) => void;
   onChangeVisibility: (visibility: Record<string, boolean>) => void;
+  onChangePinned: (pinned: string[]) => void;
 }
 
 export function ColumnPicker({
   fields,
   columnOrder,
   columnVisibility,
+  columnPinned,
   onChangeOrder,
   onChangeVisibility,
+  onChangePinned,
 }: ColumnPickerProps) {
   const orderedKeys = columnOrder.length ? columnOrder : fields.map((field) => field.key);
   const shown = orderedKeys.filter((key) => columnVisibility[key] !== false).length;
@@ -40,7 +46,15 @@ export function ColumnPicker({
       data-testid="columns-chip"
       popover={
         <ColumnPickerPanel
-          {...{ fields, columnOrder, columnVisibility, onChangeOrder, onChangeVisibility }}
+          {...{
+            fields,
+            columnOrder,
+            columnVisibility,
+            columnPinned,
+            onChangeOrder,
+            onChangeVisibility,
+            onChangePinned,
+          }}
         />
       }
     >
@@ -53,14 +67,16 @@ function ColumnPickerPanel({
   fields,
   columnOrder,
   columnVisibility,
+  columnPinned,
   onChangeOrder,
   onChangeVisibility,
+  onChangePinned,
 }: ColumnPickerProps) {
   const fieldsByKey = Object.fromEntries(fields.map((field) => [field.key, field]));
   const orderedKeys = columnOrder.length ? columnOrder : fields.map((field) => field.key);
 
   return (
-    <fieldset className="w-64" data-testid="column-picker">
+    <fieldset className="w-72" data-testid="column-picker">
       <legend className="px-1 text-2xs font-semibold tracking-wider text-ink-2 uppercase">
         Columns
       </legend>
@@ -94,9 +110,10 @@ function ColumnPickerPanel({
           const field = fieldsByKey[key];
           if (!field) return null;
           const visible = columnVisibility[key] !== false;
+          const pinned = columnPinned.includes(key);
           return (
             <li key={key} className="flex items-center gap-1.5 text-sm">
-              <label className="inline-flex items-center gap-1.5">
+              <label className="inline-flex min-w-0 flex-1 items-center gap-1.5">
                 <input
                   className="accent-accent"
                   type="checkbox"
@@ -105,12 +122,29 @@ function ColumnPickerPanel({
                     onChangeVisibility({ ...columnVisibility, [key]: !visible })
                   }
                 />
-                {field.name}
+                <span className="truncate" title={field.name}>
+                  {field.name}
+                </span>
               </label>
+              {/* A pinned column stays at the table's left edge while the others scroll past
+                  it (`columnPins.ts`). A toggle, named for what pressing it does, so the name
+                  alone says which state the column is in; `aria-pressed` says it again for a
+                  screen reader. Pinning is not capped: this popover is in the toolbar, which
+                  is always reachable, so unpinning is too. */}
               <Button
                 type="button"
                 variant="quiet"
-                className="px-1.5 py-0.5 text-sm"
+                className="shrink-0 px-1.5 py-0.5 text-xs"
+                aria-label={pinned ? `Unpin ${field.name}` : `Pin ${field.name}`}
+                aria-pressed={pinned}
+                onClick={() => onChangePinned(togglePinned(columnPinned, key))}
+              >
+                {pinned ? "Unpin" : "Pin"}
+              </Button>
+              <Button
+                type="button"
+                variant="quiet"
+                className="shrink-0 px-1.5 py-0.5 text-sm"
                 aria-label={`Move ${field.name} up`}
                 disabled={index === 0}
                 onClick={() => onChangeOrder(moveColumn(orderedKeys, key, "up"))}
@@ -120,7 +154,7 @@ function ColumnPickerPanel({
               <Button
                 type="button"
                 variant="quiet"
-                className="px-1.5 py-0.5 text-sm"
+                className="shrink-0 px-1.5 py-0.5 text-sm"
                 aria-label={`Move ${field.name} down`}
                 disabled={index === orderedKeys.length - 1}
                 onClick={() => onChangeOrder(moveColumn(orderedKeys, key, "down"))}

@@ -36,6 +36,8 @@ export interface TableViewLiveState {
   columnOrder: string[];
   columnVisibility: Record<string, boolean>;
   columnSizing: Record<string, number>;
+  /** The live pin list, already resolved: saving always writes it explicitly. */
+  columnPinned: string[];
   mode: TableViewMode;
   density: Density;
 }
@@ -49,6 +51,7 @@ export function serializeTableViewConfig(state: TableViewLiveState): TableViewCo
       order: state.columnOrder,
       visibility: state.columnVisibility,
       sizing: state.columnSizing,
+      pinned: state.columnPinned,
     },
     mode: state.mode,
     density: state.density,
@@ -113,6 +116,13 @@ export function parseTableViewConfig(
       : fallback.columns.visibility,
     sizing: isStringNumberRecord(rawColumns.sizing) ? rawColumns.sizing : fallback.columns.sizing,
   };
+  // Absent stays absent, so the caller can tell "saved before pinning existed" (the display
+  // field is pinned) from an explicit empty list (nothing is). A key naming a field that has
+  // since been removed is dropped: there is no column for it to pin.
+  if (isStringArray(rawColumns.pinned)) {
+    const known = new Set(fields.map((field) => field.key));
+    columns.pinned = rawColumns.pinned.filter((key) => known.has(key));
+  }
 
   // Absent on every view saved without a density, and left absent rather than defaulted
   // so `resolveDensity` can tell "this view has no opinion" from "this view says comfortable".

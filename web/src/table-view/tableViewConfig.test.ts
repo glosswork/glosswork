@@ -60,12 +60,31 @@ describe("serializeTableViewConfig / parseTableViewConfig round-trip", () => {
       columnOrder: ["owner", "status"],
       columnVisibility: { status: false },
       columnSizing: { owner: 220 },
+      columnPinned: ["owner"],
       mode: "table" as const,
       density: "compact" as const,
     };
     const config = serializeTableViewConfig(live);
     const raw = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
     expect(parseTableViewConfig(raw, fields)).toEqual(config);
+    expect(config.columns.pinned).toEqual(["owner"]);
+  });
+
+  it("keeps `pinned` absent, empty or listed, and drops a key naming a removed field", () => {
+    const withColumns = (columns: Record<string, unknown>) =>
+      parseTableViewConfig({ columns }, fields).columns.pinned;
+    // Absent: a view saved before pinning existed. It stays absent, which is what lets
+    // `resolvePinned` pin the display field for it.
+    expect(withColumns({})).toBeUndefined();
+    expect("pinned" in parseTableViewConfig({}, fields).columns).toBe(false);
+    // Explicitly empty: nothing is pinned, and that is not the same thing.
+    expect(withColumns({ pinned: [] })).toEqual([]);
+    expect(withColumns({ pinned: ["status", "owner"] })).toEqual(["status", "owner"]);
+    // Stale: a field removed since the view was saved has no column to pin.
+    expect(withColumns({ pinned: ["gone", "owner"] })).toEqual(["owner"]);
+    // Malformed: treated as absent, like every other member of the blob.
+    expect(withColumns({ pinned: "owner" })).toBeUndefined();
+    expect(withColumns({ pinned: [1, 2] })).toBeUndefined();
   });
 
   it("falls back to defaults for a missing or malformed config, field by field", () => {

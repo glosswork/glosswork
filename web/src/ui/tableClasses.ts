@@ -89,6 +89,49 @@ export const tdClass = tdClassFor("comfortable");
 /** Row-selection tint; the `td`s are transparent, so the `tr` background shows through. */
 export const selectedRowClass = "bg-human-soft";
 
+/**
+ * A pinned column's cells, at the `shell` breakpoint and wider: stuck to the left edge of the
+ * table's own scroller while the other columns pass under them. The `left` offset is an inline
+ * style, because it is the summed width of the pinned columns before this one. Below the
+ * breakpoint the classes do nothing and the table scrolls as a whole.
+ *
+ * **A stuck cell needs its own ground.** Body cells are transparent and the row carries the
+ * hover and selection tints, so a pinned cell with no background would show the cells scrolling
+ * under it. It takes the same three states from the row: `surface` at rest, `ground` on hover
+ * (`group` is on the `tr`), `human-soft` when selected.
+ *
+ * **Its rules are shadows, not borders.** The table collapses its borders, and a border on a
+ * sticky cell stays behind in the table's grid when the cell sticks: measured, a 2px red
+ * right-hand border on every sticky cell was painted nowhere once the table had scrolled. So a
+ * pinned cell drops its bottom border and draws the same 1px rule as an inset shadow, which
+ * travels with it, and the last pinned column adds the vertical rule that divides it from the
+ * columns scrolling past.
+ *
+ * `z-10` is below the table toolbar's `z-20`, so a stuck toolbar covers a stuck column where
+ * they cross.
+ *
+ * Every class below is written out whole. Tailwind finds classes by reading the source text,
+ * so one assembled from pieces at run time is never generated.
+ */
+export const pinnedCellClass =
+  "shell:sticky shell:z-10 border-b-0 bg-surface group-hover:bg-ground";
+export const pinnedSelectedCellClass =
+  "shell:sticky shell:z-10 border-b-0 bg-human-soft group-hover:bg-ground";
+/** The header already has its own `ground` fill. */
+export const pinnedHeaderClass = "shell:sticky shell:z-10 border-b-0";
+
+/**
+ * The rules, one class per cell and never two: a second `shadow-*` class replaces the first
+ * rather than adding to it. `pinnedRule*` is the row rule alone; `lastPinnedRule*` adds the
+ * vertical rule, for the right-most pinned column.
+ */
+export const pinnedRuleCellClass = "shadow-[inset_0_-1px_0_var(--color-line)]";
+export const lastPinnedRuleCellClass =
+  "shadow-[inset_0_-1px_0_var(--color-line),inset_-1px_0_0_var(--color-line-2)]";
+export const pinnedRuleHeaderClass = "shadow-[inset_0_-1px_0_var(--color-line-2)]";
+export const lastPinnedRuleHeaderClass =
+  "shadow-[inset_0_-1px_0_var(--color-line-2),inset_-1px_0_0_var(--color-line-2)]";
+
 /** docs/DESIGN.md 7.7: group headers are 32px, `ground` fill, sans 600 13px. Not a density
  * preset — 2.4 lists four rows and this is not one of them — so it takes one height. */
 export const groupTdClass =
