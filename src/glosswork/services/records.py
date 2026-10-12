@@ -581,7 +581,7 @@ class RecordService:
     def write_batch(self) -> Iterator[Connection]:
         """One transaction spanning many record writes.
 
-        The three ``*_in_txn`` methods below take the connection this yields, so a
+        The ``*_in_txn`` methods below take the connection this yields, so a
         caller that writes N records commits them together or not at all. It exists
         because ``CsvService`` needs that guarantee (FR-E2) and has no ``Database`` of
         its own: record-write transaction boundaries belong to this service, which is
@@ -590,6 +590,19 @@ class RecordService:
         """
         with self._db.write() as conn:
             yield conn
+
+    def get_record_in_txn(self, conn: Connection, actor: ActorContext, ref: str) -> RecordRow:
+        """:meth:`get_record`, on a transaction the caller already opened: what the
+        record holds as that transaction sees it, its own earlier writes included.
+
+        ``CsvService`` reads a record this way just before it clears fields on it, so
+        the clears it reports are the values that were there at the moment of the write
+        and not the ones a dry run saw earlier. Calling :meth:`get_record` from inside
+        ``write_batch`` would take a second connection, which sees none of the batch.
+        """
+        record = self._require_record(conn, ref)
+        self._require_record_level(conn, actor, record, "read")
+        return record
 
     def create_record(
         self,

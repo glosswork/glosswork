@@ -26,6 +26,11 @@ from glosswork.services.csv import (
 from glosswork.services.records import MAX_QUERY_LIMIT
 from tests.conftest import make_actor, select_options
 
+# What every import in this file reports for the clears: none of them passes
+# ``blank_clears``, and without it the two members are zero and empty
+# (``tests/test_csv_blank_clears.py`` covers the flag).
+_NO_CLEARS: dict[str, Any] = {"cleared": 0, "cleared_by_field": {}}
+
 # Every CSV-representable field type (attachment omitted: CSV refuses an attachment column),
 # plus a unique short_text field to exercise upsert-by-unique-field.
 _WIDGET_FIELDS = [
@@ -178,7 +183,7 @@ def test_create_mode_creates_new_records(client: TestClient, widget_type: Object
         [{"title": "First", "points": "3"}, {"title": "Second", "points": "5"}],
         mode="create",
     )
-    assert result == {"dry_run": False, "created": 2, "updated": 0, "errors": []}
+    assert result == {"dry_run": False, "created": 2, "updated": 0, "errors": [], **_NO_CLEARS}
 
 
 def test_upsert_by_key_updates_existing_and_preserves_omitted_fields(
@@ -195,7 +200,7 @@ def test_upsert_by_key_updates_existing_and_preserves_omitted_fields(
         mode="upsert",
         upsert_key="key",
     )
-    assert result == {"dry_run": False, "created": 0, "updated": 1, "errors": []}
+    assert result == {"dry_run": False, "created": 0, "updated": 1, "errors": [], **_NO_CLEARS}
     updated = app_services.records.get_record(make_actor(), record.key)
     assert updated.data["title"] == "New Title"
     assert updated.data["status"] == "todo"  # omitted column: existing value preserved
@@ -216,7 +221,7 @@ def test_upsert_by_unique_field_updates_or_creates(
         mode="upsert",
         upsert_key="code",
     )
-    assert result == {"dry_run": False, "created": 1, "updated": 1, "errors": []}
+    assert result == {"dry_run": False, "created": 1, "updated": 1, "errors": [], **_NO_CLEARS}
     by_code = {
         r["data"]["code"]: r
         for r in app_services.records.query_records(make_actor(), "widget", fields="*").records
@@ -357,7 +362,7 @@ def test_create_missing_options_creates_new_single_and_multi_select_options(
         dry_run=False,
         create_missing_options=True,
     )
-    assert result == {"dry_run": False, "created": 1, "updated": 0, "errors": []}
+    assert result == {"dry_run": False, "created": 1, "updated": 0, "errors": [], **_NO_CLEARS}
     _, fields = app_services.schema.get_object_type(make_actor(), "widget")
     fields_by_key = {f.key: f for f in fields}
     status_values = {o["value"] for o in fields_by_key["status"].config["options"]}
@@ -383,7 +388,7 @@ def test_relation_column_resolves_by_key_and_links(
         [{"title": "Source", "related": target.key}],
         mode="create",
     )
-    assert result == {"dry_run": False, "created": 1, "updated": 0, "errors": []}
+    assert result == {"dry_run": False, "created": 1, "updated": 0, "errors": [], **_NO_CLEARS}
     source = next(
         r
         for r in app_services.records.query_records(make_actor(), "widget", fields="*").records
@@ -509,7 +514,7 @@ def test_csv_round_trip_losslessness(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body == {"dry_run": False, "created": 0, "updated": 3, "errors": []}
+    assert body == {"dry_run": False, "created": 0, "updated": 3, "errors": [], **_NO_CLEARS}
 
     alpha = app_services.records.get_record(actor, record_a.key)
     assert alpha.data["title"] == "Alpha Prime"
@@ -1097,7 +1102,7 @@ class TestTheEscapeIsInjective:
             mode="upsert",
             upsert_key="code",
         )
-        assert result == {"dry_run": False, "created": 0, "updated": 1, "errors": []}
+        assert result == {"dry_run": False, "created": 0, "updated": 1, "errors": [], **_NO_CLEARS}
         assert len(app_services.records.query_records(make_actor(), "widget").records) == 1
         updated = app_services.records.get_record(make_actor(), original.key)
         assert updated.data["code"] == "=A1"
@@ -1178,7 +1183,7 @@ def test_clean_dry_run_reports_what_it_would_create_and_writes_nothing(
         mode="create",
         dry_run=True,
     )
-    assert result == {"dry_run": True, "created": 2, "updated": 0, "errors": []}
+    assert result == {"dry_run": True, "created": 2, "updated": 0, "errors": [], **_NO_CLEARS}
     assert app_services.records.query_records(make_actor(), "widget").total_count == 0
 
 
@@ -1198,7 +1203,7 @@ def test_clean_dry_run_splits_created_and_updated_on_an_upsert(
         upsert_key="code",
         dry_run=True,
     )
-    assert result == {"dry_run": True, "created": 1, "updated": 1, "errors": []}
+    assert result == {"dry_run": True, "created": 1, "updated": 1, "errors": [], **_NO_CLEARS}
     # Nothing moved: the existing record still carries its original title.
     assert (
         app_services.records.get_record(make_actor(), existing.key).data["title"] == "Already here"
@@ -1304,7 +1309,7 @@ def test_two_rows_updating_the_same_record_are_still_allowed(
         mode="upsert",
         upsert_key="code",
     )
-    assert result == {"dry_run": False, "created": 0, "updated": 2, "errors": []}
+    assert result == {"dry_run": False, "created": 0, "updated": 2, "errors": [], **_NO_CLEARS}
     assert (
         app_services.records.get_record(make_actor(), existing.key).data["title"] == "Second write"
     )
@@ -1396,4 +1401,4 @@ def test_a_file_without_the_attachment_column_still_imports(
 ) -> None:
     """The refusal is about the column, not about the object type."""
     result = _upload(client, "filed", ["title"], [{"title": "No files column"}], mode="create")
-    assert result == {"dry_run": False, "created": 1, "updated": 0, "errors": []}
+    assert result == {"dry_run": False, "created": 1, "updated": 0, "errors": [], **_NO_CLEARS}

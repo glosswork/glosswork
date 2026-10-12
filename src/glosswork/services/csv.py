@@ -24,6 +24,7 @@ import io
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, Literal
 
 from glosswork.actor import ActorContext
@@ -89,6 +90,11 @@ class CsvImportResult:
     created: int
     updated: int
     errors: list[RowError]
+    # What ``blank_clears`` removes: the number of field values, and the same number by
+    # field key. One clear is one record and field that holds a value before the import
+    # and none after it. Zero and empty without the flag, and when any row has an error.
+    cleared: int = 0
+    cleared_by_field: dict[str, int] = dataclass_field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -99,6 +105,53 @@ class _RowPlan:
     ref: str | None
     values: dict[str, Any]
     relations: dict[str, list[str]]
+
+
+class _ClearTally:
+    """Counts what ``blank_clears`` removes, for a dry run and for a commit alike.
+
+    A clear is counted per record and field, not per blank cell: the field held a value
+    before the import and holds none after it. So the tally remembers which fields each
+    record held when the import first touched it, replays every row's values over that in
+    file order, exactly as the write pass applies them, and compares the two at the end.
+    A value one row sets and a later row blanks was never held before, so it is not a
+    clear; a field two rows both blank is one clear; a field a row blanks and a later row
+    fills again is none.
+
+    The dry run feeds it the record each row's lookup fetched. The commit feeds it what
+    each record holds inside the write transaction, just before its first update, so the
+    commit's report is true even when a record changed after the dry run.
+    """
+
+    def __init__(self) -> None:
+        self._before: dict[str, frozenset[str]] = {}
+        self._present: dict[str, set[str]] = {}
+
+    def seen(self, ref: str) -> bool:
+        return ref in self._before
+
+    def observe(self, ref: str, data: dict[str, Any]) -> None:
+        """Record what ``ref`` holds before the import touches it. First call wins."""
+        if ref in self._before:
+            return
+        held = frozenset(key for key, value in data.items() if value is not None)
+        self._before[ref] = held
+        self._present[ref] = set(held)
+
+    def apply(self, ref: str, values: dict[str, Any]) -> None:
+        present = self._present[ref]
+        for key, value in values.items():
+            if value is None:
+                present.discard(key)
+            else:
+                present.add(key)
+
+    def by_field(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for ref, before in self._before.items():
+            for key in before - self._present[ref]:
+                counts[key] = counts.get(key, 0) + 1
+        return dict(sorted(counts.items()))
 
 
 class CsvService:
@@ -134,6 +187,7 @@ class CsvService:
         upsert_key: str | None = None,
         dry_run: bool = False,
         create_missing_options: bool = False,
+        blank_clears: bool = False,
     ) -> CsvImportResult:
         # `write` on the type to import, `read` to export. Declared here
         # at the entry point rather than left to the per-row `create_record` calls, so a
@@ -145,6 +199,13 @@ class CsvService:
         # anything the payload can influence is the ordering, even when the cheaper check
         # is the size one.
         self._records.require_type_level(actor, object_type_key, "write")
+        # Refused rather than ignored: a flag that does nothing is how a mistyped mode
+        # passes unnoticed, and the caller who set it expects fields to be cleared.
+        if blank_clears and mode != "upsert":
+            raise ValidationFailedError(
+                "blank_clears applies to mode='upsert'; a create import has no existing "
+                "value to clear."
+            )
         # CSV parsing lives here, not in the route (DD-3): the route is a thin
         # adapter that only reads the upload's raw bytes, bounded. Decoding is part of
         # parsing and belongs here for the same reason -- a ``.decode("utf-8")`` in the
@@ -216,15 +277,24 @@ class CsvService:
         # now safe (the batch rolls back) but it would still be unpredicted, and a dry run
         # that reports no errors for a file that cannot commit is the defect FR-E2 names.
         claimed: dict[tuple[str, str], tuple[int, str | None]] = {}
+        tally = _ClearTally()
 
         for index, row in enumerate(rows):
             row_num = index + 2
-            values, relations, row_errors = self._build_row(
+            values, relations, blank, row_errors = self._build_row(
                 actor, field_list, row, row_num, create_missing_options, new_options
             )
-            existing_ref = self._resolve_existing(
-                actor, object_type_key, mode, upsert_key, unique_field, row, values
+            existing = self._resolve_existing(
+                actor,
+                object_type_key,
+                mode,
+                upsert_key,
+                unique_field,
+                row,
+                values,
+                with_data=blank_clears,
             )
+            existing_ref = existing[0] if existing is not None else None
             # Mirrors ``RecordService._check_unique``: only fields marked unique, and
             # only where the row actually carries a value for one.
             for field in field_list:
@@ -262,9 +332,31 @@ class CsvService:
                     RowError(row_num, key, f"Field {key!r} is required and no value was given.")
                     for key in missing
                 )
+            # The clears join the row's values here and no earlier. Both the lookup above
+            # and the uniqueness pass test ``field.key in values``: a ``None`` already
+            # sitting there would send a row whose matching field is blank down the
+            # lookup with no value, and would make two rows that each clear the same
+            # unique field collide as "row 2 of this file already claims None".
+            if blank_clears and existing is not None:
+                for key in blank:
+                    if key not in header_columns:
+                        continue  # a column the file does not carry is never cleared
+                    if fields_by_key[key].is_required:
+                        # The service's own sentence (``update_record_in_txn``), raised
+                        # here so a dry run reports it rather than the commit.
+                        row_errors.append(
+                            RowError(
+                                row_num, key, f"Field {key!r} is required and cannot be cleared."
+                            )
+                        )
+                    else:
+                        values[key] = None
             if row_errors:
                 errors.extend(row_errors)
                 continue
+            if blank_clears and existing is not None:
+                tally.observe(existing[0], existing[1])
+                tally.apply(existing[0], values)
             plans.append(
                 _RowPlan(
                     is_update=existing_ref is not None,
@@ -283,11 +375,14 @@ class CsvService:
         if errors:
             return CsvImportResult(dry_run=dry_run, created=0, updated=0, errors=errors)
         if dry_run:
+            predicted = tally.by_field()
             return CsvImportResult(
                 dry_run=True,
                 created=sum(1 for plan in plans if not plan.is_update),
                 updated=sum(1 for plan in plans if plan.is_update),
                 errors=[],
+                cleared=sum(predicted.values()),
+                cleared_by_field=predicted,
             )
 
         # Deliberately outside the batch transaction below, for this reason: this is a
@@ -301,6 +396,11 @@ class CsvService:
 
         created = 0
         updated = 0
+        # A fresh tally, fed from inside the transaction: the validation pass counted
+        # against what each record held when its row was looked up, and a record may
+        # have changed since. The update below has never checked versions (``force``),
+        # so what it removes is whatever the record holds now.
+        tally = _ClearTally()
         # One transaction for the whole batch, which is what FR-E2's "the commit either
         # fully succeeds or fully rolls back" says. If each of these three methods opened
         # its own, a row failing at write time -- uniqueness is the reachable case, being
@@ -310,9 +410,14 @@ class CsvService:
             for plan in plans:
                 if plan.is_update:
                     assert plan.ref is not None
+                    if blank_clears and not tally.seen(plan.ref):
+                        held = self._records.get_record_in_txn(conn, actor, plan.ref)
+                        tally.observe(plan.ref, held.data)
                     record = self._records.update_record_in_txn(
                         conn, actor, plan.ref, plan.values, force=True
                     )
+                    if blank_clears:
+                        tally.apply(plan.ref, plan.values)
                     updated += 1
                 else:
                     record = self._records.create_record_in_txn(
@@ -324,7 +429,15 @@ class CsvService:
                         conn, actor, record.key, field_key, target_keys
                     )
 
-        return CsvImportResult(dry_run=False, created=created, updated=updated, errors=[])
+        removed = tally.by_field()
+        return CsvImportResult(
+            dry_run=False,
+            created=created,
+            updated=updated,
+            errors=[],
+            cleared=sum(removed.values()),
+            cleared_by_field=removed,
+        )
 
     def _decode(self, body: str | bytes) -> str:
         """Bytes in, text out, with both byte-level refusals raised here.
@@ -400,9 +513,17 @@ class CsvService:
         row_num: int,
         create_missing_options: bool,
         new_options: dict[str, list[str]],
-    ) -> tuple[dict[str, Any], dict[str, list[str]], list[RowError]]:
+    ) -> tuple[dict[str, Any], dict[str, list[str]], list[str], list[RowError]]:
+        """One row's values, relation targets, blank field keys and errors.
+
+        ``blank`` names every non-relation, non-attachment field whose cell is the empty
+        string after the DD-20 restore, including a field the file has no column for and
+        a cell a short row lacks. The row's values never carry them: what a blank means
+        is decided by the caller, once it knows whether the row updates a record.
+        """
         values: dict[str, Any] = {}
         relations: dict[str, list[str]] = {}
+        blank: list[str] = []
         errors: list[RowError] = []
         for field in field_list:
             if field.type == "attachment":
@@ -417,7 +538,9 @@ class CsvService:
                     relations[field.key] = target_keys
                 continue
             if cell == "":
-                continue  # absent value: key omitted entirely (docs/DATA_MODEL.md section 4)
+                # Absent value: key omitted entirely (docs/DATA_MODEL.md section 4).
+                blank.append(field.key)
+                continue
             if field.type == "multi_select":
                 selected, option_errors = self._resolve_multi_select(
                     field, cell, row_num, create_missing_options, new_options
@@ -439,7 +562,7 @@ class CsvService:
                 errors.append(error)
             else:
                 values[field.key] = value
-        return values, relations, errors
+        return values, relations, blank, errors
 
     def _resolve_scalar(
         self, field: FieldDef, cell: str, row_num: int
@@ -534,7 +657,15 @@ class CsvService:
         unique_field: FieldDef | None,
         row: dict[str, str],
         values: dict[str, Any],
-    ) -> str | None:
+        with_data: bool = False,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """The record this row updates, as ``(key, data)``, or ``None`` when it creates.
+
+        ``with_data`` asks the unique-field lookup for every field rather than the
+        compact default, so counting what ``blank_clears`` removes costs no read beyond
+        the one this lookup already makes. Without it ``data`` is whatever the lookup
+        happened to return and nothing reads it.
+        """
         if mode != "upsert":
             return None
         if upsert_key == "key":
@@ -542,9 +673,10 @@ class CsvService:
             if not key_cell:
                 return None
             try:
-                return self._records.get_record(actor, key_cell).key
+                record = self._records.get_record(actor, key_cell)
             except NotFoundError:
                 return None
+            return record.key, record.data
         assert unique_field is not None
         if unique_field.key not in values:
             return None
@@ -553,8 +685,12 @@ class CsvService:
             object_type_key,
             filter={"field": unique_field.key, "op": "eq", "value": values[unique_field.key]},
             limit=1,
+            fields="*" if with_data else None,
         )
-        return result.records[0]["key"] if result.records else None
+        if not result.records:
+            return None
+        found = result.records[0]
+        return found["key"], found["data"]
 
     def _create_missing_options(
         self,

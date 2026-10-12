@@ -246,7 +246,10 @@ _ROUTELESS_SERVICE_METHODS: dict[str, frozenset[str]] = {
             # (`create_record`, `update_record`, `link_records`); these exist so
             # `CsvService` can put N of them in one transaction, which is FR-E2's
             # rollback guarantee, and routing them would publish a transaction handle.
+            # `get_record_in_txn` is the read on that same connection, for the import's
+            # count of what `blank_clears` removes; a route reads through `get_record`.
             "write_batch",
+            "get_record_in_txn",
             "create_record_in_txn",
             "update_record_in_txn",
             "link_records_in_txn",

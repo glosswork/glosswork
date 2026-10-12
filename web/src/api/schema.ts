@@ -362,7 +362,39 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import Csv */
+        /**
+         * Import a CSV file, creating or upserting records
+         * @description Import a CSV file into one object type, in one transaction.
+         *
+         *     `mode=create` makes a record from every row. `mode=upsert` updates the record a row
+         *     matches on `upsert_key` (`key`, or a field marked unique) and creates one where no record
+         *     matches.
+         *
+         *     **A blank cell changes nothing by default.** On a row that updates a record, an empty cell
+         *     leaves that field's stored value as it is; on a row that creates one, the field takes its
+         *     default.
+         *
+         *     **`blank_clears=true` makes a blank cell clear the field**, on rows that update a record:
+         *
+         *     - It applies only to columns the file carries. A field with no column in the header is
+         *       never cleared.
+         *     - It applies only to rows that update. A row that creates a record is unaffected.
+         *     - A row shorter than the header is blank in the cells it lacks, so those fields are
+         *       cleared too.
+         *     - It removes whatever the record holds now, including a value written after the file was
+         *       exported. An import does not check record versions.
+         *     - A required field cannot be cleared: its blank cell is a row error, and an import with
+         *       any row error writes nothing.
+         *     - A cell holding only spaces is not blank. No cell text, `null` and `\N` included, means
+         *       "clear".
+         *     - Relation columns are add-only with or without it: a blank relation cell removes no link.
+         *     - It is refused with `mode=create`, which has no existing value to clear.
+         *
+         *     The result carries `cleared`, the number of field values removed, and `cleared_by_field`,
+         *     the same count by field key. One clear is one record and field that held a value before
+         *     the import and holds none after it. With `dry_run=true` nothing is written and the result
+         *     reports what the commit would do, the clears included.
+         */
         post: operations["import_csv_api_v1_object_types__object_type_key__import_post"];
         delete?: never;
         options?: never;
@@ -1339,6 +1371,11 @@ export interface components {
              * @default false
              */
             create_missing_options: boolean;
+            /**
+             * Blank Clears
+             * @default false
+             */
+            blank_clears: boolean;
         };
         /** Body_upload_attachment_api_v1_attachments_post */
         Body_upload_attachment_api_v1_attachments_post: {
