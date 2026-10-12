@@ -1081,9 +1081,31 @@ The second fix run of 2026-10-12, after the recheck passed at `c591850`:
   from the chip popover into a module both now import.
   The Search page's inline builder is the same component, so it waits in the same way.
   Measured at `c591850` before the fix, the new browser scenario failed on all three of its
-  facts: nine filters sent where one is right, eight refusals among the answers, and the
+  facts: nine filters sent where one is right, seven refusals among the answers, and the
   refusal notice seen in the page while typing. After it: one request, one 200, no notice.
+  (An earlier version of this entry said eight refusals. The server answered seven and two
+  successes, as the recheck measured.)
 
+The third fix run of 2026-10-12, after the recheck of `e865740`:
+
+- **D16. One click on the Advanced chip closes the builder at any moment after typing.** The
+  recheck found that with a value typed and the chip clicked inside D15's 300 ms, the builder
+  stayed open for that click and needed a second. The value was sent whole and once. Asked
+  "Fix it before the pull request?", the maintainer answered: "Fix it in this change".
+  **The cause, measured in a browser before anything was changed:** pressing the chip takes
+  focus out of the value box, which sends the typed value (D15), which adds a filter chip to
+  the row, which moves the Advanced chip 124 pixels to the right while the mouse button is
+  still down. The release lands on `+ Add filter`, the browser sends the click to the two
+  chips' common ancestor, and the Advanced chip never receives one. The builder was not being
+  reopened; it was never told to close. Before D15 the value had already been sent by the
+  time of the press, so nothing moved.
+  The change is in `web/src/ui/Popover.tsx`, which every popover in the product uses: a
+  trigger remembers where a press on it started, and a release within 4 pixels of that point
+  with no click arriving is treated as the click. A pointer that has travelled further is a
+  drag off the button and still cancels. The debounce interval, how Enter, blur and unmount
+  send, and how chips send are untouched.
+  The Search page's inline builder has no equivalent control: it sits open on the page, in no
+  popover, with no chip to close it, so there is nothing there to check.
 ## Durable content moved out of this plan
 
 Nothing yet. See "What changes" 9 for where it goes.
