@@ -149,3 +149,53 @@ describe("Chip", () => {
     });
   });
 });
+
+/**
+ * The chip's colours are chosen once per property. Two utilities for one property in the same
+ * class list are resolved by the stylesheet's order, not the list's, and that is how an open
+ * chip never painted as open and a refused chip never painted as refused while both sets of
+ * classes sat in the DOM. Whether the right one *paints* is a browser question
+ * (`e2e/table-pilot-findings.spec.ts` reads the computed colour); what can be held here is that
+ * there is never a second one for it to lose to.
+ */
+describe("Chip: one colour class per property, in every state", () => {
+  const FILLS = ["bg-surface", "bg-human-soft"];
+  const TEXTS = ["text-ink", "text-ink-2", "text-bad"];
+  const BORDERS = ["border-line-2", "border-bad"];
+  const among = (classes: string[], set: string[]) => classes.filter((one) => set.includes(one));
+
+  it.each([
+    ["filter", "plain", false, { fill: "bg-surface", text: "text-ink", border: "border-line-2" }],
+    ["filter", "plain", true, { fill: "bg-human-soft", text: "text-ink", border: "border-line-2" }],
+    ["filter", "refused", false, { fill: "bg-surface", text: "text-bad", border: "border-bad" }],
+    ["filter", "refused", true, { fill: "bg-human-soft", text: "text-bad", border: "border-bad" }],
+    ["add", "plain", false, { fill: "bg-surface", text: "text-ink-2", border: "border-line-2" }],
+    ["add", "plain", true, { fill: "bg-human-soft", text: "text-ink", border: "border-line-2" }],
+    ["add", "refused", false, { fill: "bg-surface", text: "text-bad", border: "border-bad" }],
+  ] as const)("%s, %s, open %s", async (variant, tone, open, expected) => {
+    const user = userEvent.setup();
+    render(
+      <Chip data-testid="chip" variant={variant} tone={tone} popover={<input aria-label="Value" />}>
+        Stage is not Lost
+      </Chip>,
+    );
+    if (open) await user.click(screen.getByRole("button", { name: "Stage is not Lost" }));
+    const classes = screen.getByTestId("chip").className.split(/\s+/);
+    expect(among(classes, FILLS)).toEqual([expected.fill]);
+    expect(among(classes, TEXTS)).toEqual([expected.text]);
+    expect(among(classes, BORDERS)).toEqual([expected.border]);
+    expect(classes.includes("border-dashed")).toBe(variant === "add");
+  });
+
+  it("says its tone in the DOM only when it has one", () => {
+    const { rerender } = render(<Chip data-testid="chip">Stage is not Lost</Chip>);
+    expect(screen.getByTestId("chip")).not.toHaveAttribute("data-tone");
+    rerender(
+      <Chip data-testid="chip" tone="refused">
+        Stage is not Lost
+      </Chip>,
+    );
+    expect(screen.getByTestId("chip")).toHaveAttribute("data-tone", "refused");
+  });
+});
+

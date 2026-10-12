@@ -424,6 +424,64 @@ async function addStageChip(page: Page): Promise<void> {
 
 const stageIsActive = { field: "stage", op: "eq", value: "active" };
 
+/**
+ * What a refused filter has to look like, read off the page the way a person reads it: the
+ * visible sentence, no record rows at all, and no count. Never the accessible name, which is
+ * what an earlier version of these scenarios read while the page showed every record under an
+ * ordinary-looking chip.
+ */
+async function expectFilterRefused(page: Page, serverText: string | RegExp): Promise<void> {
+  const notice = page.getByTestId("table-filter-refused");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("This filter could not be applied.");
+  await expect(notice).toContainText(serverText);
+  // No row from any earlier answer, and nothing that reads as a result.
+  await expect(page.locator('tbody tr[data-testid^="row-"]')).toHaveCount(0);
+  await expect(page.getByTestId("table-footer")).toHaveCount(0);
+  await expect(page.getByText("No records match this filter")).toHaveCount(0);
+  await expect(page.getByText("Could not load records.")).toHaveCount(0);
+}
+
+/** The computed colour the theme's `bad` token paints, as the browser reports a colour. */
+async function badColour(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--color-bad)";
+    document.body.appendChild(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  });
+}
+
+interface ChipPaint {
+  border: string;
+  text: string;
+}
+
+/** A chip's painted border and the painted colour of its sentence. */
+async function chipPaint(chip: Locator): Promise<ChipPaint> {
+  return chip.evaluate((frame) => ({
+    border: getComputedStyle(frame).borderTopColor,
+    text: getComputedStyle(frame.querySelector("button")!).color,
+  }));
+}
+
+/** The refused chip is painted in the `bad` colour, border and sentence, and an accepted chip
+ * beside it is not: the mark is a difference a person can see, not a class in a list. */
+async function expectChipMarkedRefused(page: Page, refused: Locator, accepted?: Locator): Promise<void> {
+  const bad = await badColour(page);
+  expect(await chipPaint(refused), "the refused chip's painted colours").toEqual({
+    border: bad,
+    text: bad,
+  });
+  if (accepted !== undefined) {
+    const paint = await chipPaint(accepted);
+    expect(paint.border, "an accepted chip's border").not.toBe(bad);
+    expect(paint.text, "an accepted chip's sentence").not.toBe(bad);
+  }
+}
+
 test.describe("#15 a date filter", () => {
   test("a date typed the way the table displays it is held back, with the accepted formats named", async ({
     page,
@@ -484,6 +542,36 @@ test.describe("#15 a date filter", () => {
   test("a day picked from the calendar filters to the API's own count", async ({ page }) => {
     await signInAndOpenTable(page);
     const popover = await startChip(page, "last_used", "lt");
+    // The button draws an icon: ink on the page, not an empty square. The icon is this
+    // product's own SVG, so it is measured as painted pixels inside the button's box, which
+    // is the claim, and not as an element that merely exists.
+    const icon = popover.getByTestId("date-value-picker-icon");
+    await expect(icon.locator("svg")).toBeVisible();
+    const picture = await icon.screenshot();
+    const inked = await page.evaluate(async (base64) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      // Only the middle of the button, clear of its own border.
+      const inset = Math.round(image.width * 0.25);
+      const { data } = context.getImageData(inset, inset, image.width - 2 * inset, image.height - 2 * inset);
+      let dark = 0;
+      for (let index = 0; index < data.length; index += 4) {
+        if (data[index] + data[index + 1] + data[index + 2] < 600) dark += 1;
+      }
+      return dark;
+    }, picture.toString("base64"));
+    expect(inked, "pixels of icon drawn inside the calendar button").toBeGreaterThan(20);
+    // The date input covers the whole button, so a click anywhere on it reaches the picker.
+    const iconBox = (await icon.boundingBox())!;
+    const inputBox = (await popover.getByLabel("Last used value: pick a day").boundingBox())!;
+    expect(Math.round(inputBox.width)).toBe(Math.round(iconBox.width));
+    expect(Math.round(inputBox.height)).toBe(Math.round(iconBox.height));
     await popover.getByLabel("Last used value: pick a day").fill(DAY);
     await expect(popover.getByLabel("Last used value", { exact: true })).toHaveValue(DAY);
     const committed = page.waitForRequest(isQueryRequest, { timeout: 5_000 });
@@ -539,7 +627,7 @@ test.describe("#15 a date filter", () => {
     expect((await sent)?.postData() ?? null).toBeNull();
   });
 
-  test("a relative token is sent as typed, and a mistyped one comes back onto its chip with the rows still there", async ({
+  test("a relative token is sent as typed, and a mistyped one empties the table and says why", async ({
     page,
   }) => {
     await signInAndOpenTable(page);
@@ -567,12 +655,47 @@ test.describe("#15 a date filter", () => {
     await popover.getByRole("button", { name: "Apply" }).click();
     expect(sentFilter(await committed)).toEqual({ field: "last_used", op: "lt", value: "@tod" });
 
-    const chip = page.getByTestId("filter-chip-0");
-    await expect(chip.getByRole("button", { name: /Unknown date token '@tod'/ })).toBeVisible();
-    // The rows the person had are still the rows on screen, and nothing at page level says
-    // the load failed.
+    // The server refused it. The table shows that, and none of the rows it had before: rows
+    // under a chip that was not applied are a wrong answer presented as right.
+    await expectFilterRefused(page, "Unknown date token '@tod'");
+    await expect(page.getByTestId("filter-chips").getByText("Last used is before @tod")).toBeVisible();
+    await expectChipMarkedRefused(page, page.getByTestId("filter-chip-0"));
+
+    // The tab remembers the filter, so a reload restores it, and it is refused again: still no
+    // rows, and no unfiltered request on the way in.
+    const requests: Request[] = [];
+    page.on("request", (request) => {
+      if (isQueryRequest(request)) requests.push(request);
+    });
+    await page.reload();
+    await expectFilterRefused(page, "Unknown date token '@tod'");
+    expect(requests.map(sentFilter)).toEqual(
+      requests.map(() => ({ field: "last_used", op: "lt", value: "@tod" })),
+    );
+
+    // Removing the chip is the way out.
+    await page.getByRole("button", { name: /^Remove filter: Last used/ }).click();
     await expectRowCount(page, unfiltered);
-    await expect(page.getByText("Could not load records.")).toHaveCount(0);
+  });
+
+  test("a mistyped token in the Advanced builder empties the table and says why", async ({ page }) => {
+    await signInAndOpenTable(page);
+    const unfiltered = await apiCount(TYPE_KEY, null);
+    await expectRowCount(page, unfiltered);
+
+    const row = await startAdvancedCondition(page, "last_used", "lt");
+    // The builder sends on every complete change, so each key of the token is a refused
+    // request; what matters is what the page shows once the last one has answered.
+    await row.getByLabel("Last used value", { exact: true }).pressSequentially("@tod");
+
+    await expectFilterRefused(page, "Unknown date token '@tod'");
+    await expect(page.getByTestId("filter-chip-advanced").getByRole("alert")).toContainText(
+      "Unknown date token '@tod'",
+    );
+    await page.keyboard.press("Escape");
+    await expectChipMarkedRefused(page, page.getByTestId("filter-chip-0"));
+    await page.getByRole("button", { name: /^Remove filter: Last used/ }).click();
+    await expectRowCount(page, unfiltered);
   });
 
   test("the Advanced builder holds back the same date and sends the same instant", async ({
@@ -606,13 +729,14 @@ test.describe("#15 a date filter", () => {
     expect(requests.map(sentFilter)).toEqual([expectedFilter]);
   });
 
-  test("a saved view holding an unreadable date shows the server's message on its chip and keeps the rows", async ({
+  test("a saved view holding an unreadable date, picked after the table has loaded, shows no rows and says why", async ({
     page,
   }) => {
+    // The view the reported case would leave behind: a select chip plus the unreadable date.
     await seedSavedView(
       TYPE_KEY,
       REFUSED_VIEW_NAME,
-      REFUSED_FILTER,
+      { and: [stageIsActive, REFUSED_FILTER] },
       ["name", "stage", "variant", "last_used", "due"],
       false,
     );
@@ -629,21 +753,47 @@ test.describe("#15 a date filter", () => {
     await refused;
     await page.keyboard.press("Escape");
 
-    // On the chip: its accessible name carries the refusal, and its popover shows it.
-    const chip = page.getByTestId("filter-chip-0");
-    await expect(chip.getByRole("button", { name: new RegExp(SERVER_REFUSAL) })).toBeVisible();
-    await expect.soft(page.getByText("Could not load records.")).toHaveCount(0);
-    await expectRowCount(page, unfiltered);
+    // What the person sees: no rows from before, the server's sentence, and the refused chip
+    // painted differently from the accepted one beside it.
+    await expectFilterRefused(page, SERVER_REFUSAL);
+    await expect(page.getByTestId("filter-chips").getByText("Stage is Active")).toBeVisible();
+    await expectChipMarkedRefused(
+      page,
+      page.getByTestId("filter-chip-1"),
+      page.getByTestId("filter-chip-0"),
+    );
 
-    // And in the Advanced popover, although this filter is one a chip can express.
+    // Export from here exports nothing: not the refused view, and not the rows from before.
+    let downloads = 0;
+    page.on("download", () => {
+      downloads += 1;
+    });
+    await page.getByRole("button", { name: `Current view: ${REFUSED_VIEW_NAME}` }).click();
+    const exportRefused = page.waitForResponse(
+      (response) => response.url().includes(`/object-types/${TYPE_KEY}/export`),
+      { timeout: 5_000 },
+    );
+    await page.getByRole("button", { name: "Export CSV" }).click();
+    expect((await exportRefused).status()).toBe(422);
+    await expect(page.getByRole("alert").filter({ hasText: "Could not export." })).toBeVisible();
+    await page.keyboard.press("Escape");
+    expect(downloads).toBe(0);
+
+    // And in the Advanced popover, although this filter is one a chip row can express. The
+    // view is intact: the builder still holds the value as stored.
     await page.getByRole("button", { name: "Advanced", exact: true }).click();
+    const advanced = page.getByTestId("filter-chip-advanced");
+    await expect(advanced.getByRole("alert")).toContainText(SERVER_REFUSAL);
     await expect(
-      page.getByTestId("filter-chip-advanced").getByRole("alert"),
-    ).toContainText(SERVER_REFUSAL);
-    // The view is intact: the builder still holds the value as stored.
-    await expect(
-      page.getByTestId("filter-node-root").getByLabel("Last used value", { exact: true }),
+      advanced.getByLabel("Last used value", { exact: true }),
     ).toHaveValue("7 Jan 2026");
+    await page.keyboard.press("Escape");
+
+    // Leaving the view brings the records back.
+    await page.getByRole("button", { name: `Current view: ${REFUSED_VIEW_NAME}` }).click();
+    await page.getByLabel("Saved view").selectOption({ index: 0 });
+    await page.keyboard.press("Escape");
+    await expectRowCount(page, unfiltered);
   });
 
   test("the same view as everybody's default says the filter could not be applied, not that nothing matches", async ({
@@ -667,12 +817,9 @@ test.describe("#15 a date filter", () => {
     // chance to render.
     await expect.soft(page.getByText("No records match this filter")).toHaveCount(0);
     await expect.soft(page.getByText("Could not load records.")).toHaveCount(0);
-    // The view opened and its chip is marked; nothing was dropped from it.
-    await expect
-      .soft(
-        page.getByTestId("filter-chip-0").getByRole("button", { name: new RegExp(SERVER_REFUSAL) }),
-      )
-      .toBeVisible();
+    // The view opened and its chip is marked, in paint; nothing was dropped from it.
+    await expect(page.getByTestId("filter-chips").getByText("Last used is before 7 Jan 2026")).toBeVisible();
+    await expectChipMarkedRefused(page, page.getByTestId("filter-chip-0"));
 
     // Export under the refused filter says so. Before, the click did nothing at all.
     await page.getByRole("button", { name: `Current view: ${REFUSED_VIEW_NAME}` }).click();

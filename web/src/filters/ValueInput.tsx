@@ -248,8 +248,7 @@ function sameDateValue(a: unknown, b: unknown): boolean {
  *
  * **It is a text box because relative dates have to stay typeable.** `@today-7d` is resolved by
  * the server, and a date picker alone would make it unreachable. The calendar button beside the
- * box is the browser's own date input, shrunk to its picker, and it writes the picked day into
- * the box as text.
+ * box opens the browser's own date picker, and the picked day is written into the box as text.
  *
  * **The box holds what was typed; the value is committed beside it** (`useTypedText`). What the
  * box commits is decided by `dateFilterValue.ts`: a token as typed, a real day, a canonical
@@ -320,22 +319,47 @@ function DateValueInput({
           value={text}
           onChange={(event) => type(event.target.value)}
         />
-        {/* The browser's own date input, showing only its picker button: the day's text fields
-            are hidden, so it reads as a calendar button and cannot be half-typed. Picking a day
-            writes it into the box as `YYYY-MM-DD`. */}
-        <input
-          className={
-            "h-7 w-7 cursor-pointer rounded-ctl border border-line-2 bg-surface p-0 text-ink "
-            + "[&::-webkit-calendar-picker-indicator]:m-0 [&::-webkit-calendar-picker-indicator]:h-full "
-            + "[&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer "
-            + "[&::-webkit-calendar-picker-indicator]:p-1.5 [&::-webkit-datetime-edit]:hidden"
-          }
-          type="date"
-          aria-label={`${ariaLabel}: pick a day`}
-          data-testid="date-value-picker"
-          value={isCalendarDay(typedDay) ? typedDay : ""}
-          onChange={(event) => type(event.target.value)}
-        />
+        {/* The calendar button. The icon is drawn here, as an inline SVG, and the browser's
+            own date input lies over it, invisible and the same size, so a click anywhere on the
+            button reaches a real date input and opens its picker.
+
+            The first version shrank the date input to its built-in picker icon and hid its text
+            fields. In Chromium that drew an empty square: the icon is the browser's to draw or
+            not, and at this size it did not. Nothing here now depends on what a browser paints
+            inside a date input.
+
+            `showPicker` on click, because a click on a date input's text area focuses a field
+            rather than opening the picker, and with the fields invisible that would look like
+            nothing happening. Where it does not exist, or refuses, the browser's own behaviour
+            for the click is what is left. The focus outline is painted on the icon's frame through
+            `peer`, since the input that holds focus cannot be seen. */}
+        <span className="relative inline-flex h-7 w-7 shrink-0">
+          <input
+            className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            type="date"
+            aria-label={`${ariaLabel}: pick a day`}
+            data-testid="date-value-picker"
+            value={isCalendarDay(typedDay) ? typedDay : ""}
+            onChange={(event) => type(event.target.value)}
+            onClick={(event) => {
+              try {
+                event.currentTarget.showPicker?.();
+              } catch {
+                // Not allowed here (a cross-origin frame), or already open.
+              }
+            }}
+          />
+          <span
+            aria-hidden="true"
+            data-testid="date-value-picker-icon"
+            className="pointer-events-none inline-flex h-full w-full items-center justify-center rounded-ctl border border-line-2 bg-surface text-ink-2 peer-hover:text-ink peer-focus-visible:outline-2 peer-focus-visible:[outline-offset:2px] peer-focus-visible:outline-human"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="3" width="12" height="11" rx="1.5" />
+              <path d="M2 6.5h12M5 1.5v3M11 1.5v3" strokeLinecap="round" />
+            </svg>
+          </span>
+        </span>
       </span>
       {showsHint && <DateHint id={hintId} problem={problem} />}
     </span>

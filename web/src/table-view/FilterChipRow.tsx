@@ -20,10 +20,10 @@
  * **What the error is doing here.** Completeness is not acceptance: `filters.py`
  * rejects *complete* values too — a `date` that is neither ISO nor a token, an unresolvable
  * `user_ref`, a relation key naming no record — so a chip can be finished, sent, and refused.
- * That refusal is shown **in the popover of the chip that carries the offending field**, named by
- * `error.details.field_key`, instead of the page-level "Could not load records" alert that empties
- * the table. `TableView` keeps the previous rows on screen for the same reason: the person's last
- * good answer is still the truest thing the page knows.
+ * That refusal is the table's to state, where the rows would be (`TableView`), and it shows no
+ * rows under it. What this row adds is which chip: the one carrying the field the server named
+ * (`error.details.field_key`) is painted `bad`, carries the message in its accessible name and
+ * shows it in its popover, and the `Advanced` popover shows it for any refusal at all.
  *
  * **Geometry is unproven here.** 7.4's 28px chip and the row's wrapping at 640px
  * (docs/DESIGN.md 9) live in class lists; `getBoundingClientRect` returns zeroes under jsdom
@@ -60,7 +60,13 @@ export interface FilterChipRowProps {
   onChange: (next: FilterNode | null) => void;
   /** Bumped to remount the tree builder when a saved view is applied, as `TableView` already did. */
   builderKey?: number;
+  /** The refusal, when it names a field one of the chips carries: that chip is painted. */
   error?: FilterChipError | null;
+  /**
+   * The server's sentence for any refusal of this filter, whether or not it names a chip. Shown
+   * in the Advanced popover, which is where a refused value is edited.
+   */
+  refusal?: string | null;
 }
 
 export function FilterChipRow({
@@ -70,7 +76,9 @@ export function FilterChipRow({
   onChange,
   builderKey,
   error = null,
+  refusal = null,
 }: FilterChipRowProps) {
+  const refusalText = refusal ?? error?.message ?? null;
   const filterableFields = useMemo(
     () => toFilterableFields(fields, systemFields),
     [fields, systemFields],
@@ -147,7 +155,7 @@ export function FilterChipRow({
             <Chip
               key={index}
               data-testid={`filter-chip-${index}`}
-              className={chipError !== null ? "border-bad text-bad" : undefined}
+              tone={chipError !== null ? "refused" : "plain"}
               // The chip's own sentence is its name until it carries an error, when the name
               // says so too: kind is never colour alone (docs/DESIGN.md 10), and the message
               // itself lives one click away in the popover.
@@ -193,7 +201,7 @@ export function FilterChipRow({
       {/* Always the last slot, in both shapes — see the header. */}
       <Chip
         data-testid="filter-chip-advanced"
-        className={chips === null && error !== null ? "border-bad text-bad" : undefined}
+        tone={chips === null && refusalText !== null ? "refused" : "plain"}
         onRemove={chips === null ? () => onChange(null) : undefined}
         removeLabel="Remove advanced filter"
         popover={
@@ -202,9 +210,9 @@ export function FilterChipRow({
                 builder is where a refused value is edited, and a saved view's refused date is
                 usually a single flat condition: showing the message only on the chip would leave
                 this panel holding the bad value with nothing saying it is bad. */}
-            {error !== null && (
+            {refusalText !== null && (
               <p className="mb-2 rounded-ctl bg-bad-soft px-2 py-1 text-xs text-bad" role="alert">
-                {error.message}
+                {refusalText}
               </p>
             )}
             <FilterBuilder

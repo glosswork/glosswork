@@ -220,9 +220,6 @@ export function TableView({ objectType }: TableViewProps) {
     [displayFieldKey],
   );
 
-  /** The last result that actually came back; see where it is read, below the records query. */
-  const [lastResult, setLastResult] = useState<QueryResult | undefined>(undefined);
-
   const savedViewsQuery = useSavedViewsList(objectType.key);
   const savedViewMutations = useSavedViewMutations(objectType.key);
   const appliedDefaultRef = useRef(false);
@@ -247,12 +244,6 @@ export function TableView({ objectType }: TableViewProps) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedViewId(defaultView.id);
       applyConfig(parseTableViewConfig(defaultView.config, fields));
-      // The table has usually answered one unfiltered query by now, because the saved views
-      // arrive after the first render. Those rows are an accident of load order, not something
-      // the person asked for, so they are not "the previous result" to fall back to if the
-      // default view's filter is refused: unfiltered rows under a view's name would be a wrong
-      // answer presented as that view's. With nothing held, a refusal reads as a refusal.
-      setLastResult(undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedViewsQuery.isSuccess, savedViews, fields]);
@@ -336,50 +327,35 @@ export function TableView({ objectType }: TableViewProps) {
 
   /**
    * Completeness is not acceptance: the compiler refuses complete values too — a `date`
-   * that is neither ISO nor a token, an unresolvable `user_ref`, a relation key naming no record
-   * — and answers `422 validation_failed` naming the field. When the chip row can say **which
-   * chip** that field belongs to, the refusal belongs in that chip's popover and the previous
-   * result set stays on screen; a `validation_failed` naming nothing in the filter did not come
-   * from the filter, and keeps the page-level alert.
+   * that is neither canonical nor a token, an unresolvable `user_ref`, a relation key naming no
+   * record, a mistyped date token — and answers `422 validation_failed`.
+   *
+   * **A refused filter shows no rows, by whatever path it arrived**: a typed chip, the Advanced
+   * builder, a saved view picked from the View menu, a default view, a filter restored from the
+   * tab. The table area says `This filter could not be applied.` with the server's own sentence
+   * and `Clear filter` beside it. This table once kept the previous result on screen under the
+   * refused filter and marked the chip. Rows under a filter that did not produce them are a
+   * wrong answer presented as right, which is the defect this screen was reported for, and a
+   * mark on a chip is not enough to undo that reading (decided by the maintainer, 2026-10-12).
+   *
+   * `filterRefusal` is every `validation_failed` answered while a filter is set: the request
+   * carried the filter and the server would not run it. `filterError` is the narrower thing
+   * the chip row needs, a refusal naming a field one of its chips carries, so it can paint that
+   * chip. A `validation_failed` with no filter set did not come from a filter and keeps the
+   * page-level alert.
+   *
+   * No earlier result is held anywhere. `keepPreviousData` shows the previous page only while
+   * the next one is *pending* and drops it the moment the query errors, so `recordsQuery.data`
+   * is already empty for a refused filter. What that does not cover is the time the refused
+   * request is in flight: until the server answers, nothing knows it will be refused, and the
+   * previous rows are on screen exactly as they are for a filter that is about to succeed.
    */
   const validationFailure = recordsQuery.isError ? parseValidationFailed(recordsQuery.error) : null;
+  const filterRefusal = filter !== null ? validationFailure : null;
   const filterError =
-    validationFailure !== null && ownsFilterError(filter, validationFailure.fieldKey)
-      ? validationFailure
-      : null;
+    filterRefusal !== null && ownsFilterError(filter, filterRefusal.fieldKey) ? filterRefusal : null;
 
-  /**
-   * The last result that actually came back. `keepPreviousData` holds the previous page while the
-   * next one is *pending* and drops it the moment the query errors (`queryObserver`: placeholder
-   * data applies only at `status === "pending"`), which is exactly the "table goes to zero rows"
-   * defect. Holding it here is what makes "the previous result set stays on screen" true for a
-   * filter's own refusal.
-   *
-   * Held in state and adjusted during render — React's "adjusting state when a prop changes",
-   * the same pattern the identity reset above uses, rather than a ref: a ref read during render
-   * is what `react-hooks/refs` forbids, and it would not re-render when it changed anyway.
-   *
-   * **Only a result that answers the current query is held.** While a query is pending,
-   * `keepPreviousData` hands back the previous query's rows as placeholder data, and those are
-   * already here from when they were real.
-   */
-  if (
-    recordsQuery.data !== undefined
-    && !recordsQuery.isPlaceholderData
-    && recordsQuery.data !== lastResult
-  ) {
-    setLastResult(recordsQuery.data);
-  }
-  const result = recordsQuery.data ?? (filterError !== null ? lastResult : undefined);
-  /**
-   * The filter was refused and there is no earlier result to keep: a saved view that is
-   * everybody's default, or a restored session entry, holding a value the server will not read.
-   * Nothing is held (a default view discards the unfiltered rows that loaded before it was
-   * applied, and a restored entry is the page's first query), so the table has no rows, and
-   * "No records match this filter" would be a false statement about the data. The page says the
-   * filter could not be applied, in the server's words, with the way out beside it.
-   */
-  const filterRefusedWithNothingToShow = filterError !== null && result === undefined;
+  const result = recordsQuery.data;
 
   const records = useMemo(() => result?.records ?? [], [result]);
 
@@ -755,6 +731,7 @@ export function TableView({ objectType }: TableViewProps) {
           onChange={setFilter}
           builderKey={viewGeneration}
           error={filterError}
+          refusal={filterRefusal?.message ?? null}
         />
 
         {/* Group, sort and columns are chips — docs/DESIGN.md 7.4 names the first two ("Group
@@ -821,9 +798,8 @@ export function TableView({ objectType }: TableViewProps) {
 
       {/* Without this branch a failed load of the records query would render nothing. The pager
           is what makes a rejected cursor reachable, which is why it lives here. A filter's own
-          refusal is NOT shown here: it goes to the chip that
-          carries the field the server named, and this alert would empty the table under it. */}
-      {recordsQuery.isError && filterError === null && (
+          refusal is NOT shown here: the table area says it, below, where the rows would be. */}
+      {recordsQuery.isError && filterRefusal === null && (
         <Alert tone="error" title="Could not load records." error={recordsQuery.error} />
       )}
 
@@ -959,7 +935,7 @@ export function TableView({ objectType }: TableViewProps) {
 
       {!recordsQuery.isLoading &&
         records.length === 0 &&
-        (filterRefusedWithNothingToShow ? (
+        (filterRefusal !== null ? (
           <EmptyState
             title="This filter could not be applied."
             data-testid="table-filter-refused"
@@ -969,9 +945,9 @@ export function TableView({ objectType }: TableViewProps) {
               </Button>
             }
           >
-            {filterError.message}
+            {filterRefusal.message}
           </EmptyState>
-        ) : filter !== null ? (
+        ) : recordsQuery.isError ? null : filter !== null ? (
           <EmptyState
             title="No records match this filter"
             data-testid="table-empty-filtered"

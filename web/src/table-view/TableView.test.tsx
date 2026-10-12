@@ -1003,7 +1003,7 @@ describe("TableView: a complete-but-refused filter value", () => {
     );
   }
 
-  it("shows the server's message in the offending chip's popover and keeps the rows on screen", async () => {
+  it("shows the server's message in the offending chip's popover and in place of the rows", async () => {
     const user = userEvent.setup();
     useRefusingHandler();
     renderWithProviders(<TableView objectType={objectType} />);
@@ -1019,10 +1019,25 @@ describe("TableView: a complete-but-refused filter value", () => {
     const message = await within(screen.getByTestId("condition-popover")).findByRole("alert");
     expect(message).toHaveTextContent("Invalid value for field 'status'.");
     expect(screen.queryByText("Could not load records.")).not.toBeInTheDocument();
-    // The previous result set, still there. `keepPreviousData` drops it the moment the query
-    // errors, so this is the half that needs the component to hold it.
-    expect(screen.getByTestId("row-INIT-1")).toBeInTheDocument();
-    expect(screen.getByTestId("row-INIT-2")).toBeInTheDocument();
+
+    // The table says the filter could not be applied, in the server's words, and shows no row
+    // from the answer before it. This assertion once read the opposite: the previous rows were
+    // kept on screen under the refused chip, which is rows under a filter that did not produce
+    // them.
+    const notice = screen.getByTestId("table-filter-refused");
+    expect(notice).toHaveTextContent("This filter could not be applied.");
+    expect(notice).toHaveTextContent("Invalid value for field 'status'.");
+    expect(screen.queryByTestId("row-INIT-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("row-INIT-2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("table-footer")).not.toBeInTheDocument();
+    expect(screen.queryByText("No records match this filter")).not.toBeInTheDocument();
+    // The chip is marked by tone, which `Chip` turns into paint (`ui/Chip.test.tsx`).
+    expect(screen.getByTestId("filter-chip-0")).toHaveAttribute("data-tone", "refused");
+
+    // Clearing the filter brings the records back.
+    await user.keyboard("{Escape}");
+    await user.click(within(notice).getByRole("button", { name: "Clear filter" }));
+    expect(await screen.findByTestId("row-INIT-1")).toBeInTheDocument();
   });
 });
 
