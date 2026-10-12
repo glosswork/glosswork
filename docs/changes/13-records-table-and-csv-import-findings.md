@@ -9,11 +9,13 @@
 | Requirements | FR-U1, FR-U3, FR-R5, FR-R8, FR-E1, FR-E2 |
 | Depends on | Nothing unmerged. The planned change on client-sent timestamps (field editors and the Activity filter) touches `web/src/table-view` and `web/src/filters` too and must not run at the same time. Whichever runs second reads the other's result |
 
-**Status: attacked, not approved.** The maintainer answered Q1 to Q5 on 2026-10-10, each as
-this plan was written, and each answer is recorded under its question. The one adversarial
-pass ran on 2026-10-10, by a session that did not write the plan; its findings F1 to F19 are
-at the end and their fixes are folded into the text in place. No code is written until the
-maintainer approves the plan as it now reads.
+**Status: approved and built, not verified.** The maintainer answered Q1 to Q5 on 2026-10-10
+and approved the plan as it read at commit `68272e3` on 2026-10-12. The one adversarial pass
+ran on 2026-10-10, by a session that did not write the plan; its findings F1 to F19 are at the
+end and their fixes are folded into the text in place. Checklist steps 1 to 12 were built on
+2026-10-12; what each assertion did against the unfixed tree is recorded under the checklist,
+and where the build departed from this text is under "Deviations from the approved plan". The
+verifier has not run, and nothing is pushed.
 
 ## Why
 
@@ -643,6 +645,32 @@ No file that defines CI is touched. No migration. No new dependency.
 13. Hand over for verification against the Accept block.
 14. Closeout in two commits: the plan's final edits, then the specifications and the deletion.
 
+### What the build recorded, 2026-10-12
+
+**Step 1, how each new assertion failed against the unfixed tree.** "Main" below is a clean
+checkout of `main` at `9e4b8a2` with only the new spec file added. The order in which this was
+done is deviation D1.
+
+| Assertions | Measured against | Result unfixed |
+| --- | --- | --- |
+| AC1, the date-literal tests | the branch before step 3 | 72 of 80 failed: every refused literal answered 200, or 422 without the new sentence; an unknown token carried no field key; a bulk update and an export went through. 8 passed: six fences (a canonical date on a date field, three tokens, two for the list operator), and `lt` and `gte` with a date-only value on a datetime field, which were already right by text ordering (F9) |
+| AC2, the clear tests | the branch before step 4 | 23 of 23 failed, each at its first read of `cleared`, which the result did not have. The fences among them (`null` and `\N` stored as text, a cell of spaces, a row whose matching field is blank) would have passed without that read |
+| #17, two tests | main | both failed: the box read `v1v2` and the request carried `["v1v2"]` |
+| #15, nine tests | main | all failed: `Apply` stayed enabled for `7 Jan 2026` and a chip for it appeared; a typed day was sent as typed and not as an instant; there was no calendar input; `is` with a day was sent; the Advanced builder sent `"7"` on the first key; `@tod` put nothing on its chip; no request was ever refused with 422, so the two saved-view tests timed out waiting for one |
+| #13, two tests | main | both failed: the View menu was 165.125 pixels past the right edge at 1280 and at 800, and the content area gained a sideways scroll. The Columns popover half of the 800 test is a fence, see D8 |
+| #16, the scroll test | main | failed: the sidebar's first link, the chip row, the toolbar and the identity block were all out of view after a 1500 scroll |
+| #16, the top bar at 800 | main | passed, a fence by construction, not counted |
+| #16, no sideways page scroll on nine routes at 1280 and at 960 | main | passed at both widths, so no shell route overflows today. Fences, not counted |
+| #14, five tests | the branch at `2da75c7`, before any step 9 code | all failed: 60 rows and no chip after returning; nothing in `sessionStorage` |
+| #18, five tests | the same | all failed: the Name cell was at x -339 after an 800 scroll where 249 is right; no pin control; no sticky cell |
+| #19, the wizard test | the same | failed: no checkbox in upsert mode |
+
+**Step 2.** The real rule, midnight rewrite included, refused no date literal sent by an
+existing backend test: `uv run pytest -q -m "not structural"` with a plugin logging every
+refusal from `filters._resolve_scalar` ran 2,147 tests green and logged 0 refusals. The same
+plugin logged 69 refusals over the new date-literal file, so it fires. Four test files that
+are in the working tree and not in the repository were left out of that run.
+
 ## Accept
 
 Each is a command. Read each exit code directly, never through a pipe.
@@ -758,7 +786,17 @@ records which. One new baseline, `table-wide-pinned-scrolled`: the wide table sc
 sideways with the display field stuck, which is the only place the rule on a stuck cell is
 ever checked (F17). Any other repaint is a finding.
 
-Actual: not yet run.
+Actual, 2026-10-12: 4 repainted and 1 added, as expected, with one difference in what the four
+show. `table-default`, `table-grouped`, `table-selected` and `table-wide` each gained the
+right-hand rule on the display field. They also differ slightly outside it, because the
+records table now separates its borders (D5): the diff images show the By avatars, the key
+text and the footer line a fraction of a pixel off, which was read from the images and not
+measured in pixels. `table-wide` would have passed the tolerance with the rule alone (a
+one-pixel line is under the 0.001 ratio) and was repainted anyway, so the committed image is
+the one the page draws. `table-wide-pinned-scrolled` is new. The two CSV wizard baselines
+passed unchanged: both fixtures are in create mode, where the checkbox is not shown. Every
+other baseline passed unchanged: 50 visual scenarios passed with only those five files
+written.
 
 ## Adversarial pass
 
@@ -885,7 +923,77 @@ knowingly.
 
 ## Deviations from the approved plan
 
-None yet.
+Recorded as the build went. None replaces a mechanism the plan chose except D5, which is why
+it is written at length.
+
+- **D1. Step 1 was done item by item, not all up front.** The backend tests were written and
+  run unfixed first (steps 3 and 4 followed). Each browser test was then written before its
+  own fix and run against a tree that did not have that fix. The #13, #15, #16 and #17 tests
+  were run against a clean checkout of `main`, because the server half of #15 was already on
+  the branch by then; the #14, #18 and #19 tests were run on the branch before any of their
+  code existed. Every assertion was measured failing, or is labelled a fence, in the table
+  under the checklist.
+- **D2. AC1 asks for "an `in` with one bad member", and no list operator reaches a date
+  field.** The operator matrix gives `date` and `datetime` only `between` as a multi-value
+  operator, so `in` on either is `invalid_operator` (400) before any literal is looked at. The
+  test pins that as a fence, and `between` is tested with a bad lower and a bad upper end.
+- **D3. F6's premise was wrong about a default view, and the fix is one line more than the
+  plan describes.** "What changes" 10 says the first query of the page is refused and there
+  are no previous rows to keep. Run in a browser: the saved views arrive after the first
+  render, so the table has already answered one unfiltered query when the default view is
+  applied, and those unfiltered rows are what stayed on screen under the refused view's name.
+  The default view now discards that earlier result when it is applied, and a placeholder
+  result (the previous query's rows, shown while the next is pending) is no longer taken for
+  the last real one. The outcome is the one the plan asks for: `This filter could not be
+  applied.` and never the unfiltered rows.
+- **D4. The chip reads an instant as a day only when it is that operator's edge of the day.**
+  "What changes" 4 says the first or last second of a day reads as the day alone. Taken
+  literally, `is before` the last second of the 7th would read "is before 7 Jan", which is
+  false by a day. `is before` and `is on or after` read the first second as the day; `is on or
+  before` and `is after` read the last; `is` and `is not` always show the time. The box on
+  reopening follows the same rule.
+- **D5. The pinned column's row rule is the cell's own border, and the records table now
+  separates its borders.** "What changes" 8 says the rule is an inset shadow or a
+  pseudo-element because a border stays behind when a cell sticks. That is true of the
+  vertical rule, which is an inset shadow as planned. It is also true of the **row** rule
+  under every pinned cell, which the plan did not consider: stuck, a pinned cell has no bottom
+  rule at all. The first attempt dropped the cell's bottom border and drew it as an inset
+  shadow; in the browser the pinned cells' rules sat a pixel off their rows' and the text in
+  some cells moved a pixel at rest. The records table (and only it) now uses
+  `border-separate` with no spacing, so each border belongs to its cell and travels with it.
+  These cells only carry a bottom border, so nothing doubles. Cost: the four table baselines
+  differ a fraction of a pixel outside the new rule (see "Baseline repaint"), where the plan
+  expected stickiness to move nothing at rest. The functional and visual geometry assertions
+  on the table all still pass.
+- **D6. `RecordService` gains one public method, `get_record_in_txn`.** The commit counts
+  clears from what each record held just before its update, inside the write transaction, as
+  the plan says. That needs a read on the transaction's own connection, and there was none. It
+  checks `read` on the record's type like `get_record`, and is added to the list of service
+  methods no route calls (`tests/test_api_infra.py`), beside the three writes it sits with.
+- **D7. Eleven existing assertions on the import response were updated.** They compared the
+  whole response with a literal, and the response now always carries `cleared` and
+  `cleared_by_field`, zero and empty without the flag, as "What changes" 2 says.
+- **D8. Two additions to AC5's browser assertions.** At 800 wide the Columns popover fits
+  without help on the unfixed tree, so that half is a fence; the same test also opens the View
+  menu at 800, which does overflow unfixed. And the #14 tests assert that the keys exist
+  before asserting they are gone, since "no key is left" is true of a product that never
+  stored one.
+- **D9. Wording this build wrote, for the maintainer's eye.** The plan fixes the two refusal
+  sentences, the checkbox label and help text, the three hints and the two titles, and those
+  are used as written. It does not fix: the two type descriptions in
+  `services/capabilities.py`; the import route's summary and description; the pin toggle's
+  visible text (`Pin`, `Unpin`); the calendar input's accessible name (`<field> value: pick a
+  day`); and the clears sentence for one value (`1 value will be cleared: Notes (1).`) and for
+  none (`0 values will be cleared.`), which follow the approved plural form.
+- **D10. Smaller choices the plan left open.** The date hint is printed by the date input
+  itself, under the box, in the chip popover and the Advanced builder alike, and the popover's
+  generic "Add a value" line is not shown beside it. A `between` on a date field shows one
+  hint for the pair. The calendar is the browser's date input reduced to its picker button,
+  styled for and checked in Chromium only. The sign-in sweep also runs when a page loads
+  already signed in, which is where an OIDC redirect lands. The Columns popover is 32 pixels
+  wider, to fit the pin toggle. A stuck toolbar extends the page's ground 6 pixels around
+  itself with a shadow, so rows do not show in the gaps. A committed list that was not typed
+  is shown joined with a comma and a space.
 
 ## Durable content moved out of this plan
 
