@@ -44,12 +44,22 @@
  * and no caller positions anything. It is measured when it opens and not again if the window is
  * resized while it is open.
  *
+ * **A press on the trigger counts even when the trigger moves out from under the pointer.**
+ * A click is a press and a release on the same element. The table's `Advanced` chip broke
+ * that: with a value typed in its builder, pressing the chip takes focus out of the box, which
+ * sends the value, which adds a filter chip to the row, which moves the `Advanced` chip 124px
+ * to the right while the button is still down. The release lands on a different chip, the
+ * browser sends the click to their common ancestor, and the trigger never hears it, so the
+ * panel stayed open and the click looked like it did nothing. The trigger therefore remembers
+ * where a press started, and a release at that same point with no click arriving is treated as
+ * the click it was. A pointer that has travelled is a drag off the button, which still cancels.
+ *
  * **Geometry is unproven here.** The offset, the width floor, `shadow-float` and the shift
  * above are not asserted in this directory: jsdom returns zeroes from `getBoundingClientRect`
  * (AGENTS.md, Traps). Position is a Playwright assertion (`e2e/table-pilot-findings.spec.ts`).
  */
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 import { cx } from "./cx";
 
@@ -60,6 +70,12 @@ import { cx } from "./cx";
  * covering nothing else. A panel with no focusable content at all falls back to the panel,
  * which is why it carries `tabIndex={-1}`.
  */
+/**
+ * How far the pointer may travel between press and release and still be one click, in pixels.
+ * Enough for a hand's tremor; far less than the distance to anything else on the page.
+ */
+const CLICK_SLOP = 4;
+
 /** How close to the viewport's edge a shifted panel is allowed to sit, in pixels. */
 const VIEWPORT_GUTTER = 8;
 
@@ -132,6 +148,48 @@ export function Popover({
     onOpenChange?.(false);
   }, [onOpenChange]);
 
+  const toggle = () => {
+    if (open) {
+      close();
+      return;
+    }
+    setOpen(true);
+    onOpenChange?.(true);
+  };
+  /** The live `toggle`, for the release handler below, which is registered at press time and
+   * may run after a render that changed what toggling means. */
+  const toggleRef = useRef(toggle);
+  useEffect(() => {
+    toggleRef.current = toggle;
+  });
+
+  /** Where a press on the trigger started, until its click arrives or its release is judged. */
+  const press = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTriggerMouseDown = (event: ReactMouseEvent) => {
+    if (event.button !== 0) return;
+    press.current = { x: event.clientX, y: event.clientY };
+    const onRelease = (release: MouseEvent) => {
+      const started = press.current;
+      if (started === null) return;
+      const travelled = Math.hypot(release.clientX - started.x, release.clientY - started.y);
+      if (travelled > CLICK_SLOP) {
+        // A drag off the button: the ordinary way to cancel a press.
+        press.current = null;
+        return;
+      }
+      // The browser dispatches `click` right after `mouseup`, so by the next task the
+      // trigger's own `onClick` has run if it was ever going to. If it has, it cleared the
+      // press and there is nothing to do; if not, the trigger moved and this is the click.
+      setTimeout(() => {
+        if (press.current === null) return;
+        press.current = null;
+        toggleRef.current();
+      }, 0);
+    };
+    document.addEventListener("mouseup", onRelease, { once: true, capture: true });
+  };
+
   useEffect(() => {
     if (!open) return;
 
@@ -194,13 +252,10 @@ export function Popover({
         aria-label={triggerLabel}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
+        onMouseDown={handleTriggerMouseDown}
         onClick={() => {
-          if (open) {
-            close();
-            return;
-          }
-          setOpen(true);
-          onOpenChange?.(true);
+          press.current = null;
+          toggle();
         }}
         className={triggerClassName}
       >

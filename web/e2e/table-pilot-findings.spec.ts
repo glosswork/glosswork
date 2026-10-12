@@ -805,6 +805,45 @@ test.describe("#15 a date filter", () => {
     }
   });
 
+  test("clicking the Advanced chip right after typing closes the builder on that click, with the value sent whole and once", async ({
+    page,
+  }) => {
+    await signInAndOpenTable(page);
+    const unfiltered = await apiCount(TYPE_KEY, null);
+    const typed = { field: "variant", op: "eq", value: "v2" };
+    const filtered = await apiCount(TYPE_KEY, typed);
+
+    // At once, and again part-way through the builder's pause. In both the typed value has not
+    // been sent yet when the pointer goes down: leaving the box sends it, a chip for it appears
+    // to the left, and the Advanced chip moves out from under the pointer before it comes up.
+    for (const waitMs of [0, 150]) {
+      const row = await startAdvancedCondition(page, "variant", "eq");
+      const watch = await watchQueries(page);
+      await row.getByLabel("Variant value", { exact: true }).pressSequentially("v2");
+      if (waitMs > 0) await page.waitForTimeout(waitMs);
+
+      // One click, as a person makes it: down and up at the same point, a moment apart.
+      await page.getByTestId("filter-chip-advanced").getByRole("button").first().click({ delay: 60 });
+
+      await expect(page.getByTestId("filter-builder"), `closed after one click (${waitMs} ms)`).toHaveCount(0);
+      await expectRowCount(page, filtered);
+      await page.waitForTimeout(600);
+      expect(watch.filters(), `sent whole and once (${waitMs} ms)`).toEqual([typed]);
+      // The click closed this popover and opened no other.
+      await expect(page.getByTestId("popover-panel")).toHaveCount(0);
+      await expect(page.getByTestId("condition-popover")).toHaveCount(0);
+
+      // Nothing lost or reverted: the builder still holds what was typed.
+      await page.getByRole("button", { name: "Advanced", exact: true }).click();
+      await expect(
+        page.getByTestId("filter-node-root").getByLabel("Variant value", { exact: true }),
+      ).toHaveValue("v2");
+      await page.getByTestId("filter-builder").getByRole("button", { name: "Clear filter" }).click();
+      await page.keyboard.press("Escape");
+      await expectRowCount(page, unfiltered);
+    }
+  });
+
   test("the Advanced builder holds back the same date and sends the same instant", async ({
     page,
   }) => {
