@@ -963,9 +963,11 @@ test.describe("#14 unsaved table state", () => {
   }) => {
     await signInAndOpenTable(page);
     await addStageChip(page);
-    expect.soft(await sessionKeys(page), "state written while signed in").toEqual([
-      `${SESSION_PREFIX}${TYPE_KEY}`,
-    ]);
+    // "Contains", not "equals": signing in lands on whichever table is first in the sidebar,
+    // and that table keeps its state too. Which one it is depends on what else the run seeded.
+    expect
+      .soft(await sessionKeys(page), "state written while signed in")
+      .toContain(`${SESSION_PREFIX}${TYPE_KEY}`);
 
     await page.getByTestId("current-principal").getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByTestId("login-email")).toBeVisible();
@@ -987,10 +989,13 @@ test.describe("#14 unsaved table state", () => {
     await addOtherTypeChip(page);
     // Two entries, both the first account's. This is what makes the absence below mean
     // something: without it, "no key is left" is true of a product that never stored one.
-    expect(await sessionKeys(page), "state written by the first account").toEqual([
-      `${SESSION_PREFIX}${TYPE_KEY}`,
-      `${SESSION_PREFIX}${OTHER_TYPE_KEY}`,
-    ]);
+    // "Contains", for the reason given in the sign-out test above.
+    expect(await sessionKeys(page), "state written by the first account").toEqual(
+      expect.arrayContaining([
+        `${SESSION_PREFIX}${TYPE_KEY}`,
+        `${SESSION_PREFIX}${OTHER_TYPE_KEY}`,
+      ]),
+    );
 
     // The session ends without the sign-out route ever running: it expired, or it was ended
     // from another tab. The tab, and its storage, are still here.
