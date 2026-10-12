@@ -15,7 +15,12 @@ ran on 2026-10-10, by a session that did not write the plan; its findings F1 to 
 end and their fixes are folded into the text in place. Checklist steps 1 to 12 were built on
 2026-10-12; what each assertion did against the unfixed tree is recorded under the checklist,
 and where the build departed from this text is under "Deviations from the approved plan". The
-verifier has not run, and nothing is pushed.
+one full verification ran on 2026-10-12 at `0bc0b27` and failed on one point of #15: a filter
+the server refused could still look applied over rows it did not produce. The maintainer
+decided the same day what a refused filter shows, and a fix run changed it (D11 to D14).
+**"What changes" 4 and 10 and AC5 still read as approved; where they say a refused filter keeps
+the table's previous rows, D11 is what the code does.** The fix has not been rechecked, and
+nothing is pushed.
 
 ## Why
 
@@ -786,17 +791,22 @@ records which. One new baseline, `table-wide-pinned-scrolled`: the wide table sc
 sideways with the display field stuck, which is the only place the rule on a stuck cell is
 ever checked (F17). Any other repaint is a finding.
 
-Actual, 2026-10-12: 4 repainted and 1 added, as expected, with one difference in what the four
-show. `table-default`, `table-grouped`, `table-selected` and `table-wide` each gained the
-right-hand rule on the display field. They also differ slightly outside it, because the
-records table now separates its borders (D5): the diff images show the By avatars, the key
-text and the footer line a fraction of a pixel off, which was read from the images and not
-measured in pixels. `table-wide` would have passed the tolerance with the rule alone (a
-one-pixel line is under the 0.001 ratio) and was repainted anyway, so the committed image is
-the one the page draws. `table-wide-pinned-scrolled` is new. The two CSV wizard baselines
-passed unchanged: both fixtures are in create mode, where the checkbox is not shown. Every
-other baseline passed unchanged: 50 visual scenarios passed with only those five files
-written.
+Actual, 2026-10-12: 4 repainted and 1 added, the count expected, and the four moved by more
+than the plan expected. `table-default`, `table-grouped`, `table-selected` and `table-wide`
+each gained one thin vertical line to the right of the Name column, in the header and in every
+row. Beyond that line, because the records table now separates its borders (D5), **every row
+line below the header sits one whole pixel higher** than in `main`'s images (119 to 118, 157 to
+156 and on down), the header row is one pixel shorter, and `table-selected` is 540 pixels tall
+where it was 541. Between 4.3 and 5.4 percent of pixels differ in each of the four. Those
+numbers are the verifier's, measured against `main`'s images on 2026-10-12; the build run had
+read the diff images and called it a fraction of a pixel, which was wrong. What a person
+would see is the new line and nothing else they could point to. Whether `table-wide` would
+have passed the tolerance with the line alone is not established. `table-wide-pinned-scrolled`
+is new. The two CSV wizard baselines passed unchanged: both fixtures are in create mode, where
+the checkbox is not shown. Every other baseline passed unchanged.
+
+The fix run (D11 to D13) repainted nothing: the visual project passed, 50 scenarios, with no
+baseline rewritten.
 
 ## Adversarial pass
 
@@ -961,10 +971,13 @@ it is written at length.
   shadow; in the browser the pinned cells' rules sat a pixel off their rows' and the text in
   some cells moved a pixel at rest. The records table (and only it) now uses
   `border-separate` with no spacing, so each border belongs to its cell and travels with it.
-  These cells only carry a bottom border, so nothing doubles. Cost: the four table baselines
-  differ a fraction of a pixel outside the new rule (see "Baseline repaint"), where the plan
-  expected stickiness to move nothing at rest. The functional and visual geometry assertions
-  on the table all still pass.
+  These cells only carry a bottom border, so nothing doubles. Cost, as the verifier measured
+  it against `main`'s images: every row line below the header sits one whole pixel higher, the
+  header row is one pixel shorter, the table is one pixel shorter overall, and 4.3 to 5.4
+  percent of pixels differ in each of the four table baselines (see "Baseline repaint"). The
+  plan expected stickiness to move nothing at rest. A person sees one new thin line to the
+  right of the Name column and nothing else they could point to. The functional and visual
+  geometry assertions on the table all still pass.
 - **D6. `RecordService` gains one public method, `get_record_in_txn`.** The commit counts
   clears from what each record held just before its update, inside the write transaction, as
   the plan says. That needs a read on the transaction's own connection, and there was none. It
@@ -994,6 +1007,54 @@ it is written at length.
   wider, to fit the pin toggle. A stuck toolbar extends the page's ground 6 pixels around
   itself with a shadow, so rows do not show in the gaps. A committed list that was not typed
   is shown joined with a comma and a space.
+
+The fix run of 2026-10-12, after the verification failed at `0bc0b27`:
+
+- **D11. A filter the server refuses shows no rows, by every path. This departs from the
+  approved plan, on the maintainer's decision.** "What changes" 4 and 10, F4 and F6, and AC5
+  kept the table's previous rows on screen when a typed chip or a saved view picked after
+  load was refused, and marked the chip. Rebuilt by the verifier in a browser, that is a saved
+  view's name over every record with no alert: the reported defect, still reachable. Asked on
+  2026-10-12 what a refused filter should show, having been told it goes against the approved
+  plan, the maintainer answered: "No rows, and a message (Recommended)". So for a typed chip,
+  the Advanced builder, a saved view picked from the View menu, a default view and a filter
+  restored from the tab alike, the table area reads `This filter could not be applied.` with
+  the server's sentence and `Clear filter`, and shows no row and no count. Nothing holds an
+  earlier result any more, so D3's special case for a default view is gone with it. It
+  applies to every `validation_failed` answered while a filter is set, whether or not it names
+  a field a chip carries; before, one that named none showed `Could not load records.` over
+  `No records match this filter`. `Export CSV` from that state is refused by the server with
+  the same filter and downloads nothing.
+  **What it does not cover:** while the refused request is in flight, the previous rows are
+  still on screen, as they are for a filter about to succeed. Nothing knows the answer until
+  it arrives, and blanking the table for every pending filter would flash on every good one.
+  The verifier timed that window at 6 ms locally; on a real network it is one round trip.
+- **D12. A chip's colours are chosen once per property, and an open chip now paints.** The
+  refused chip carried `border-bad text-bad` and painted exactly like its neighbour, because
+  those classes sat in one list with the chip's own `border-line-2 text-ink` and the
+  stylesheet's order decided, not the list's. The cause is in `web/src/ui/Chip.tsx`, which
+  this change had not touched, and it was losing a second state the same way: measured at
+  `0bc0b27`, an open chip computed `bg-surface` and not `bg-human-soft`, on `+ Add filter`
+  and on `Columns` alike, so no chip in the product painted as open (docs/DESIGN.md 3 says a
+  focused chip is `human-soft`). `Chip` now takes a `tone` and picks one fill, one text
+  colour and one border colour from its whole state. Visible consequence beyond #15: every
+  chip with its popover open is now tinted. No baseline shows an open chip, so none moved.
+- **D13. The calendar button is this product's own icon over an invisible date input.** D10
+  described the browser's date input reduced to its picker button. The verifier found that
+  drew an empty square in Chromium 151. The button is now an inline SVG with the date input
+  lying over it at the same size and zero opacity, and a click calls `showPicker`. Seen
+  drawing its icon in headless Chromium 151 (a screenshot, and an assertion that counts
+  painted pixels inside the button). Not checked: a headed window, Firefox, Safari, and
+  whether the native picker itself opens on a click, which no headless run shows.
+- **D14. The browser assertions for a refusal read what a person reads.** They read the
+  visible sentence, the absence of every record row and of the count, and the chip's computed
+  border and text colour against the theme's `bad` colour and against an accepted chip beside
+  it. Before, they read the chip's accessible name, which passed while the page showed every
+  record. Run at `0bc0b27` before the fix, four failed: the typed `@tod` chip, `@tod` in the
+  Advanced builder and the saved view picked after load each found no `This filter could not
+  be applied.`, and the default-view scenario, which already showed the message, failed on
+  the chip's painted colour alone. One unit assertion that pinned the old behaviour ("keeps
+  the rows on screen") now asserts the opposite.
 
 ## Durable content moved out of this plan
 
