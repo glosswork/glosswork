@@ -1159,6 +1159,43 @@ test.describe("wide table geometry", () => {
     await expect(section).toHaveScreenshot("table-wide.png");
   });
 
+  /**
+   * The one place the rule on a **stuck** pinned cell is ever checked. The rule is paint, which
+   * no locator reads, and it is drawn as an inset shadow precisely because a border on a sticky
+   * cell stays behind in a collapsed-border table: a border would be in `table-wide.png`, at
+   * rest, and missing here. The position is asserted with a locator first, so the screenshot is
+   * evidence about the rule and the cell's own ground, and not the only thing saying the cell
+   * stuck.
+   */
+  test("vis_wide: the pinned display field keeps its rule and its ground when the table is scrolled sideways", async ({
+    page,
+  }) => {
+    await signInAsE2eAdmin(page);
+    await page.goto(`/${WIDE_TYPE_KEY}`);
+    await expect(page.getByTestId(`row-${WIDE_LONG_RECORD_KEY}`)).toBeVisible();
+    // Same reason the table shots above click a Name sort: the default query carries no ORDER BY.
+    await page.getByRole("button", { name: /^Name/ }).click();
+    await expect(page.getByTestId("records-table")).toContainText("Meridian ERP cutover");
+
+    const wrap = page.getByTestId("records-table").locator("xpath=..");
+    const wrapBox = await wrap.boundingBox();
+    await wrap.evaluate((element) => {
+      element.scrollLeft = 400;
+    });
+    await expect.poll(() => wrap.evaluate((element) => element.scrollLeft)).toBe(400);
+    const nameHeader = page.getByTestId("resize-handle-name").locator("xpath=..");
+    // One pixel inside the wrapper: its own left border.
+    expect(Math.round((await nameHeader.boundingBox())!.x)).toBe(Math.round(wrapBox!.x) + 1);
+
+    // The pointer is still where the Name sort was clicked, and after the scroll that is over
+    // another column's header, which would put a hover state in the baseline.
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => document.fonts.ready);
+    const section = page.getByRole("region", { name: "Records" });
+    await expect(section).toHaveCount(1);
+    await expect(section).toHaveScreenshot("table-wide-pinned-scrolled.png");
+  });
+
   test("vis_wide: the table starts in the lower half of the window", async ({ page }) => {
     await signInAsE2eAdmin(page);
     await page.goto(`/${WIDE_TYPE_KEY}`);

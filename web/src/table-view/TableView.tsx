@@ -69,13 +69,10 @@ import { cx } from "../ui/cx";
 import { EmptyState } from "../ui/EmptyState";
 import {
   groupTdClass,
-  lastPinnedRuleCellClass,
-  lastPinnedRuleHeaderClass,
+  lastPinnedClass,
   numCellClass,
   pinnedCellClass,
   pinnedHeaderClass,
-  pinnedRuleCellClass,
-  pinnedRuleHeaderClass,
   pinnedSelectedCellClass,
   recordsTableClassFor,
   rowClass,
@@ -553,10 +550,7 @@ export function TableView({ objectType }: TableViewProps) {
                   (cellFieldType === "integer" || cellFieldType === "decimal") && numCellClass,
                   cell.column.id in pins.offsets
                     && (row.getIsSelected() ? pinnedSelectedCellClass : pinnedCellClass),
-                  cell.column.id in pins.offsets
-                    && (cell.column.id === pins.lastPinned
-                      ? lastPinnedRuleCellClass
-                      : pinnedRuleCellClass),
+                  cell.column.id === pins.lastPinned && lastPinnedClass,
                 )}
                 key={cell.id}
                 style={{ left: pins.offsets[cell.column.id] }}
@@ -856,10 +850,7 @@ export function TableView({ objectType }: TableViewProps) {
                       thClassFor(density),
                       "relative",
                       header.column.id in pins.offsets && pinnedHeaderClass,
-                      header.column.id in pins.offsets
-                        && (header.column.id === pins.lastPinned
-                          ? lastPinnedRuleHeaderClass
-                          : pinnedRuleHeaderClass),
+                      header.column.id === pins.lastPinned && lastPinnedClass,
                     )}
                     key={header.id}
                     style={{ width: header.getSize(), left: pins.offsets[header.column.id] }}
