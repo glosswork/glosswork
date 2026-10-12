@@ -645,7 +645,19 @@ export function TableView({ objectType }: TableViewProps) {
           any width, so chips wrapping against each other is the design working rather than the
           toolbar breaking. What the assertion proves is that the toolbar's own items share a row;
           it does not prove, and does not claim, that a chip-heavy filter stays on one line. */}
-      <div className="flex flex-wrap items-center gap-1.5" data-testid="table-toolbar">
+      {/* **Sticky at the `shell` breakpoint and wider**, so the filter chips and the controls
+          stay in view while a tall table's rows scroll under them. The chips are inside this
+          element, so one sticky block carries both, and a chip row that wraps makes the stuck
+          block taller rather than hiding anything. `bg-ground` is the page's own ground, and
+          the spread shadow extends it 6px beyond the row without moving anything at rest, so
+          rows do not show in the gaps around a stuck toolbar. `z-20` puts it above the pinned
+          cells (`z-10`), and a popover opened from it is inside this stacking context, so it
+          is above both. Below the breakpoint the top bar scrolls with the page and so does
+          this, as before. The bulk toolbar under it does not stick. */}
+      <div
+        className="flex flex-wrap items-center gap-1.5 bg-ground shell:sticky shell:top-0 shell:z-20 shell:shadow-[0_0_0_6px_var(--color-ground)]"
+        data-testid="table-toolbar"
+      >
         {/* docs/DESIGN.md 7.4 and 8.2: the filter is a row of sentence chips, and the tree
             builder that used to sit open on the page all the time is behind the `Advanced` chip.
             `/search` keeps the inline builder; this is the table page's layer. */}

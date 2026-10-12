@@ -672,3 +672,159 @@ test.describe("#15 a date filter", () => {
     await expect(page.getByTestId("row-PLR-001")).toBeVisible();
   });
 });
+
+// --------------------------------------------------------------------------------------------
+// #13: a popover stays inside the viewport
+// --------------------------------------------------------------------------------------------
+
+/** `scrollWidth - clientWidth` for the page and for the shell's content area: 0 is "no sideways
+ * scroll". Read in one call so the two numbers describe one layout. */
+async function sidewaysOverflow(page: Page): Promise<{ page: number; main: number }> {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const main = document.querySelector("main");
+    return {
+      page: root.scrollWidth - root.clientWidth,
+      main: main === null ? 0 : main.scrollWidth - main.clientWidth,
+    };
+  });
+}
+
+async function rightEdgePastViewport(page: Page, panel: Locator): Promise<number> {
+  const box = await panel.boundingBox();
+  expect(box, "the panel has no box").not.toBeNull();
+  const viewport = await page.evaluate(() => document.documentElement.clientWidth);
+  return Math.max(0, box!.x + box!.width - viewport);
+}
+
+test.describe("#13 a popover on a wide table", () => {
+  test("the View menu opens inside the viewport and adds no sideways scroll", async ({ page }) => {
+    await signInAndOpenTable(page);
+    expect(await sidewaysOverflow(page)).toEqual({ page: 0, main: 0 });
+
+    await page.getByRole("button", { name: "Current view", exact: true }).click();
+    const panel = page.getByTestId("view-menu");
+    await expect(panel).toBeVisible();
+    expect.soft(await rightEdgePastViewport(page, panel), "pixels past the right edge").toBe(0);
+    expect.soft(await sidewaysOverflow(page)).toEqual({ page: 0, main: 0 });
+    // It has not been pushed off the other side either.
+    expect((await panel.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+  });
+
+  test("at 800 wide the View menu and the Columns popover open inside the viewport", async ({
+    page,
+  }) => {
+    // Signed in at the wide width: the sign-in helper waits for the identity block, which the
+    // narrow top bar keeps inside its closed menu.
+    await signInAsE2eAdmin(page);
+    await page.setViewportSize({ width: 800, height: 800 });
+    await openTable(page);
+    const before = await sidewaysOverflow(page);
+
+    await page.getByRole("button", { name: "Current view", exact: true }).click();
+    const menu = page.getByTestId("view-menu");
+    await expect(menu).toBeVisible();
+    expect.soft(await rightEdgePastViewport(page, menu), "View menu past the right edge").toBe(0);
+    expect.soft(await sidewaysOverflow(page)).toEqual(before);
+    expect.soft((await menu.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+    await page.keyboard.press("Escape");
+
+    // A fence at this width: the Columns chip sits far enough left that its panel fits
+    // without help, on the unfixed tree too. It is here so a shift is never applied to a panel
+    // that did not need one.
+    await page.getByTestId("columns-chip").getByRole("button").click();
+    const panel = page.getByTestId("columns-chip").getByTestId("popover-panel");
+    await expect(panel).toBeVisible();
+    expect(await rightEdgePastViewport(page, panel), "Columns past the right edge").toBe(0);
+    expect(await panel.evaluate((element) => (element as HTMLElement).style.left)).toBe("");
+  });
+});
+
+// --------------------------------------------------------------------------------------------
+// #16: the sidebar and the table toolbar stay in view on a tall table
+// --------------------------------------------------------------------------------------------
+
+/** Whether a locator's box lies wholly inside the viewport's height. */
+async function insideViewportVertically(page: Page, locator: Locator): Promise<boolean> {
+  const box = await locator.boundingBox();
+  if (box === null) return false;
+  const height = await page.evaluate(() => window.innerHeight);
+  return box.y >= 0 && box.y + box.height <= height;
+}
+
+/** Whether `locator` (or something inside it) is the topmost element at its own centre. */
+async function isTopmostAtCentre(locator: Locator): Promise<boolean> {
+  return locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return top !== null && element.contains(top);
+  });
+}
+
+const SHELL_ROUTES = [
+  ["a table", `/${TYPE_KEY}`],
+  ["a record", `/${TYPE_KEY}/PLF-001`],
+  ["the import wizard", `/${TYPE_KEY}/import`],
+  ["Inbox", "/inbox"],
+  ["Schema", `/schema/${TYPE_KEY}`],
+  ["Activity", "/activity"],
+  ["People", "/people"],
+  ["Setup", "/setup"],
+  ["Search", "/search"],
+] as const;
+
+test.describe("#16 a table taller than the viewport", () => {
+  test("after scrolling, the sidebar and the filter chips are still in view", async ({ page }) => {
+    await signInAndOpenTable(page);
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
+
+    const firstLink = page.getByTestId("sidebar").getByRole("link").first();
+    expect.soft(await insideViewportVertically(page, firstLink), "sidebar's first link in view").toBe(true);
+    expect
+      .soft(await insideViewportVertically(page, page.getByTestId("filter-chips")), "chip row in view")
+      .toBe(true);
+    expect
+      .soft(await insideViewportVertically(page, page.getByTestId("table-toolbar")), "toolbar in view")
+      .toBe(true);
+    // The sign-out control at the foot of the sidebar is reachable too.
+    expect
+      .soft(await insideViewportVertically(page, page.getByTestId("current-principal")), "identity block in view")
+      .toBe(true);
+
+    // A popover opened from the stuck toolbar sits above the rows scrolling under it.
+    await page.getByTestId("columns-chip").getByRole("button").click();
+    const panel = page.getByTestId("columns-chip").getByTestId("popover-panel");
+    await expect(panel).toBeVisible();
+    expect(await isTopmostAtCentre(panel), "the Columns popover is topmost at its centre").toBe(true);
+    // The window is still the scroller, and scrolling did not move the page sideways.
+    expect((await sidewaysOverflow(page)).page).toBe(0);
+  });
+
+  test("at 800 wide the top bar scrolls away as it always has (a fence)", async ({ page }) => {
+    // Passes on the unfixed tree by construction: below the `shell` breakpoint nothing changes.
+    await signInAsE2eAdmin(page);
+    await page.setViewportSize({ width: 800, height: 800 });
+    await openTable(page);
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
+    const bar = await page.getByTestId("shell-top-bar").boundingBox();
+    expect(bar).not.toBeNull();
+    expect(bar!.y + bar!.height).toBeLessThanOrEqual(0);
+  });
+
+  for (const width of [1280, 960]) {
+    test(`at ${width} wide no shell route scrolls the page sideways`, async ({ page }) => {
+      // Here because the content area stops absorbing sideways overflow: anything wider than
+      // it would now scroll the page, and the sticky sidebar with it.
+      await page.setViewportSize({ width, height: 800 });
+      await signInAsE2eAdmin(page);
+      for (const [name, route] of SHELL_ROUTES) {
+        await page.goto(route);
+        await expect(page.locator("main")).toBeVisible();
+        await page.waitForLoadState("networkidle");
+        expect.soft((await sidewaysOverflow(page)).page, `${name} (${route}) at ${width}`).toBe(0);
+      }
+    });
+  }
+});

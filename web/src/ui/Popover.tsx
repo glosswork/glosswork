@@ -36,11 +36,19 @@
  * would announce it as one. The accessible name lives on the trigger, where the reader is; the
  * panel's own contents carry theirs.
  *
- * **Geometry is unproven here.** The offset, the width floor and `shadow-float` are in the class
- * list and are not asserted: jsdom returns zeroes from `getBoundingClientRect` (AGENTS.md,
- * Traps). Position is a Playwright assertion once a page renders one.
+ * **The panel stays inside the viewport.** It is anchored to its trigger's left edge, so a
+ * trigger near the right edge of the window (the table's View menu) put a 256px panel 165px
+ * past it. On opening, the panel is measured and shifted left by exactly what overhangs, and
+ * never further than its own left edge allows, so a panel wider than the window stays reachable
+ * from its start. One implementation here, so every popover in the product behaves the same
+ * and no caller positions anything. It is measured when it opens and not again if the window is
+ * resized while it is open.
+ *
+ * **Geometry is unproven here.** The offset, the width floor, `shadow-float` and the shift
+ * above are not asserted in this directory: jsdom returns zeroes from `getBoundingClientRect`
+ * (AGENTS.md, Traps). Position is a Playwright assertion (`e2e/table-pilot-findings.spec.ts`).
  */
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { cx } from "./cx";
@@ -52,6 +60,9 @@ import { cx } from "./cx";
  * covering nothing else. A panel with no focusable content at all falls back to the panel,
  * which is why it carries `tabIndex={-1}`.
  */
+/** How close to the viewport's edge a shifted panel is allowed to sit, in pixels. */
+const VIEWPORT_GUTTER = 8;
+
 const FOCUSABLE = [
   "a[href]",
   "button:not([disabled])",
@@ -143,6 +154,23 @@ export function Popover({
       document.removeEventListener("mousedown", onPointerDown);
     };
   }, [open, close]);
+
+  // A layout effect, so the shift is applied before the panel is first painted and before the
+  // focus effect below scrolls anything into view. Written to the element's own style rather
+  // than held in state: it is a correction to where the browser put the panel, read off the
+  // DOM, and a state update here would render the panel twice to say the same thing.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const viewportWidth = document.documentElement.clientWidth;
+    if (viewportWidth === 0) return;
+    const rect = panel.getBoundingClientRect();
+    const overhang = rect.right - (viewportWidth - VIEWPORT_GUTTER);
+    if (overhang <= 0) return;
+    const room = Math.max(0, rect.left - VIEWPORT_GUTTER);
+    panel.style.left = `${-Math.min(overhang, room)}px`;
+  }, [open]);
 
   useEffect(() => {
     if (!open) {

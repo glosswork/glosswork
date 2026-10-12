@@ -223,7 +223,13 @@ export function Sidebar({
       // No `shell:` variant here: `Shell` renders this OR `ShellTopBar`, never both, because two
       // CSS-hidden shells would put two `current-principal` test ids in the DOM and fail
       // `signInAs` in every spec (`hooks/useIsWideViewport.ts`).
-      className="flex h-screen w-56 shrink-0 flex-col border-r border-line bg-ground"
+      //
+      // `sticky top-0 self-start`: the window scrolls, not `main` (`App.tsx`), so a sidebar
+      // that merely sat in the flex row scrolled away with a tall table and took the
+      // navigation and the sign-out control with it. Stuck to the top of the window at its
+      // own `h-screen`, it stays where it is while the page moves; `self-start` stops the
+      // row stretching it to the page's full height, which would leave nothing to stick.
+      className="sticky top-0 flex h-screen w-56 shrink-0 flex-col self-start border-r border-line bg-ground"
     >
       <WorkspaceBlock workspace={workspace} />
 
