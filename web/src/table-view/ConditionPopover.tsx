@@ -249,12 +249,21 @@ export function ConditionPopover({
         <Button type="button" variant="primary" className={btnSmClass} disabled={!complete} onClick={apply}>
           Apply
         </Button>
-        {!complete && (
+        {/* A date box says what is missing itself, under the box, and more exactly than this
+            line can: "not a date this filter understands" rather than "add a value". Two lines
+            saying two things about one empty value is worse than one. */}
+        {!complete && !ownsItsHint(field) && (
           <p className="text-xs text-ink-2">{incompleteHint(draft.condition.op)}</p>
         )}
       </div>
     </div>
   );
+}
+
+/** Whether the field's value widget prints its own line about a missing or refused value:
+ * `ValueInput`'s date box does, for `date` and `datetime`. */
+function ownsItsHint(field: FilterableField | undefined): boolean {
+  return field?.type === "date" || field?.type === "datetime";
 }
 
 /** What is missing, in docs/DESIGN.md 5's voice: what went wrong and what to do, no apology. */

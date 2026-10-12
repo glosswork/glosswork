@@ -198,7 +198,11 @@ export function FilterChipRow({
         removeLabel="Remove advanced filter"
         popover={
           <div className="w-[26rem] max-w-[80vw]">
-            {chips === null && error !== null && (
+            {/* Whenever there is a refusal, not only for a tree no chip can express. The
+                builder is where a refused value is edited, and a saved view's refused date is
+                usually a single flat condition: showing the message only on the chip would leave
+                this panel holding the bad value with nothing saying it is bad. */}
+            {error !== null && (
               <p className="mb-2 rounded-ctl bg-bad-soft px-2 py-1 text-xs text-bad" role="alert">
                 {error.message}
               </p>

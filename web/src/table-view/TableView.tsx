@@ -183,6 +183,9 @@ export function TableView({ objectType }: TableViewProps) {
     [],
   );
 
+  /** The last result that actually came back; see where it is read, below the records query. */
+  const [lastResult, setLastResult] = useState<QueryResult | undefined>(undefined);
+
   const savedViewsQuery = useSavedViewsList(objectType.key);
   const savedViewMutations = useSavedViewMutations(objectType.key);
   const appliedDefaultRef = useRef(false);
@@ -199,6 +202,12 @@ export function TableView({ objectType }: TableViewProps) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedViewId(defaultView.id);
       applyConfig(parseTableViewConfig(defaultView.config, fields));
+      // The table has usually answered one unfiltered query by now, because the saved views
+      // arrive after the first render. Those rows are an accident of load order, not something
+      // the person asked for, so they are not "the previous result" to fall back to if the
+      // default view's filter is refused: unfiltered rows under a view's name would be a wrong
+      // answer presented as that view's. With nothing held, a refusal reads as a refusal.
+      setLastResult(undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedViewsQuery.isSuccess, savedViews, fields]);
@@ -277,12 +286,28 @@ export function TableView({ objectType }: TableViewProps) {
    * Held in state and adjusted during render — React's "adjusting state when a prop changes",
    * the same pattern the identity reset above uses, rather than a ref: a ref read during render
    * is what `react-hooks/refs` forbids, and it would not re-render when it changed anyway.
+   *
+   * **Only a result that answers the current query is held.** While a query is pending,
+   * `keepPreviousData` hands back the previous query's rows as placeholder data, and those are
+   * already here from when they were real.
    */
-  const [lastResult, setLastResult] = useState<QueryResult | undefined>(undefined);
-  if (recordsQuery.data !== undefined && recordsQuery.data !== lastResult) {
+  if (
+    recordsQuery.data !== undefined
+    && !recordsQuery.isPlaceholderData
+    && recordsQuery.data !== lastResult
+  ) {
     setLastResult(recordsQuery.data);
   }
   const result = recordsQuery.data ?? (filterError !== null ? lastResult : undefined);
+  /**
+   * The filter was refused and there is no earlier result to keep: a saved view that is
+   * everybody's default, or a restored session entry, holding a value the server will not read.
+   * Nothing is held (a default view discards the unfiltered rows that loaded before it was
+   * applied, and a restored entry is the page's first query), so the table has no rows, and
+   * "No records match this filter" would be a false statement about the data. The page says the
+   * filter could not be applied, in the server's words, with the way out beside it.
+   */
+  const filterRefusedWithNothingToShow = filterError !== null && result === undefined;
 
   const records = useMemo(() => result?.records ?? [], [result]);
 
@@ -479,13 +504,25 @@ export function TableView({ objectType }: TableViewProps) {
       : null;
   const agentLabel = agentTouchedLabel(agentTouchedCount(records));
 
+  /**
+   * An export the server refused. The export sends the view's own filter, so a filter the
+   * server refuses for the table is refused here too, and an awaited request with nothing
+   * catching its failure made `Export CSV` a button that did nothing at all. Cleared when the
+   * next export starts, so the alert is always about the last attempt.
+   */
+  const [exportError, setExportError] = useState<unknown>(null);
   const handleExport = async () => {
-    const blob = await exportCsv(objectType.key, {
-      filter: filter ?? undefined,
-      sort: sortKeys.length ? sortKeys : undefined,
-      columns: visibleFieldKeys,
-    });
-    downloadCsvBlob(blob, `${objectType.key}.csv`);
+    setExportError(null);
+    try {
+      const blob = await exportCsv(objectType.key, {
+        filter: filter ?? undefined,
+        sort: sortKeys.length ? sortKeys : undefined,
+        columns: visibleFieldKeys,
+      });
+      downloadCsvBlob(blob, `${objectType.key}.csv`);
+    } catch (caught) {
+      setExportError(caught);
+    }
   };
 
   const handleResubmit = async (payload: { values: Record<string, unknown>; expected_version: number }) => {
@@ -689,6 +726,10 @@ export function TableView({ objectType }: TableViewProps) {
         <Alert tone="error" title="Could not load records." error={recordsQuery.error} />
       )}
 
+      {exportError !== null && (
+        <Alert tone="error" title="Could not export." error={exportError} />
+      )}
+
       {inlineEdit.error && (
         <p className="text-sm text-bad" role="alert">
           {inlineEdit.error}
@@ -808,7 +849,19 @@ export function TableView({ objectType }: TableViewProps) {
 
       {!recordsQuery.isLoading &&
         records.length === 0 &&
-        (filter !== null ? (
+        (filterRefusedWithNothingToShow ? (
+          <EmptyState
+            title="This filter could not be applied."
+            data-testid="table-filter-refused"
+            action={
+              <Button type="button" className={btnSmClass} onClick={handleClearFilter}>
+                Clear filter
+              </Button>
+            }
+          >
+            {filterError.message}
+          </EmptyState>
+        ) : filter !== null ? (
           <EmptyState
             title="No records match this filter"
             data-testid="table-empty-filtered"
