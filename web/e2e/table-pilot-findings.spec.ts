@@ -1079,10 +1079,10 @@ const SHELL_ROUTES = [
   ["a record", `/${TYPE_KEY}/PLF-001`],
   ["the import wizard", `/${TYPE_KEY}/import`],
   ["Inbox", "/inbox"],
-  ["Schema", `/schema/${TYPE_KEY}`],
-  ["Activity", "/activity"],
-  ["People", "/people"],
-  ["Setup", "/setup"],
+  ["Schema", `/workspace/schema/${TYPE_KEY}`],
+  ["Activity", "/workspace/activity"],
+  ["People", "/workspace/people"],
+  ["Setup", "/workspace/setup"],
   ["Search", "/search"],
 ] as const;
 
@@ -1181,7 +1181,7 @@ async function seedSecondAccount(): Promise<void> {
 async function leaveAndReturn(page: Page, typeKey: string): Promise<void> {
   const sidebar = page.getByTestId("sidebar");
   await sidebar.getByRole("link", { name: "Activity", exact: true }).click();
-  await expect(page).toHaveURL(/\/activity$/);
+  await expect(page).toHaveURL(/\/workspace\/activity$/);
   await sidebar.locator(`a[href="/${typeKey}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/${typeKey}$`));
   await expect(firstDataRow(page)).toBeVisible();
@@ -1229,7 +1229,7 @@ test.describe("#14 unsaved table state", () => {
     await signInAndOpenTable(page);
     await addStageChip(page);
     await page.getByTestId("sidebar").getByRole("link", { name: "Activity", exact: true }).click();
-    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page).toHaveURL(/\/workspace\/activity$/);
 
     const requests: Request[] = [];
     page.on("request", (request) => {

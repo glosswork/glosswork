@@ -1,5 +1,5 @@
 /**
- * `/activity`'s chip row: the six FR-U8 dimensions, and the two that stopped being UUID
+ * `/workspace/activity`'s chip row: the six FR-U8 dimensions, and the two that stopped being UUID
  * fields.
  *
  * The file is named for what it covers rather than for a component, because it is meant to be

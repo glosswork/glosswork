@@ -133,7 +133,7 @@ describe("hiding is never the only signal", () => {
     expect(inbox).toContain("inboxAccessMessage(");
 
     // And the screen that used to hold proposals no longer does, so it is no longer an exception
-    // to anything. `/settings` is now `/people` and `/setup`, and the paragraph explaining
+    // to anything. `/settings` is now `/workspace/people` and `/workspace/setup`, and the paragraph explaining
     // where proposals went moved to `PeoplePage.tsx`, which is why the path below changed and
     // the assertions did not (AGENTS.md, Traps: a deletion that takes its explanation with it).
     //

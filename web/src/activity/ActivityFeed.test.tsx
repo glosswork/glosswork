@@ -1,5 +1,5 @@
 /**
- * `/activity`'s feed: one entry per write, change pills, and two shapes that are easy to get
+ * `/workspace/activity`'s feed: one entry per write, change pills, and two shapes that are easy to get
  * wrong.
  *
  * Run whole rather than through a `-t` filter: a name filter that matches nothing reports success

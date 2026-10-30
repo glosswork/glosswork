@@ -318,9 +318,9 @@ afterAll(() => server.close());
 function renderEditor(principal: CurrentPrincipal = DEFAULT_TEST_PRINCIPAL) {
   return renderWithProviders(
     <Routes>
-      <Route path="/schema/:objectTypeKey" element={<SchemaEditorPage />} />
+      <Route path="/workspace/schema/:objectTypeKey" element={<SchemaEditorPage />} />
     </Routes>,
-    { route: "/schema/artifact", principal },
+    { route: "/workspace/schema/artifact", principal },
   );
 }
 
@@ -870,13 +870,13 @@ describe("SchemaEditorPage: the create route", () => {
   function renderCreate(principal: CurrentPrincipal) {
     return renderWithProviders(
       <Routes>
-        <Route path="/schema/new" element={<SchemaEditorPage />} />
+        <Route path="/workspace/schema/new" element={<SchemaEditorPage />} />
       </Routes>,
-      { route: "/schema/new", principal },
+      { route: "/workspace/schema/new", principal },
     );
   }
 
-  it("gives a member reaching /schema/new by URL no form, and says who creates types", async () => {
+  it("gives a member reaching /workspace/schema/new by URL no form, and says who creates types", async () => {
     renderCreate({ ...DEFAULT_TEST_PRINCIPAL, role: "member", scope: "write" });
 
     expect(

@@ -1,5 +1,5 @@
 /**
- * `/people` and `/setup`, against a real uvicorn process and the real built frontend.
+ * `/workspace/people` and `/workspace/setup`, against a real uvicorn process and the real built frontend.
  *
  * **This spec exists for one claim**: every action the old Settings page offered is reachable
  * on one of the two, and the e2e suite enumerates them. A redesign that quietly drops a control is
@@ -118,24 +118,24 @@ async function rowFor(page: Page, testId: string) {
   return row;
 }
 
-test("/settings redirects to /people and does not stay on the history stack", async ({ page }) => {
+test("/settings redirects to /workspace/people and does not stay on the history stack", async ({ page }) => {
   await signInAsE2eAdmin(page);
-  await page.goto("/people");
+  await page.goto("/workspace/people");
   await expect(page.getByRole("heading", { level: 1, name: "People & agents" })).toBeVisible();
 
   await page.goto("/settings");
-  await expect(page).toHaveURL(/\/people$/);
+  await expect(page).toHaveURL(/\/workspace\/people$/);
   await expect(page.getByRole("heading", { level: 1, name: "People & agents" })).toBeVisible();
 });
 
-test("every action the old Settings page offered is reachable on /people or /setup", async ({
+test("every action the old Settings page offered is reachable on /workspace/people or /workspace/setup", async ({
   page,
 }) => {
   const completed = new Set<string>();
   await signInAsE2eAdmin(page);
 
-  // ---- /people -----------------------------------------------------------------------------
-  await page.goto("/people");
+  // ---- /workspace/people -----------------------------------------------------------------------------
+  await page.goto("/workspace/people");
   await expect(page.getByRole("heading", { level: 1, name: "People & agents" })).toBeVisible();
 
   // 1. Rename or describe one of my agent labels, and 2. read every principal's labels. Both
@@ -207,8 +207,8 @@ test("every action the old Settings page offered is reachable on /people or /set
   await expect(accountRow).toContainText("Inactive");
   completed.add("deactivate a service account");
 
-  // ---- /setup ------------------------------------------------------------------------------
-  await page.goto("/setup");
+  // ---- /workspace/setup ------------------------------------------------------------------------------
+  await page.goto("/workspace/setup");
   await expect(page.getByRole("heading", { level: 1, name: "Setup" })).toBeVisible();
 
   // 8. Mint a PAT, and 9. revoke one. The mint form is inline, and the plaintext appears in the
@@ -254,7 +254,7 @@ test("no card is nested inside another card on either page", async ({ page }) =>
   /**
    * The card recipe, not the radius token. `.rounded-card` alone also matches `ui/Avatar.tsx`'s
    * agent square (docs/DESIGN.md 6.1 gives it a 6px radius, which is the same token), `Badge`,
-   * `Alert` and `EmptyState` -- measured: on `/people` this selector without the compound
+   * `Alert` and `EmptyState` -- measured: on `/workspace/people` this selector without the compound
    * returns one hit per service account on the page, and they are avatars, not cards.
    *
    * What 7.6 forbids is a bordered, filled BOX inside another one, and the
@@ -266,8 +266,8 @@ test("no card is nested inside another card on either page", async ({ page }) =>
   const nested = "section.rounded-card div.rounded-card.border.border-line";
 
   for (const [path, heading] of [
-    ["/people", "People & agents"],
-    ["/setup", "Setup"],
+    ["/workspace/people", "People & agents"],
+    ["/workspace/setup", "Setup"],
   ] as const) {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
@@ -303,7 +303,7 @@ test("every Workspace nav entry lands on a page that rendered", async ({ page })
   // `served` set in the test file itself, which a change could satisfy while `App.tsx` serves
   // nothing. A route with no element renders a blank `<main>`.
   await signInAsE2eAdmin(page);
-  await page.goto("/people");
+  await page.goto("/workspace/people");
 
   for (const [testId, heading] of [
     ["nav-people", "People & agents"],
@@ -320,7 +320,7 @@ test("the export link points at a route that answers with the export, and only f
   page,
 }) => {
   await signInAsE2eAdmin(page);
-  await page.goto("/setup");
+  await page.goto("/workspace/setup");
 
   const link = page.getByTestId("export-link");
   await expect(link).toBeVisible();
@@ -341,7 +341,7 @@ test("a member sees neither the people directory nor the admin cards, and is tol
 }) => {
   await signInAs(page, MEMBER_EMAIL, MEMBER_PASSWORD);
 
-  await page.goto("/people");
+  await page.goto("/workspace/people");
   await expect(page.getByRole("heading", { level: 1, name: "People & agents" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Agent labels" })).toBeVisible();
   await expect(page.getByRole("region", { name: "People" })).toHaveCount(0);
@@ -349,7 +349,7 @@ test("a member sees neither the people directory nor the admin cards, and is tol
   // DD-42 applied to a role: the absence gets a reason rather than a silence.
   await expect(page.getByTestId("people-admin-only-note")).toBeVisible();
 
-  await page.goto("/setup");
+  await page.goto("/workspace/setup");
   await expect(page.getByRole("region", { name: "Personal access tokens" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Search index" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Export" })).toHaveCount(0);

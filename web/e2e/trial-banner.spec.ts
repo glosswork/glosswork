@@ -90,13 +90,13 @@ test("the trial banner counts down on one open page, then says the trial ended",
   `);
 });
 
-test("the trial banner is on /setup as well as the home page", async ({ page }) => {
+test("the trial banner is on /workspace/setup as well as the home page", async ({ page }) => {
   await page.setViewportSize(WIDE);
   await page.clock.setFixedTime(ONE_MINUTE_IN);
   await signInOnTrial(page);
   await expect(page.getByTestId("trial-time-left")).toHaveText("23:59");
 
-  await page.goto("/setup");
+  await page.goto("/workspace/setup");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(page.getByTestId("trial-time-left")).toHaveText("23:59");
   await expect(page.getByTestId("trial-banner")).toHaveCount(1);
@@ -112,11 +112,11 @@ for (const viewport of [WIDE, NARROW]) {
     await page.clock.setFixedTime(ONE_MINUTE_IN);
     await signInOnTrial(page);
     await page.setViewportSize(viewport);
-    // `/people` with one person on it is shorter than the window, so any height the strip adds
-    // to the page shows as a scroll height past the window's. Not `/setup`: for an
+    // `/workspace/people` with one person on it is shorter than the window, so any height the strip adds
+    // to the page shows as a scroll height past the window's. Not `/workspace/setup`: for an
     // administrator that page is about twice the window's height with or without the strip
     // (measured: 1570 pixels without it at 1280 by 800), so it cannot show the difference.
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     await expect(page.getByTestId("trial-time-left")).toHaveText("23:59");
 
     const geometry = await page.evaluate(() => {

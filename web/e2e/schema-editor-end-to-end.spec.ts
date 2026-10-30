@@ -6,7 +6,7 @@ import { E2E_AUTH_HEADER, E2E_BASE_URL, signInAsE2eAdmin } from "./constants";
  * field through the schema editor, edits that field destructively (a type change) and sees the
  * blast radius before the change is left pending, imports a CSV through the wizard with at least
  * one auto-suggested column mapping, exports the resulting view as CSV, reverts a single field
- * change from `/activity` and confirms the record's value and version reflect it, and triggers a
+ * change from `/workspace/activity` and confirms the record's value and version reflect it, and triggers a
  * 409 on a revert by racing an update to the same record, resolving it through the existing
  * merge prompt.
  *
@@ -14,7 +14,7 @@ import { E2E_AUTH_HEADER, E2E_BASE_URL, signInAsE2eAdmin } from "./constants";
  * `playwright.config.ts`), never a mocked backend. A few steps seed or race writes directly over
  * the REST API with a personal access token (DD-8). Inline cell editing and the 409-merge-prompt
  * mechanics are already end-to-end proven by `table-end-to-end.spec.ts`; this spec's own job is
- * four other surfaces (schema editor, CSV wizard/export, `/activity`, and the Activity card's
+ * four other surfaces (schema editor, CSV wizard/export, `/workspace/activity`, and the Activity card's
  * revert-to-a-race), not re-proving the table.
  */
 
@@ -44,7 +44,7 @@ test("schema editor, CSV import/export, and audit revert (plain and 409)", async
   request,
 }) => {
   await test.step("create an object type with a described field through the schema editor", async () => {
-    await page.goto("/schema/new");
+    await page.goto("/workspace/schema/new");
     await page.getByLabel("Key", { exact: true }).fill(OBJECT_TYPE_KEY);
     await page.getByLabel("Name", { exact: true }).fill("Gadget");
     await page.getByLabel("Plural name").fill("Gadgets");
@@ -54,7 +54,7 @@ test("schema editor, CSV import/export, and audit revert (plain and 409)", async
       .fill("An end-to-end fixture object type, seeded fresh for this test run.");
     await page.getByRole("button", { name: "Create" }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/schema/${OBJECT_TYPE_KEY}$`));
+    await expect(page).toHaveURL(new RegExp(`/workspace/schema/${OBJECT_TYPE_KEY}$`));
     await expect(page.getByRole("heading", { name: "Gadget" })).toBeVisible();
 
     await page.getByRole("button", { name: "Add field" }).click();
@@ -81,7 +81,7 @@ test("schema editor, CSV import/export, and audit revert (plain and 409)", async
   });
 
   await test.step("a destructive field-type change shows the blast radius before it is pending", async () => {
-    await page.goto(`/schema/${OBJECT_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${OBJECT_TYPE_KEY}`);
     await page.getByTestId("field-row-target_date").getByRole("button", { name: "Edit" }).click();
 
     const editForm = page.getByRole("form", { name: "Edit field" });
@@ -145,17 +145,17 @@ test("schema editor, CSV import/export, and audit revert (plain and 409)", async
     expect(csvText).toContain("2026-09-02");
   });
 
-  await test.step("reverts a single field change from /activity", async () => {
+  await test.step("reverts a single field change from /workspace/activity", async () => {
     const patchResponse = await request.patch(`/api/v1/records/${seededKey}`, {
       headers: E2E_AUTH_HEADER,
       data: { values: { target_date: "2026-09-01" }, expected_version: 1, force: false },
     });
     expect(patchResponse.ok(), await patchResponse.text()).toBeTruthy();
 
-    // On `/activity` the filters are chips rather than labelled inputs, and a write is one entry
+    // On `/workspace/activity` the filters are chips rather than labelled inputs, and a write is one entry
     // rather than one row per field. The values are formatted for a reader rather than
     // `JSON.stringify`d, so `"2026-08-01"` is `1 Aug`, as on the record page.
-    await page.goto("/activity");
+    await page.goto("/workspace/activity");
     const chips = page.getByTestId("activity-filters");
     await chips.getByRole("button", { name: "Add filter" }).click();
     await page.getByRole("menuitem", { name: "Record" }).click();

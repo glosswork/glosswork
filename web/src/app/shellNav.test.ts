@@ -34,10 +34,10 @@ describe("the shell's navigation entries", () => {
     expect(SHELL_NAV.map((entry) => [entry.id, entry.to, entry.section])).toEqual([
       ["inbox", "/inbox", "primary"],
       ["search", "/search", "primary"],
-      ["people", "/people", "workspace"],
-      ["activity", "/activity", "workspace"],
-      ["schema", "/schema", "workspace"],
-      ["setup", "/setup", "workspace"],
+      ["people", "/workspace/people", "workspace"],
+      ["activity", "/workspace/activity", "workspace"],
+      ["schema", "/workspace/schema", "workspace"],
+      ["setup", "/workspace/setup", "workspace"],
     ]);
   });
 
@@ -48,7 +48,7 @@ describe("the shell's navigation entries", () => {
     // why this is asserted at all -- and this half leans on the literal below, so
     // `e2e/people-and-setup.spec.ts` clicks every Workspace entry and asserts the page it lands
     // on.
-    const served = new Set(["/inbox", "/people", "/setup", "/search", "/activity", "/schema"]);
+    const served = new Set(["/inbox", "/workspace/people", "/workspace/setup", "/search", "/workspace/activity", "/workspace/schema"]);
     for (const entry of SHELL_NAV) {
       expect(served.has(entry.to), `${entry.id} points at an unserved route ${entry.to}`).toBe(
         true,
@@ -75,9 +75,9 @@ describe("the shell's navigation entries", () => {
 
   it("keeps Schema reachable", () => {
     // Asserted rather than left as a comment. docs/DESIGN.md 8.1's Workspace list does not name
-    // Schema, and this entry is the schema editor's only entry point -- `/schema/new` is linked
-    // only from `/schema` itself. Removing this entry to match that list literally would leave
+    // Schema, and this entry is the schema editor's only entry point -- `/workspace/schema/new` is linked
+    // only from `/workspace/schema` itself. Removing this entry to match that list literally would leave
     // both routes alive and neither navigable.
-    expect(SHELL_NAV.map((entry) => entry.to)).toContain("/schema");
+    expect(SHELL_NAV.map((entry) => entry.to)).toContain("/workspace/schema");
   });
 });

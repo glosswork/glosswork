@@ -1,5 +1,5 @@
 /**
- * `/setup`: the personal access tokens panel, the search index panel, the export link and the
+ * `/workspace/setup`: the personal access tokens panel, the search index panel, the export link and the
  * password panel.
  *
  * The access-token cases assert against table markup.

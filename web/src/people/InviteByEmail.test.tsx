@@ -1,5 +1,5 @@
 /**
- * `/people` on a workspace that signs people in by emailed code (change 9): "Invite" sends an
+ * `/workspace/people` on a workspace that signs people in by emailed code (change 9): "Invite" sends an
  * email invite, pending invites are listed with "Revoke", and no row offers "Reset password".
  *
  * Each case that asserts an absence carries its positive control in the same file: the same page

@@ -189,9 +189,9 @@ test("no raw id reaches the attribution surfaces", async ({ page }) => {
   await expect(timeline.getByTestId("hand").first()).toBeVisible();
   expectNoRawId(await timeline.getByTestId("hand").allTextContents());
 
-  // `/activity`, where an audit of the UI once found raw principal ids rendered in attribution.
+  // `/workspace/activity`, where an audit of the UI once found raw principal ids rendered in attribution.
   // This covers the entry header's whole hand.
-  await page.goto("/activity");
+  await page.goto("/workspace/activity");
   // Scoped to this spec's own record. The feed is newest-first over every record in the
   // deployment, so an unscoped assertion is about whichever writes the rest of the suite
   // happened to make last, and this spec's agent label may not be on page one at all.

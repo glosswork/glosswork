@@ -72,7 +72,7 @@ const server = setupServer(
     HttpResponse.json({ name: "Northwind", people: 6, agents: 3 }),
   ),
   http.get("/api/v1/schema-proposals", () => HttpResponse.json({ proposals: [] })),
-  // The reads `/people` and `/setup` make when the shell routes to them. They are here so
+  // The reads `/workspace/people` and `/workspace/setup` make when the shell routes to them. They are here so
   // the route assertions below fail on the heading they are about rather than on
   // `onUnhandledRequest: "error"`, which is a different sentence entirely.
   http.get("/api/v1/agent-labels", () => HttpResponse.json({ labels: [] })),
@@ -227,11 +227,11 @@ describe("App", () => {
    * this repository's own comments, and in whatever a person bookmarked.
    *
    * `replace`, not a push. A pushed redirect puts `/settings` back on the history stack, so Back
-   * from `/people` lands on `/settings`, which redirects to `/people` again and the button stops
+   * from `/workspace/people` lands on `/settings`, which redirects to `/workspace/people` again and the button stops
    * working. Asserted through `LocationProbe` rather than by the heading alone, because a
    * heading cannot tell a redirect from a route that happens to render the same page.
    */
-  it("redirects /settings to /people", async () => {
+  it("redirects /settings to /workspace/people", async () => {
     renderWithProviders(
       <>
         <App />
@@ -243,11 +243,11 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "People & agents" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("location-probe")).toHaveTextContent("/people");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(/^\/workspace\/people$/);
   });
 
-  it("serves /people under its own heading", async () => {
-    renderWithProviders(<App />, { route: "/people" });
+  it("serves /workspace/people under its own heading", async () => {
+    renderWithProviders(<App />, { route: "/workspace/people" });
 
     expect(
       await screen.findByRole("heading", { level: 1, name: "People & agents" }),
@@ -255,11 +255,11 @@ describe("App", () => {
   });
 
   /**
-   * `/audit` became `/activity`, and the old URL keeps working for the reason `/settings`
+   * `/audit` became `/workspace/activity`, and the old URL keeps working for the reason `/settings`
    * does. `replace`, not a push, so Back leaves the app rather than bouncing through the
    * redirect.
    */
-  it("redirects /audit to /activity", async () => {
+  it("redirects /audit to /workspace/activity", async () => {
     renderWithProviders(
       <>
         <App />
@@ -269,17 +269,17 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
-    expect(screen.getByTestId("location-probe")).toHaveTextContent("/activity");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(/^\/workspace\/activity$/);
   });
 
-  it("serves /activity under its own heading", async () => {
-    renderWithProviders(<App />, { route: "/activity" });
+  it("serves /workspace/activity under its own heading", async () => {
+    renderWithProviders(<App />, { route: "/workspace/activity" });
 
     expect(await screen.findByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
   });
 
-  it("serves /setup under its own heading", async () => {
-    renderWithProviders(<App />, { route: "/setup" });
+  it("serves /workspace/setup under its own heading", async () => {
+    renderWithProviders(<App />, { route: "/workspace/setup" });
 
     expect(await screen.findByRole("heading", { level: 1, name: "Setup" })).toBeInTheDocument();
   });

@@ -55,7 +55,7 @@ test("a workspace with nothing in it asks the question", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: QUESTION })).toBeVisible();
   await expect(page.getByRole("link", { name: "set up a type by hand" })).toHaveAttribute(
     "href",
-    "/schema/new",
+    "/workspace/schema/new",
   );
 });
 

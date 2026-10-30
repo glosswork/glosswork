@@ -1,9 +1,9 @@
 /**
- * The msw fixtures `/people` and `/setup` share.
+ * The msw fixtures `/workspace/people` and `/workspace/setup` share.
  *
  * `settings/SettingsPage.test.tsx` was one 903-line file over one page, so its fixtures and its
  * handlers could be local. That page is now two, and the two halves read overlapping routes: both
- * pages sign in as the same principals, `/people` reads principals and agent labels, `/setup` reads
+ * pages sign in as the same principals, `/workspace/people` reads principals and agent labels, `/workspace/setup` reads
  * access tokens and the search index, and the error-surface suite runs against mutations on both.
  * One copy rather than two, because two copies of a fixture drift and then two tests disagree about
  * what "Other User" is.
