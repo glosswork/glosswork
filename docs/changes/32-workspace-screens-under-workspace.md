@@ -9,10 +9,11 @@
 | Requirements | FR-U1 |
 | Depends on | Nothing unmerged. Branch from `main` at `ab23ef3`, after change 13 |
 
-**Status: shape approved by the maintainer in the working session on 2026-10-30, as a draft of
-this text. The adversarial pass ran the same day, on Opus, in a session that did not write the
-plan. Its findings F1 to F14 are folded in below. The address family and the old-link promise
-were not reopened.**
+**Status: approved, built and verified at `44674a4` plus one unit test that fixes the verifier's
+finding D1. The shape was approved by the maintainer in the working session on 2026-10-30. The
+adversarial pass ran the same day, on Opus, in a session that did not write the plan, and its
+findings F1 to F14 are folded in below. The address family and the old-link promise were not
+reopened.**
 
 ## Why
 
@@ -127,18 +128,18 @@ Keeping it would add a redirect branch to the wizard for almost no one.
 
 ## Checklist
 
-1. Write the new assertions below and run them against the unfixed tree. Record how each failed.
-2. Add the pure old-address mapping and its unit tests.
-3. Move the routes and update `SHELL_NAV` and every in-app link.
-4. Add the redirect decision to the object type and record routes.
-5. Update existing unit tests and e2e specs that visit old addresses, including `SHELL_ROUTES`,
+1. [x] Write the new assertions below and run them against the unfixed tree. Record how each failed.
+2. [x] Add the pure old-address mapping and its unit tests.
+3. [x] Move the routes and update `SHELL_NAV` and every in-app link.
+4. [x] Add the redirect decision to the object type and record routes.
+5. [x] Update existing unit tests and e2e specs that visit old addresses, including `SHELL_ROUTES`,
    `shellNav.test.ts` and `FirstRun.test.tsx`. A spec that passes through a redirect has stopped
    testing the screen directly. Tighten the regexes that match both old and new addresses
    (`/\/activity$/`, `/\/people$/`, `/\/setup$/`, `` `/schema/${KEY}$` ``) to the `/workspace/` form.
-6. Update `docs/DESIGN.md`, `PRD.md` and `docs/DEPLOYMENT.md` wherever they name these addresses, and
+6. [x] Update `docs/DESIGN.md`, `PRD.md` and `docs/DEPLOYMENT.md` wherever they name these addresses, and
    comments that name them as routes. The decisions log and the backlog are history and are left
    alone.
-7. Run the Accept block. Record the baseline count.
+7. [x] Run the Accept block. Record the baseline count.
 8. Close out, with a DD entry stating the rule: no route at a bare top-level segment, except
    `inbox`, `search`, `login` and the server's own paths. Add the known gaps to #32.
 
@@ -245,6 +246,40 @@ Run on a clean worktree at `5a76053`, which differs from this commit only in thi
 
 Not established: `end` in `ObjectTypeNav.tsx`, which no module imports, so nothing renders it.
 
+## Final verification
+
+An independent verifier on Opus reran the Accept block on a clean checkout of `44674a4`. It ran with
+the main tree's `models/` symlinked, since a fresh worktree has none.
+
+| Criterion | Exit | Count |
+| --- | --- | --- |
+| AC1 | 0 | 1302 tests |
+| AC2 | 0 | 16 passed |
+| AC3 | 0 | 130 passed |
+| AC4 | 0 | 50 passed, 0 repaints |
+| AC5 | 0 | |
+| AC6 | 0 | 107 passed |
+| `uv run pytest -q` | 0 | 2380 passed, 3 xfailed |
+| `uv run ruff check`, `ruff format --check`, `mypy` | 0, 0, 0 | |
+
+Its findings:
+
+- **D1.** Dropping `replace` from the `<Navigate>` in `web/src/routes/RecordRoute.tsx` failed no test,
+  because the only Back test went through `/activity`. Fixed in the commit after `44674a4`: a unit
+  test sends `/inbox` then `/schema/new` and asserts a `REPLACE` navigation and that Back lands on
+  `/inbox`. It failed with `replace` removed and passed with it restored. `npm --prefix web run test`
+  then passed 1303 tests (the 1302 above plus this one), and web lint and typecheck exited 0.
+- **Any 403 redirects**, including one from a proxy with a non-envelope body. That matches the plan's
+  letter, which says 404 and 403 behave alike. Accepted.
+- **A three-segment address such as `/workspace/people/x` renders an empty main**, as three-segment
+  addresses already did. Not changed.
+- **The `end` on `web/src/app/ObjectTypeNav.tsx` is on a component nothing imports.** It is kept
+  because the plan names it, and it has no test.
+- **An expired session in the tab shows "Object type not found." without a sign-in prompt**, as it did
+  before this change.
+
+Not established: other browsers, a run on a real deployment, and a replay of step 1's failures.
+
 ## Adversarial pass
 
 Run 2026-10-30 on Opus by a session that did not write the plan. No plan code existed to run, so
@@ -288,4 +323,15 @@ from `SHELL_ROUTES`. Not checked by the pass: P1. The pass did not run the e2e o
 
 ## Durable content moved out of this plan
 
-Nothing yet.
+Moved at closeout, in the commit after this one, which also deletes this file. The decision's
+number is not written here, because a guard reads a citation of a decision whose heading does not
+exist yet as an error: it is the next one after the last in `docs/DESIGN_DECISIONS.md`, and its
+heading arrives in that commit.
+
+- **docs/DESIGN_DECISIONS.md**: one new decision, the rule from checklist step 8. No route at a bare
+  top-level segment, except `inbox`, `search`, `login` and the server's own paths, so an object type's
+  key cannot be shadowed by a screen.
+- **docs/DESIGN.md, PRD.md, docs/DEPLOYMENT.md**: already name the `/workspace` addresses, from
+  checklist step 6. Nothing further moves.
+- **Known gaps**: stay as the list under "What does not change", to be added to #32 under checklist
+  step 8. They are not moved into the specifications.
