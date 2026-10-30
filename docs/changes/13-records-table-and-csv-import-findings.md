@@ -9,18 +9,19 @@
 | Requirements | FR-U1, FR-U3, FR-R5, FR-R8, FR-E1, FR-E2 |
 | Depends on | Nothing unmerged. The planned change on client-sent timestamps (field editors and the Activity filter) touches `web/src/table-view` and `web/src/filters` too and must not run at the same time. Whichever runs second reads the other's result |
 
-**Status: approved and built, not verified.** The maintainer answered Q1 to Q5 on 2026-10-10
-and approved the plan as it read at commit `68272e3` on 2026-10-12. The one adversarial pass
-ran on 2026-10-10, by a session that did not write the plan; its findings F1 to F19 are at the
-end and their fixes are folded into the text in place. Checklist steps 1 to 12 were built on
-2026-10-12; what each assertion did against the unfixed tree is recorded under the checklist,
-and where the build departed from this text is under "Deviations from the approved plan". The
-one full verification ran on 2026-10-12 at `0bc0b27` and failed on one point of #15: a filter
-the server refused could still look applied over rows it did not produce. The maintainer
-decided the same day what a refused filter shows, and a fix run changed it (D11 to D14).
-**"What changes" 4 and 10 and AC5 still read as approved; where they say a refused filter keeps
-the table's previous rows, D11 is what the code does.** The fix has not been rechecked, and
-nothing is pushed.
+**Status: approved, built and verified at `ab42853`, with the gaps named under "Final Accept
+results". Nothing is pushed.** The maintainer answered Q1 to Q5 on 2026-10-10 and approved the
+plan as it read at commit `68272e3` on 2026-10-12. The one adversarial pass ran on 2026-10-10, by
+a session that did not write the plan; its findings F1 to F19 are at the end and their fixes are
+folded into the text in place. Checklist steps 1 to 12 were built on 2026-10-12; what each
+assertion did against the unfixed tree is recorded under the checklist, and where the build
+departed from this text is under "Deviations from the approved plan", D1 to D16. The first
+verification, at `0bc0b27`, failed on one point of #15: a filter the server refused could still
+look applied over rows it did not produce. The maintainer decided what a refused filter shows,
+and three fix runs followed (D11 to D16). **"What changes" 4 and 10 and AC5 still read as first
+approved; where they say a refused filter keeps the table's previous rows, D11 is what the code
+does, and where "What does not change" says the Advanced builder sends on every complete change,
+D15 is what the code does.**
 
 ## Why
 
@@ -623,32 +624,32 @@ No file that defines CI is touched. No migration. No new dependency.
 
 ## Checklist
 
-1. Write the new assertions (the backend tests and the browser spec named in Accept) and run
+1. [x] Write the new assertions (the backend tests and the browser spec named in Accept) and run
    each against the unfixed tree. Record here how each failed, in the order written. An
    assertion that passes unfixed is a fence: label it and do not count it.
-2. Confirm that no existing test sends a date filter literal the rule in "What changes" 1
+2. [x] Confirm that no existing test sends a date filter literal the rule in "What changes" 1
    refuses. The adversarial pass measured none (P13) with the refusal alone patched in; this
    step repeats it with the real rule, the midnight rewrite included: run the backend tests
    that send a filter, record the count, and stop and report if it is not zero.
-3. Server: the strict check in `timeutil`, the date-literal rule in `filters.py`, the field
+3. [x] Server: the strict check in `timeutil`, the date-literal rule in `filters.py`, the field
    key on an unknown token's refusal, their tests, the capability descriptions.
-4. Server: `blank_clears` in `CsvService`, the route's parameter, summary and description, the
+4. [x] Server: `blank_clears` in `CsvService`, the route's parameter, summary and description, the
    result's two new members, regenerated `schema.ts`.
-5. `CommaListInput` (#17), with a key-by-key component test for the general and the relation
+5. [x] `CommaListInput` (#17), with a key-by-key component test for the general and the relation
    branch.
-6. `DateValueInput`, the day arithmetic and the chip sentence (#15), with unit tests for the
+6. [x] `DateValueInput`, the day arithmetic and the chip sentence (#15), with unit tests for the
    arithmetic in at least one timezone west of UTC and one east, and a key-by-key component
    test.
-7. `Popover` viewport containment (#13). Before 8, for the reason in "What changes" 5.
-8. Shell and toolbar stickiness (#16).
-9. Session state (#14).
-10. Column pinning (#18): config, offsets, rendering, Columns popover.
-11. Import wizard checkbox and dry-run summary (#19); the refused filter on first load and the
+7. [x] `Popover` viewport containment (#13). Before 8, for the reason in "What changes" 5.
+8. [x] Shell and toolbar stickiness (#16).
+9. [x] Session state (#14).
+10. [x] Column pinning (#18): config, offsets, rendering, Columns popover.
+11. [x] Import wizard checkbox and dry-run summary (#19); the refused filter on first load and the
     export failure ("What changes" 10).
-12. Run the whole local suite once, both Playwright projects included; repaint baselines and
+12. [x] Run the whole local suite once, both Playwright projects included; repaint baselines and
     record the count against "Baseline repaint".
-13. Hand over for verification against the Accept block.
-14. Closeout in two commits: the plan's final edits, then the specifications and the deletion.
+13. [x] Hand over for verification against the Accept block.
+14. [x] Closeout in two commits: the plan's final edits, then the specifications and the deletion.
 
 ### What the build recorded, 2026-10-12
 
@@ -779,6 +780,44 @@ Each is a command. Read each exit code directly, never through a pipe.
 - **AC7 (no reporter data).** `git log -p main..HEAD` is read by the verifier for any workspace
   name, person's name or record content from the feedback export. This one is a reading, not
   a command, and is reported as such.
+
+### Final Accept results
+
+Tested at `ab42853` on macOS. The verifier ran on Sonnet.
+
+| | Command | Result |
+| --- | --- | --- |
+| AC1 | `uv run pytest -q tests/test_filter_date_literals.py` | 103 passed |
+| AC2 | `uv run pytest -q tests/test_csv_blank_clears.py` | 23 passed |
+| AC3 | `uv run pytest -q tests/test_generated_api_types_fresh.py` | 1 passed |
+| AC4 | `npm --prefix web run test` | 1249 passed |
+| AC5 | `npm --prefix web run e2e -- --project=e2e table-pilot-findings.spec.ts` | 32 passed |
+| AC6 | `uv run ruff check .`, `uv run ruff format --check .` (275 files), `uv run mypy src` (90 files), `npm --prefix web run lint`, `npm --prefix web run typecheck` | each exit 0 |
+| AC6 | `npm --prefix web run e2e -- --project=visual` | 50 passed, no baseline rewritten |
+| AC6 | `npm --prefix web run build` | exit 0 |
+| AC7 | identities checked on every commit, and a grep of added lines | partial, see below |
+
+**AC6, the two literal commands that did not pass.** The literal `uv run pytest -q` ended at
+4 failed, 2437 passed, 3 xfailed. The literal `npm --prefix web run e2e -- --project=e2e` ended
+at 3 failed, 114 passed, and the same on retry. Both fail only because of untracked files left
+on disk in the working tree and not in the repository (22 of them: older test files and
+specs, design images, a perf file and two notes). With the untracked specs excluded the e2e
+project gives 114 passed. The two whole-tree pytest scans and `tests/test_auth_routes.py` give
+32 passed on a `git archive HEAD` copy, which holds only tracked files.
+
+**Not done: a complete pytest run of the tracked tree alone.** No local run covered every
+backend test with the untracked files absent. CI on the pull request is the first such run.
+
+**AC7 is partial.** Identities were checked on all commits and a grep was run over added
+lines. The log was not read line by line.
+
+**Not established:**
+
+- The roughly 6 ms window in D11, during which the previous rows are still on screen while a
+  refused request is in flight. It is a local timing taken by the verifier, not re-measured.
+- A headed-browser or cross-browser check of the calendar icon (D13). It was seen drawing in
+  headless Chromium 151 only.
+- `container_tests` were not run.
 
 ## Baseline repaint
 
@@ -1108,4 +1147,38 @@ The third fix run of 2026-10-12, after the recheck of `e865740`:
   popover, with no chip to close it, so there is nothing there to check.
 ## Durable content moved out of this plan
 
-Nothing yet. See "What changes" 9 for where it goes.
+Moved at closeout, in the commit after this one, which also deletes this file. The numbers of
+the new decisions are not written here, because a guard reads a citation of a decision whose
+heading does not exist yet as an error (P26): they are the next three after the last one in
+`docs/DESIGN_DECISIONS.md`, and their headings arrive in that commit.
+
+- **docs/DESIGN_DECISIONS.md**: three new decisions. A filter's date literal is exact, and a
+  refused filter shows no rows and a message (the date-literal rule, D11, F6). An import
+  clears a field only when asked, and counts what it clears (the opt-in clear). Unsaved table
+  state lives in the tab, per principal, and is swept at sign-in and removed at sign-out
+  (where unsaved table state lives). DD-43 gains the pin, the typing pause (D15) and the
+  refused-filter display in its text.
+- **PRD.md**: FR-R5 and FR-R8 state the literal forms a date filter accepts; FR-U1 gains
+  column pinning and the unsaved state surviving navigation; FR-E1 and FR-E2 gain
+  `blank_clears` and the cleared counts. The file stays under the line bound its guard
+  enforces.
+- **docs/DATA_MODEL.md**: section 4 says the canonical timestamp rule also governs a filter
+  literal, what a date-only value means on a `datetime` field, and that a blank cell is blank
+  as before (the `blank_clears` rule); section 11 says a saved view's `config` may carry
+  `pinned`.
+- **docs/MCP_TOOLS.md**: section 4 lists the literal forms and the one-sentence meaning of a
+  date-only value, and that an unknown token names the field; section 6 records the
+  `validation_failed` refusals this change adds; section 8 gives the import route's
+  `blank_clears` parameter and result members.
+- **docs/DESIGN.md**: 7.4 gains the date input, the hint lines, the refusal on the chip and
+  the typing pause; 8.1 says the sidebar and the table toolbar stay in view and that `main` no
+  longer scrolls on its own; 8.2 gains pinning, the session state, the refused-filter and
+  export-failure displays and the import wizard's checkbox.
+- **Left as they are**: the five frontend comments in P3, which are now true.
+- **CHANGELOG.md** is not edited by this change: CONTRIBUTING, "Releases", says it is written
+  once per release and carries no unreleased section, which is why "What changes" 9 asking
+  for a line in it is not followed. The release that carries this change should say, in the
+  terms of "What changes" 1's table, which filter values are now refused (anything but
+  `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM:SSZ` or a date token, including no seconds, a fractional
+  second and any offset) and that a saved view holding one opens with its chip marked and
+  shows the server's message in place of rows.
