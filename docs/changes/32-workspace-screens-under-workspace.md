@@ -180,6 +180,45 @@ Keeping it would add a redirect branch to the wizard for almost no one.
 The 22 untracked leftover files in the maintainer's tree break the literal AC3 and AC6 runs, so run
 them on a clean checkout of the branch.
 
+## Step 1: how each new assertion failed on the unfixed tree
+
+Run at `01be307` plus the assertions, before any product code changed.
+
+`npm --prefix web exec vitest run src/App.workspaceRoutes.test.tsx`, exit 1, 15 failed, 3 passed:
+
+| Assertion | How it failed |
+| --- | --- |
+| Serves `/workspace/people`, `/activity`, `/setup`, `/schema` under their headings (4) | Heading not found: the address fell to the record route |
+| A type keyed `activity` renders its table at `/activity` | Heading "Clashing activity" not found: the feed rendered |
+| The feed stays at `/workspace/activity` | Heading "Activity" not found |
+| Returns to a clashing type after a cached 404 and a redirect | Stayed at `/activity`, no redirect to begin with |
+| Redirects `/activity` with `replace`, Back leaves | Stayed at `/activity` |
+| Keeps the query string and hash | Stayed at `/people?from=bookmark#agents` |
+| Redirects on a `forbidden` envelope for a member | Stayed at `/activity` |
+| On a 500, no redirect, no spinner, the not-found text | `answered` stayed false: the static route never sent the lookup |
+| Redirects `/schema/new`, `/schema/<key>` (2) | Stayed at the old address |
+| Stays on the record route at `/schema/<uuid>` | No record lookup: the schema editor took the address |
+| One `aria-current` at `/workspace/people`, on People & agents | One element, on `nav-type-workspace`, not `nav-people` |
+
+The three that passed are fences, and are not counted: no redirect while pending, no request to
+`/api/v1/records/new`, and bare `/workspace` showing the not-found.
+
+`src/routes/oldAddresses.test.ts` was measured against a throwaway stub with the real signatures
+that answers `null` and `false`, because a missing module fails on resolution and measures nothing.
+Exit 1, 19 failed, 16 passed. Each mapping failed with `expected null to be` its target. The 16
+that passed assert a `null` or `false` and are fences until the real module exists.
+
+`npm --prefix web run e2e -- --project=e2e workspace-routes.spec.ts`, exit 1, 16 failed including a
+retry each. Fifteen failed for the reason named. Each old address and Back stayed where it was
+(`Expected "/workspace/activity"`, `Received "/activity"`, and so on); the sidebar went to `/people`;
+the `activity` and `schema` tables' headings were absent; `/schema/activity` stayed; the member
+stayed at `/activity`; the highlight scenario found no `People & agents` heading.
+
+The sixteenth, the labelled fence for a type keyed `workspace`, failed on the spec's own mistake: a
+record key is zero-padded, so `WSP-1` does not exist. Corrected to `WSP-001`, it passed on the
+unfixed tree, as a fence should (exit 1 for that run only from the `activity` and `schema` scenarios
+selected beside it, which still failed on their headings).
+
 ## Baseline repaint
 
 Expected: 0. Screenshots do not show the address, and no product screen renders these addresses as
@@ -214,7 +253,8 @@ from `SHELL_ROUTES`. Not checked by the pass: P1. The pass did not run the e2e o
 
 ## Deviations from the approved plan
 
-None yet.
+- **AC2 names `/schema/SCH-1`; the spec uses `/schema/SCH-001`.** Record keys are zero-padded, so the
+  plan's literal address names no record. The behaviour under test is the same.
 
 ## Durable content moved out of this plan
 
