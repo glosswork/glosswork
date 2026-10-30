@@ -14,7 +14,7 @@
  * zeroes from `getBoundingClientRect` (AGENTS.md, Traps).
  */
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { Popover } from "./Popover";
@@ -189,3 +189,72 @@ describe("Popover", () => {
     expect(screen.getByRole("button", { name: "Row actions" })).toBeInTheDocument();
   });
 });
+
+/**
+ * A press whose release misses the trigger because the trigger moved. jsdom has no layout, so
+ * the movement itself is a browser measurement (`e2e/table-pilot-findings.spec.ts`); what is
+ * held here is the rule: a press on the trigger and a release at the same point, with no click
+ * ever reaching the trigger, toggles it once.
+ */
+describe("Popover: a press on the trigger whose release lands elsewhere", () => {
+  const nextTask = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  const outside = () => screen.getByRole("button", { name: "outside" });
+
+  it("closes when the release is at the same point and no click reaches the trigger", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(<Fixture onOpenChange={onOpenChange} />);
+    await user.click(trigger());
+    expect(screen.getByTestId("popover-panel")).toBeInTheDocument();
+    onOpenChange.mockClear();
+
+    fireEvent.mouseDown(trigger(), { button: 0, clientX: 100, clientY: 20 });
+    fireEvent.mouseUp(outside(), { button: 0, clientX: 101, clientY: 20 });
+    await nextTask();
+
+    expect(screen.queryByTestId("popover-panel")).toBeNull();
+    expect(onOpenChange.mock.calls).toEqual([[false]]);
+  });
+
+  it("opens by the same rule", async () => {
+    render(<Fixture />);
+    fireEvent.mouseDown(trigger(), { button: 0, clientX: 100, clientY: 20 });
+    fireEvent.mouseUp(outside(), { button: 0, clientX: 100, clientY: 20 });
+    await nextTask();
+    expect(screen.getByTestId("popover-panel")).toBeInTheDocument();
+  });
+
+  it("does nothing when the pointer travelled: that is a drag off the button", async () => {
+    const user = userEvent.setup();
+    render(<Fixture />);
+    await user.click(trigger());
+
+    fireEvent.mouseDown(trigger(), { button: 0, clientX: 100, clientY: 20 });
+    fireEvent.mouseUp(outside(), { button: 0, clientX: 160, clientY: 20 });
+    await nextTask();
+
+    expect(screen.getByTestId("popover-panel")).toBeInTheDocument();
+  });
+
+  it("toggles once, not twice, when the click does reach the trigger", async () => {
+    const onOpenChange = vi.fn();
+    render(<Fixture onOpenChange={onOpenChange} />);
+
+    fireEvent.mouseDown(trigger(), { button: 0, clientX: 100, clientY: 20 });
+    fireEvent.mouseUp(trigger(), { button: 0, clientX: 100, clientY: 20 });
+    fireEvent.click(trigger());
+    await nextTask();
+
+    expect(onOpenChange.mock.calls).toEqual([[true]]);
+    expect(screen.getByTestId("popover-panel")).toBeInTheDocument();
+  });
+
+  it("ignores a press with another mouse button", async () => {
+    render(<Fixture />);
+    fireEvent.mouseDown(trigger(), { button: 2, clientX: 100, clientY: 20 });
+    fireEvent.mouseUp(outside(), { button: 2, clientX: 100, clientY: 20 });
+    await nextTask();
+    expect(screen.queryByTestId("popover-panel")).toBeNull();
+  });
+});
+

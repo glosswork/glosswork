@@ -9,10 +9,23 @@
  * it is exactly the shape docs/MCP_TOOLS.md section 4 calls for. Neither branch ever decides
  * which operators are *legal* for a field; that list is never computed here, only consumed.
  */
+import { useEffect, useId, useRef, useState } from "react";
+
 import type { FilterableField } from "./filterableFields";
 import { usePrincipalDirectory } from "../hooks/usePrincipalDirectory";
 import { compactInputClass, compactSelectClass } from "../ui/classes";
+import { cx } from "../ui/cx";
+import { isCalendarDay } from "../ui/datetime";
+import {
+  commitDateFilterText,
+  dateFilterHint,
+  dateFilterText,
+  type DateFilterProblem,
+  type RangeBound,
+} from "./dateFilterValue";
+import { commaListText, sameCommaList, splitCommaList } from "./commaList";
 import { LIST_OPS, NO_VALUE_OPS } from "./completeness";
+import { useTypedText } from "./useTypedText";
 
 /**
  * Operators that take no value at all, and operators whose value is a list — both read from
@@ -40,6 +53,35 @@ export function ValueInput({ field, op, value, onChange }: ValueInputProps) {
 
   if (op === "between") {
     const [lo, hi] = Array.isArray(value) ? value : [undefined, undefined];
+    if (isDateField(field)) {
+      // Each end knows which end it is, because a day means its first second at the lower end
+      // and its last at the upper. One hint line for the pair, under both boxes.
+      return (
+        <span className="inline-flex flex-col gap-1">
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <DateValueInput
+              field={field}
+              op={op}
+              bound="lower"
+              value={lo}
+              onChange={(next) => onChange([next, hi])}
+              ariaLabel={`${field.name} lower bound`}
+              quietHint
+            />
+            <DateValueInput
+              field={field}
+              op={op}
+              bound="upper"
+              value={hi}
+              onChange={(next) => onChange([lo, next])}
+              ariaLabel={`${field.name} upper bound`}
+              quietHint
+            />
+          </span>
+          <DateHint problem={null} />
+        </span>
+      );
+    }
     return (
       <span className="inline-flex items-center gap-1.5">
         <SingleValueInput
@@ -109,6 +151,19 @@ export function ValueInput({ field, op, value, onChange }: ValueInputProps) {
     );
   }
 
+  if (isDateField(field)) {
+    return (
+      <DateValueInput
+        field={field}
+        op={op}
+        bound={null}
+        value={value}
+        onChange={onChange}
+        ariaLabel={`${field.name} value`}
+      />
+    );
+  }
+
   return (
     <SingleValueInput
       field={field}
@@ -117,6 +172,11 @@ export function ValueInput({ field, op, value, onChange }: ValueInputProps) {
       ariaLabel={`${field.name} value`}
     />
   );
+}
+
+/** The two field types whose filter value is a date, and so get `DateValueInput`. */
+function isDateField(field: FilterableField): boolean {
+  return field.type === "date" || field.type === "datetime";
 }
 
 interface CommaListInputProps {
@@ -130,9 +190,20 @@ interface CommaListInputProps {
  * The widget for a `LIST_OPS` value: a comma-separated free-text field whose committed value is
  * always an array, never the raw string. One component rather than two so the relation branch and
  * the general branch cannot answer the same operator differently.
+ *
+ * **The box holds what was typed; the array is committed beside it** (`useTypedText`). Drawn
+ * from the array, the box read `["v1"]` back as `v1` the moment a comma was typed, so the comma
+ * never survived to the next key and `v1, v2` arrived as the single value `v1v2`.
+ *
+ * A value that itself contains a comma cannot be entered here.
  */
 function CommaListInput({ value, onChange, ariaLabel, placeholder }: CommaListInputProps) {
-  const text = Array.isArray(value) ? value.join(",") : typeof value === "string" ? value : "";
+  const [text, setText] = useTypedText<unknown>({
+    committed: value,
+    textFor: commaListText,
+    commitFor: splitCommaList,
+    same: sameCommaList,
+  });
   return (
     <input
       className={compactInputClass + " w-44"}
@@ -140,16 +211,12 @@ function CommaListInput({ value, onChange, ariaLabel, placeholder }: CommaListIn
       aria-label={ariaLabel}
       value={text}
       placeholder={placeholder}
-      onChange={(event) => onChange(splitCommaList(event.target.value))}
+      onChange={(event) => {
+        setText(event.target.value);
+        onChange(splitCommaList(event.target.value));
+      }}
     />
   );
-}
-
-function splitCommaList(text: string): string[] {
-  return text
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
 }
 
 interface SingleValueInputProps {
@@ -159,11 +226,170 @@ interface SingleValueInputProps {
   ariaLabel: string;
 }
 
+interface DateValueInputProps {
+  field: FilterableField;
+  op: string;
+  /** Which end of a `between` this box is; `null` for an operator that takes one value. */
+  bound: RangeBound;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  ariaLabel: string;
+  /** Show the line only when it is a refusal. For a pair, whose caller prints the hint once. */
+  quietHint?: boolean;
+}
+
+function sameDateValue(a: unknown, b: unknown): boolean {
+  return (a ?? undefined) === (b ?? undefined);
+}
+
+/**
+ * The widget for a `date` or `datetime` filter value: a text box, a calendar button, and a line
+ * saying what the box accepts.
+ *
+ * **It is a text box because relative dates have to stay typeable.** `@today-7d` is resolved by
+ * the server, and a date picker alone would make it unreachable. The calendar button beside the
+ * box opens the browser's own date picker, and the picked day is written into the box as text.
+ *
+ * **The box holds what was typed; the value is committed beside it** (`useTypedText`). What the
+ * box commits is decided by `dateFilterValue.ts`: a token as typed, a real day, a canonical
+ * instant, and for everything else nothing at all, with the line below turning into the reason.
+ * A box drawn from the committed value would empty itself on the first key, since `2` commits
+ * nothing.
+ *
+ * **A day on a `datetime` field is an instant that depends on the operator**, so when the
+ * operator changes the instant is derived again from the day still in the box. Both callers
+ * reset the value on an operator change (`ConditionPopover`, `ConditionRow`); this component
+ * answers by committing again, and holds its text meanwhile.
+ */
+function DateValueInput({
+  field,
+  op,
+  bound,
+  value,
+  onChange,
+  ariaLabel,
+  quietHint = false,
+}: DateValueInputProps) {
+  const [seenOp, setSeenOp] = useState(op);
+  const opChanged = op !== seenOp;
+  if (opChanged) setSeenOp(op);
+
+  const [text, setText] = useTypedText<unknown>({
+    committed: value,
+    textFor: (committed) => dateFilterText(field.type, op, bound, committed),
+    commitFor: (typed) => commitDateFilterText(field.type, op, bound, typed).value,
+    same: sameDateValue,
+    hold: opChanged,
+  });
+  const { value: commits, problem } = commitDateFilterText(field.type, op, bound, text);
+
+  /** The live `onChange` and text, for the effect below, which must run on an operator change
+   * alone and not on every key. */
+  const latest = useRef({ onChange, commits, text });
+  useEffect(() => {
+    latest.current = { onChange, commits, text };
+  });
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    // The operator changed and the caller reset the value: derive it again from the typed day.
+    if (latest.current.text.trim() !== "") latest.current.onChange(latest.current.commits);
+  }, [op]);
+
+  const type = (next: string) => {
+    setText(next);
+    onChange(commitDateFilterText(field.type, op, bound, next).value);
+  };
+
+  const typedDay = text.trim();
+  const hintId = useId();
+  const showsHint = !quietHint || problem !== null;
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <span className="inline-flex items-center gap-1">
+        <input
+          className={compactInputClass + " w-36"}
+          type="text"
+          aria-label={ariaLabel}
+          aria-invalid={problem !== null}
+          aria-describedby={showsHint ? hintId : undefined}
+          value={text}
+          onChange={(event) => type(event.target.value)}
+        />
+        {/* The calendar button. The icon is drawn here, as an inline SVG, and the browser's
+            own date input lies over it, invisible and the same size, so a click anywhere on the
+            button reaches a real date input and opens its picker.
+
+            The first version shrank the date input to its built-in picker icon and hid its text
+            fields. In Chromium that drew an empty square: the icon is the browser's to draw or
+            not, and at this size it did not. Nothing here now depends on what a browser paints
+            inside a date input.
+
+            `showPicker` on click, because a click on a date input's text area focuses a field
+            rather than opening the picker, and with the fields invisible that would look like
+            nothing happening. Where it does not exist, or refuses, the browser's own behaviour
+            for the click is what is left. The focus outline is painted on the icon's frame through
+            `peer`, since the input that holds focus cannot be seen. */}
+        <span className="relative inline-flex h-7 w-7 shrink-0">
+          <input
+            className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            type="date"
+            aria-label={`${ariaLabel}: pick a day`}
+            data-testid="date-value-picker"
+            value={isCalendarDay(typedDay) ? typedDay : ""}
+            onChange={(event) => type(event.target.value)}
+            onClick={(event) => {
+              try {
+                event.currentTarget.showPicker?.();
+              } catch {
+                // Not allowed here (a cross-origin frame), or already open.
+              }
+            }}
+          />
+          <span
+            aria-hidden="true"
+            data-testid="date-value-picker-icon"
+            className="pointer-events-none inline-flex h-full w-full items-center justify-center rounded-ctl border border-line-2 bg-surface text-ink-2 peer-hover:text-ink peer-focus-visible:outline-2 peer-focus-visible:[outline-offset:2px] peer-focus-visible:outline-human"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="3" width="12" height="11" rx="1.5" />
+              <path d="M2 6.5h12M5 1.5v3M11 1.5v3" strokeLinecap="round" />
+            </svg>
+          </span>
+        </span>
+      </span>
+      {showsHint && <DateHint id={hintId} problem={problem} />}
+    </span>
+  );
+}
+
+/**
+ * The line under a date box: what it accepts, or why what was typed is not being sent.
+ *
+ * Tied to its box by `aria-describedby` rather than announced as a `status` region: the table
+ * page already has one of those, its footer count, and a second would make that one ambiguous.
+ * A refusal is never colour alone (docs/DESIGN.md 10): the sentence itself changes.
+ */
+function DateHint({ id, problem }: { id?: string; problem: DateFilterProblem | null }) {
+  return (
+    <span
+      id={id}
+      className={cx("max-w-64 text-xs", problem === null ? "text-ink-2" : "text-bad")}
+      data-testid="date-value-hint"
+      data-refusal={problem ?? undefined}
+    >
+      {dateFilterHint(problem)}
+    </span>
+  );
+}
+
 /**
  * The widget for exactly one scalar value. Free-text fields (`short_text`, `long_text`, `url`,
- * `date`, `datetime`, and anything else not special-cased below) all get a plain text input on
- * purpose: `date`/`datetime` need to accept relative tokens (`@today`, `@today-7d`, ...), and the
- * server — not this component — resolves them. A date picker would make those untypeable.
+ * and anything else not special-cased below) get a plain text input. `date` and `datetime` do
+ * not reach this component: `DateValueInput` above is theirs.
  *
  * `user_ref` is not on that list, although `@me` must stay reachable (FR-R8/FR-R9). It gets
  * `FieldInput`'s directory picker,

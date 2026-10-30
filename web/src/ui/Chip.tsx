@@ -41,25 +41,61 @@ import { Popover } from "./Popover";
  */
 const FRAME = "inline-flex h-7 items-stretch rounded-full border text-sm";
 
+/**
+ * The chip's colours, **one class per property and never two**.
+ *
+ * A chip's state used to be layered: the variant's colours, then the open state's, then the
+ * caller's `className`, all in one class list. Two utilities that set the same property do not
+ * resolve by their order in that list. They resolve by their order in the generated stylesheet,
+ * which nobody chooses, and here the variant's won both times. Measured in a browser: an open
+ * chip's `bg-human-soft` lost to `bg-surface`, so no chip ever painted as open, and a refused
+ * filter chip's `border-bad text-bad` lost to `border-line-2 text-ink`, so a filter the server
+ * had refused looked exactly like one it had applied. Both sets of classes were in the DOM and
+ * every test that read the class list passed.
+ *
+ * So each property is chosen once, from the chip's whole state, by `chipColours` below.
+ * Precedence: a refusal owns the border and the text; open owns the fill, and the text unless
+ * the chip is refused; the variant supplies whatever is left.
+ */
 const VARIANT_CLASSES = {
   /** A filter, group or sort chip: a condition that exists. */
-  filter: "border-line-2 bg-surface text-ink",
+  filter: { border: "border-line-2", text: "text-ink" },
   /** 7.4's `+ Add filter`: dashed, and quieter, because it names an absence. */
-  add: "border-dashed border-line-2 bg-surface text-ink-2",
+  add: { border: "border-dashed border-line-2", text: "text-ink-2" },
 } as const;
 
-/** docs/DESIGN.md 3: a focused chip is `human-soft`. Applied while its popover is open. */
-const OPEN_CLASSES = "bg-human-soft text-ink";
+/** `border-dashed` is a style, not a colour, so the add chip keeps it when it is refused. */
+const DASHED = "border-dashed";
+
+function chipColours(variant: ChipVariant, open: boolean, tone: ChipTone): string {
+  const base = VARIANT_CLASSES[variant];
+  const refused = tone === "refused";
+  const border = refused ? cx(variant === "add" && DASHED, "border-bad") : base.border;
+  // docs/DESIGN.md 3: a focused chip is `human-soft`, painted while its popover is open.
+  const fill = open ? "bg-human-soft" : "bg-surface";
+  const text = refused ? "text-bad" : open ? "text-ink" : base.text;
+  return cx(border, fill, text);
+}
 
 /** The sentence itself, whether it is a button, a popover trigger, or plain text. */
 const BODY = "inline-flex items-center rounded-full px-3";
 
 export type ChipVariant = keyof typeof VARIANT_CLASSES;
 
+/**
+ * `refused`: the chip states something that was not accepted, such as a filter the server
+ * would not apply. It is painted in `bad`, border and sentence. Colour is never the only
+ * signal (docs/DESIGN.md 10): the caller says what was refused in words, on the page.
+ */
+export type ChipTone = "plain" | "refused";
+
 export interface ChipProps {
   /** The sentence: `Stage is not Lost`, `Group by Stage`, `+ Add filter`. */
   children: ReactNode;
   variant?: ChipVariant;
+  /** See `ChipTone`. A prop and not a `className`, because a colour passed as a class loses
+   * to the chip's own (see the note above `VARIANT_CLASSES`). */
+  tone?: ChipTone;
   /**
    * The chip's accessible name, when the sentence alone does not read as one. Passed to the
    * popover trigger or the button; ignored by a chip that is neither.
@@ -83,6 +119,7 @@ export interface ChipProps {
    * says which filter it removes.
    */
   removeLabel?: string;
+  /** Layout only. A colour class here loses to the chip's own; use `tone`. */
   className?: string;
   "data-testid"?: string;
 }
@@ -90,6 +127,7 @@ export interface ChipProps {
 export function Chip({
   children,
   variant = "filter",
+  tone = "plain",
   label,
   popover,
   onOpenChange,
@@ -105,7 +143,8 @@ export function Chip({
   return (
     <span
       data-testid={testId}
-      className={cx(FRAME, VARIANT_CLASSES[variant], open && OPEN_CLASSES, className)}
+      data-tone={tone === "plain" ? undefined : tone}
+      className={cx(FRAME, chipColours(variant, open, tone), className)}
     >
       {popover ? (
         <Popover

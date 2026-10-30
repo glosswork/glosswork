@@ -21,8 +21,18 @@
  * "Today" for one reader and "Yesterday" for another, and both are correct.
  *
  * **It also holds the other direction**: what this frontend *sends* when a person picks a
- * date. That is the reverse of everything above, and it is UTC rather than the viewer's
- * timezone, because a value crossing the API is one instant for everybody.
+ * date. That is the reverse of everything above, and there are two answers, because a picked day
+ * is asked two different questions:
+ *
+ * - **A deadline is UTC** (`endOfPickedDayUtc`, the token expiry picker). "Expires 31 January"
+ *   has to be one instant for everybody, so the day is UTC's.
+ * - **A filter over a column is the viewer's day** (`instantForLocalDay`). The table shows each
+ *   timestamp in the viewer's timezone, so "before 7 Jan" has to cut where the viewer's 7 January
+ *   starts, or the filter disagrees with the rows beside it by up to a day's worth of them.
+ *
+ * So a saved view holds an instant, and the same view opened in another timezone holds an
+ * instant that is no longer a day boundary there. `localDayOfInstant` is what tells the two
+ * apart, so a filter chip can say a day when it means one and a time when it does not.
  */
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -129,4 +139,118 @@ export function endOfPickedDayUtc(pickedDate: string): string {
 export function todayUtc(now: Date = new Date()): string {
   const month = twoDigits(now.getUTCMonth() + 1);
   return `${now.getUTCFullYear()}-${month}-${twoDigits(now.getUTCDate())}`;
+}
+
+/** Which end of a calendar day: its first second, or its last (23:59:59). */
+export type DayEdge = "first" | "last";
+
+/** `YYYY-MM-DD`, ASCII digits only. `\d` would also match digits a server refuses. */
+const CALENDAR_DAY = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
+const CANONICAL_INSTANT = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
+
+/** The earliest year a typed day may carry. Below it a four-digit year is a typo (`0026`), and
+ * `Date` reads a year under 100 as 19xx when given as a number. */
+const MIN_YEAR = 1000;
+
+function canonicalInstant(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 19)}Z`;
+}
+
+/**
+ * The numbers of a real calendar day written as `YYYY-MM-DD`, or `null`.
+ *
+ * Built from the day's own numbers and **checked by turning the result back into a day**:
+ * `new Date(2026, 1, 31)` does not fail, it silently becomes 3 March, so a parse that succeeds
+ * proves nothing. Also refused: a year below 1000, and anything that is not exactly four, two
+ * and two ASCII digits, which covers the six-digit year `<input type="date">` allows.
+ */
+function calendarDayParts(day: string): [number, number, number] | null {
+  const match = CALENDAR_DAY.exec(day);
+  if (match === null) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const date = Number(match[3]);
+  if (year < MIN_YEAR) return null;
+  const built = new Date(year, month - 1, date);
+  if (built.getFullYear() !== year || built.getMonth() !== month - 1 || built.getDate() !== date) {
+    return null;
+  }
+  return [year, month, date];
+}
+
+/** Whether `day` is exactly `YYYY-MM-DD` and names a real calendar day from year 1000 on. */
+export function isCalendarDay(day: string): boolean {
+  return calendarDayParts(day) !== null;
+}
+
+/**
+ * Whether `value` is exactly `YYYY-MM-DDTHH:MM:SSZ` and names a real instant: the one datetime
+ * form the API stores, emits and accepts in a filter.
+ */
+export function isCanonicalInstant(value: string): boolean {
+  if (!CANONICAL_INSTANT.test(value)) return false;
+  const ms = Date.parse(value);
+  // `Date.parse` rolls `2026-02-30T00:00:00Z` into March; the round trip is the real check.
+  return !Number.isNaN(ms) && canonicalInstant(ms) === value;
+}
+
+/**
+ * The canonical UTC instant at the first or the last second of a calendar day **in the viewer's
+ * timezone**, or `null` when `day` is not a real day (`isCalendarDay`).
+ *
+ * Stored instants have whole seconds, so the last second of a day is exact: it is one second
+ * before the next day starts, not `23:59:59` assembled from parts, which would be wrong on a day
+ * that is 23 or 25 hours long.
+ *
+ * Where a zone's clocks skip midnight, `Date` resolves the missing local time forward, so the
+ * first second of that day is the first one that exists.
+ */
+export function instantForLocalDay(day: string, edge: DayEdge): string | null {
+  const parts = calendarDayParts(day);
+  if (parts === null) return null;
+  const [year, month, date] = parts;
+  if (edge === "first") return canonicalInstant(new Date(year, month - 1, date).getTime());
+  return canonicalInstant(new Date(year, month - 1, date + 1).getTime() - 1000);
+}
+
+/**
+ * The viewer's calendar day that `instant` is the first or the last second of, or `null` when it
+ * is neither: the inverse of `instantForLocalDay`.
+ *
+ * `null` is the ordinary answer for a view saved by a colleague in another timezone. Their
+ * first second of 7 January is some hour of the 6th here, and that is what the chip should say.
+ */
+export function localDayOfInstant(instant: string, edge: DayEdge): string | null {
+  if (!isCanonicalInstant(instant)) return null;
+  const local = new Date(Date.parse(instant));
+  const day = `${local.getFullYear()}-${twoDigits(local.getMonth() + 1)}-${twoDigits(local.getDate())}`;
+  return instantForLocalDay(day, edge) === instant ? day : null;
+}
+
+/** `7 Jan`, or `7 Jan 2025` outside the current year: `formatTimestamp`'s own dated form. */
+function datedWords(date: Date, now: Date): string {
+  const day = `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  return date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`;
+}
+
+/**
+ * A calendar day in the viewer's timezone, in the words a datetime column uses for it: `7 Jan`,
+ * `7 Jan 2025`. The value comes back unchanged when it is not a real day.
+ */
+export function formatLocalDay(day: string, now: Date = new Date()): string {
+  const parts = calendarDayParts(day);
+  if (parts === null) return day;
+  return datedWords(new Date(parts[0], parts[1] - 1, parts[2]), now);
+}
+
+/**
+ * An instant as day **and** time in the viewer's timezone: `6 Jan 21:00`. For a filter value
+ * that is not a day boundary here, where the time is the part that makes the sentence true.
+ * `formatTimestamp` drops the time for anything older than yesterday, which is right for a
+ * column and wrong for a bound.
+ */
+export function formatInstantWithTime(value: string, now: Date = new Date()): string {
+  const date = parse(value);
+  if (date === null) return value;
+  return `${datedWords(date, now)} ${clockTime(date)}`;
 }

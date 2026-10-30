@@ -58,7 +58,7 @@ export function FilterNodeView({ node, path, fields, actions, testId }: FilterNo
     <ConditionRow
       fields={fields}
       condition={node}
-      onChange={(condition) => actions.updateCondition(path, condition)}
+      onChange={(condition, typing) => actions.updateCondition(path, condition, typing)}
       onRemove={() => actions.removeNode(path)}
       onToggleNot={() => actions.toggleNot(path)}
       testId={testId}

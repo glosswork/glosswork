@@ -9,6 +9,10 @@ import { FormData as UndiciFormData } from "undici";
 // each test starts from an empty DOM instead of accumulating previous tests' render trees.
 afterEach(() => {
   cleanup();
+  // The table keeps its unsaved state in `sessionStorage` (`table-view/tableViewSession.ts`),
+  // and jsdom keeps one `sessionStorage` for a whole test file. Without this a filter applied in
+  // one test is the next test's initial state.
+  window.sessionStorage.clear();
 });
 
 /**

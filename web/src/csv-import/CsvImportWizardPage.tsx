@@ -19,6 +19,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { levelAllows, type FieldDoc } from "../api/objectTypes";
 import { ReadOnlyBanner } from "../access/ReadOnlyBanner";
 import { type CsvImportResult, importCsv } from "../api/csv";
+import { clearsSentence } from "./clearsSentence";
 import { useObjectType } from "../hooks/useObjectType";
 import { suggestFieldForHeader } from "./columnMatching";
 import { parseCsv, serializeCsv } from "./csvTable";
@@ -105,6 +106,7 @@ export function CsvImportWizardPage() {
   const [mode, setMode] = useState<ImportMode>("create");
   const [upsertKey, setUpsertKey] = useState<string>("");
   const [createMissingOptions, setCreateMissingOptions] = useState(false);
+  const [blankClears, setBlankClears] = useState(false);
   const [lastDryRun, setLastDryRun] = useState<CsvImportResult | null>(null);
   const [commitResult, setCommitResult] = useState<CsvImportResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,6 +163,7 @@ export function CsvImportWizardPage() {
     setMode("create");
     setUpsertKey("");
     setCreateMissingOptions(false);
+    setBlankClears(false);
     setSubmitError(null);
     invalidatePriorDryRun();
   };
@@ -172,6 +175,20 @@ export function CsvImportWizardPage() {
 
   const handleModeChange = (value: ImportMode) => {
     setMode(value);
+    // The box exists only in upsert mode, so leaving that mode unticks it: coming back must
+    // not find it ticked by a choice made before the mode changed twice.
+    setBlankClears(false);
+    invalidatePriorDryRun();
+  };
+
+  /**
+   * Ticking or clearing the box discards the last dry run, through the same
+   * `invalidatePriorDryRun` every other option calls. `Commit` is enabled by a clean dry run, so
+   * without this a dry run taken with the box off would enable a commit taken with it on, and
+   * the commit would clear values no dry run had reported.
+   */
+  const handleBlankClearsChange = (checked: boolean) => {
+    setBlankClears(checked);
     invalidatePriorDryRun();
   };
 
@@ -196,6 +213,7 @@ export function CsvImportWizardPage() {
         upsertKey: mode === "upsert" ? upsertKey : undefined,
         dryRun,
         createMissingOptions,
+        blankClears: mode === "upsert" && blankClears,
       });
     } catch (caught) {
       // The raw `caught.body` — the server's JSON envelope text itself — never renders
@@ -330,6 +348,23 @@ export function CsvImportWizardPage() {
             (FR-E3).
           </Checkbox>
 
+          {mode === "upsert" && (
+            <div>
+              <Checkbox
+                aria-label="Blank cells clear the field"
+                checked={blankClears}
+                onChange={(event) => handleBlankClearsChange(event.target.checked)}
+              >
+                Blank cells clear the field
+              </Checkbox>
+              <p className="mt-1 max-w-xl text-sm text-ink-2">
+                Off: a blank cell leaves the record's value as it is. On: a blank cell in a
+                column you mapped removes whatever the record holds now, including a value added
+                since the file was exported. Linked records are never removed by an import.
+              </p>
+            </div>
+          )}
+
           <h2 className={stepHeadingClass}>Dry run</h2>
           <Button
             type="button"
@@ -346,7 +381,13 @@ export function CsvImportWizardPage() {
                 <Alert
                   tone="success"
                   title={`Dry run passed: ${lastDryRun.created} would be created, ${lastDryRun.updated} would be updated.`}
-                />
+                >
+                  {blankClears && (
+                    <span data-testid="import-clears-dry-run">
+                      {clearsSentence(lastDryRun, fields, "will be cleared")}
+                    </span>
+                  )}
+                </Alert>
               ) : (
                 <>
                   <p className="text-sm font-semibold text-bad">
@@ -390,7 +431,13 @@ export function CsvImportWizardPage() {
             <Alert
               tone="success"
               title={`Import complete: ${commitResult.created} created, ${commitResult.updated} updated.`}
-            />
+            >
+              {blankClears && (
+                <span data-testid="import-clears-commit">
+                  {clearsSentence(commitResult, fields, "cleared")}
+                </span>
+              )}
+            </Alert>
           )}
         </>
       )}

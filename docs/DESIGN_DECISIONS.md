@@ -656,8 +656,16 @@ Advanced filter. An incomplete condition never reaches the network.
 
 **Why.** Everyday filters read as sentences, without losing the full grammar.
 
+A value box that can be half-typed in the Advanced builder shows each key at once and sends after
+300 ms without another key; Enter, leaving the box and closing the builder send at once, and a
+choice made from a list is never delayed. A chip sends nothing until its condition is complete.
+
+**Why.** Everyday filters read as sentences, without losing the full grammar. The pause exists
+because a relative date typed key by key is a run of refused requests (DD-48), and a refused
+request replaces the table.
+
 **Held by.** `web/src/table-view/FilterChipRow.test.tsx`,
-`web/src/table-view/TableView.incompleteFilter.test.tsx`.
+`web/src/table-view/TableView.incompleteFilter.test.tsx`, `web/e2e/table-pilot-findings.spec.ts`.
 
 **See.** `docs/DESIGN.md` section 7.4; `docs/MCP_TOOLS.md` section 4.
 
@@ -741,3 +749,80 @@ trial, `read` tokens included, so it must never carry a token or any other secre
 **Held by.** `tests/test_api_workspace.py`, `tests/test_config.py`, `web/e2e/trial-banner.spec.ts`.
 
 **See.** `docs/DESIGN.md` sections 7.13 and 8.1; `docs/DEPLOYMENT.md` section 6a; `PRD.md` FR-P12.
+
+### DD-48: A date in a filter is exact, and a refused filter shows no rows
+
+A date literal in a filter is `YYYY-MM-DD` for a `date` field, and `YYYY-MM-DDTHH:MM:SSZ` or
+`YYYY-MM-DD` for a `datetime` field or a datetime system field, or a date token such as
+`@today-7d`. Anything else is `validation_failed`, 422, carrying the field's key and a message that
+names the accepted forms. "Exactly" is a full match on ASCII digits followed by a calendar check,
+so `2026-1-7`, `2026-02-30`, a lower-case `z`, a fractional second and an offset are all refused.
+On a `datetime` field a bare day means that day at 00:00:00 UTC, an instant. Every operator and
+every caller reaches the rule, because they share the filter parser: `query_records`, `search`,
+`bulk_update_records` and CSV export refuse alike, and a refused bulk update writes nothing. The
+table does the day arithmetic for people, so "is on or before 7 Jan" includes the whole day in the
+viewer's zone, and `is` and `is not` with a bare day wait for an exact time. When the server
+refuses a table's filter, the table area shows its message and a way to clear the filter, and no
+rows and no count. It never keeps the previous rows under a filter that did not produce them, and a
+refusal is never worded as an empty result.
+
+**Why.** A literal the comparison cannot read used to answer 200 with the wrong rows, by text
+ordering, and a table filtered by `7 Jan 2026` looked applied over every record. Refusing is the
+only answer that cannot be mistaken for data. The write path still accepts lenient values and
+stores them as sent, so a value written unpadded cannot be matched by equality until it is
+rewritten. That is the timestamp rule's remaining gap, and the strict checks in `timeutil` are
+there to close it.
+
+**Held by.** `tests/test_filter_date_literals.py`, `web/src/filters/dateFilterValue.test.ts`,
+`web/src/filters/ValueInput.test.tsx`, `web/e2e/table-pilot-findings.spec.ts`.
+
+**See.** `docs/MCP_TOOLS.md` section 4; `docs/DATA_MODEL.md` section 4; `docs/DESIGN.md` sections
+7.4 and 8.2; `PRD.md` FR-R8.
+
+### DD-49: An import clears a field only when asked, and counts what it clears
+
+A blank CSV cell leaves the record's value as it is. `blank_clears`, off by default and refused
+with `mode=create`, makes a blank cell in a mapped column remove the current value on a row that
+updates an existing record. It is a flag and never a cell token (DD-20): the text `null` and `\N`
+are still stored as text. A column the file does not carry is never cleared, a short row is blank
+in the cells it lacks, a cell of spaces is not blank, a required field's blank is a row error
+naming the field, relation columns stay add-only and attachment columns stay refused. The result
+carries `cleared`, the count of field values removed, and `cleared_by_field`. One clear is one
+record and field that holds a value before the import and none after it, so two rows naming one
+record are folded in file order. A dry run counts from validation and a commit counts inside the
+write transaction from what each record held just before its update, so a dry run is a prediction
+of the commit (DD-22), and both are zero and empty without the flag or when any row has an error.
+The import wizard shows one checkbox in upsert mode, and changing it discards the last dry run.
+
+**Why.** A re-import could change a value and never remove one, which left a spreadsheet and the
+workspace disagreeing with no way to say so. Making the clear opt-in keeps every existing import
+as it was. The import writes without a version check, so a clear removes what the record holds
+now, including a value added since the file was exported. The count is the guard, and the record's
+history can restore the value.
+
+**Held by.** `tests/test_csv_blank_clears.py`, `tests/test_csv_import_export.py`,
+`web/src/csv-import/CsvImportWizardPage.test.tsx`, `web/src/csv-import/clearsSentence.test.ts`.
+
+**See.** `docs/DATA_MODEL.md` section 4; `docs/MCP_TOOLS.md` section 8; `PRD.md` FR-E1 and FR-E2.
+
+### DD-50: Unsaved table state lives in the tab, for the person who signed in
+
+A table's unsaved filter, sort, grouping, columns, pins and selected view are kept in
+`sessionStorage` under `gw.table-view.<object type key>`, with the principal id, and are read as
+the table's initial state, so a default saved view is not applied over them. Leaving the table and
+coming back restores them; another tab, another type and a new browser session do not see them.
+Sign-out removes every such key before it calls the sign-out route, every sign-in removes each
+entry whose principal is not the one who just signed in, and a read of another principal's entry
+ignores and removes it. Choosing a saved view, "no view" included, replaces the stored state.
+Columns can be pinned: `pinned` in a view's `config` lists field keys, absent means the display
+field and an empty list means none.
+
+**Why.** Entries are filter values, which can be a name, an email address or a record key, and a
+shared browser must not show one person's working state to the next. The server stores nothing for
+this, so a stale entry cannot be saved against a view somebody deleted: a stored view id the list
+does not contain becomes "no view".
+
+**Held by.** `web/src/table-view/tableViewSession.test.ts`, `web/src/table-view/columnPins.test.ts`,
+`web/src/table-view/tableViewConfig.test.ts`, `web/e2e/table-pilot-findings.spec.ts`.
+
+**See.** `docs/DESIGN.md` section 8.2; `docs/DATA_MODEL.md` section 11; `PRD.md` FR-U1.

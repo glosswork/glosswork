@@ -15,6 +15,7 @@ import {
   verifySignInCode,
   type CurrentPrincipal,
 } from "../api/auth";
+import { clearTableViewSessions, sweepTableViewSessions } from "../table-view/tableViewSession";
 import { AuthContext, type AuthContextValue, type AuthStatus } from "./authContext";
 
 export interface AuthProviderProps {
@@ -42,6 +43,9 @@ export function AuthProvider({ children, initialPrincipal }: AuthProviderProps) 
     getCurrentPrincipal()
       .then((me) => {
         if (!cancelled) {
+          // A page that loads already signed in is a sign-in too: it is where an OIDC
+          // redirect lands, and where a tab ends up after its session was replaced.
+          sweepTableViewSessions(me.id);
           setPrincipal(me);
           setStatus("authenticated");
         }
@@ -61,17 +65,24 @@ export function AuthProvider({ children, initialPrincipal }: AuthProviderProps) 
 
   const login = useCallback(async (email: string, password: string) => {
     const me = await loginRequest(email, password);
+    sweepTableViewSessions(me.id);
     setPrincipal(me);
     setStatus("authenticated");
   }, []);
 
   const loginWithCode = useCallback(async (email: string, code: string) => {
     const me = await verifySignInCode(email, code);
+    sweepTableViewSessions(me.id);
     setPrincipal(me);
     setStatus("authenticated");
   }, []);
 
   const logout = useCallback(async () => {
+    // Before the request, not after it: unsaved table state holds filter values, which can be
+    // a name or an email address, and a sign-out whose request fails must not leave them in
+    // the tab for the next person. Every sign-in sweeps as well (above), for the session that
+    // ends without this ever running (`table-view/tableViewSession.ts`).
+    clearTableViewSessions();
     await logoutRequest();
     setPrincipal(null);
     setStatus("unauthenticated");

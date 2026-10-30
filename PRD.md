@@ -195,8 +195,8 @@ building sharding, caching tiers, or a background job cluster.
   nests at most 32 nodes deep. All of them are published in `describe_capabilities`, enforced in
   the service layer so REST and MCP refuse identically, and a cursor whose values have been
   altered is `validation_failed` rather than a 500.
-- **FR-R8.** Relative date tokens are accepted in date filters (`@today`, `@today-7d`,
-  `@start_of_month`, `@now+30d`) so agents can express recency without computing dates.
+- **FR-R8.** Date filters accept relative tokens (`@today`, `@today-7d`, `@start_of_month`) and
+  otherwise only `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SSZ`; any other literal is refused (DD-48).
 - **FR-R9.** A `@me` token resolves to the calling principal in `user_ref` filters.
 - **FR-R10.** Bulk update accepts a filter plus a value patch, returns affected count, and
   supports dry-run.
@@ -339,7 +339,7 @@ Full tool catalog: [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
   next/previous over the query's keyset cursor rather than stopping at one page. **A person can
   create a record here** (DD-44): a primary `New <type>` on the title line, over the
   fields the create route accepts, landing on the new record's page; relations and attachments
-  are refused at create and are managed on the record page (FR-U2).
+  are refused at create and are managed on the record page (FR-U2). Columns pin (DD-50).
 - **FR-U2.** **Card/detail view.** Full record display with all fields, editable in place through
   the same write path the table's inline cell edit uses, plus the comment thread, linked records,
   and the audit timeline. **Attachment fields are managed here** (DD-27): upload, download
@@ -514,7 +514,7 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
 ### 6.11 Import and export
 
 - **FR-E1.** CSV import supports create-only and upsert modes. Upsert matches on record key or on
-  any field marked unique.
+  any field marked unique. `blank_clears` makes a blank cell clear (DD-49).
 - **FR-E2.** Import is transactional per batch: a dry-run reports all validation errors, and the
   commit either fully succeeds or fully rolls back. **A dry run is a prediction of the commit**
   (DD-22): it reports the `created` and `updated` counts the commit will produce, and
@@ -522,7 +522,7 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
   rolls back" covers a row that fails at *write* time and not only one caught in validation: the
   whole batch runs in one transaction, so a uniqueness collision at row *n* leaves rows 1 to *n-1*
   unwritten. Rows are also validated against each other, so two rows of one file competing for the
-  same unique value are a dry-run error rather than a surprise at commit.
+  same unique value are a dry-run error rather than a surprise at commit. Clears are counted.
 - **FR-E3.** Import can create missing enum options when explicitly permitted, otherwise unknown
   option values are validation errors.
 - **FR-E4.** Import resolves relation columns by target record key. **Import is add-only for

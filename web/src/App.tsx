@@ -33,6 +33,7 @@ import { Sidebar } from "./app/Sidebar";
 import { ShellTopBar } from "./app/ShellTopBar";
 import { TrialBanner } from "./app/TrialBanner";
 import { useSearchHotkey } from "./app/useSearchHotkey";
+import { cx } from "./ui/cx";
 import { useIsWideViewport } from "./hooks/useIsWideViewport";
 import { useObjectTypes } from "./hooks/useObjectTypes";
 import { usePendingProposalCount } from "./hooks/usePendingProposalCount";
@@ -82,7 +83,20 @@ function Shell() {
       {isWide ? <Sidebar {...shellProps} /> : <ShellTopBar {...shellProps} />}
       {/* `min-w-0` is load-bearing beside a flex sibling: without it a wide table's intrinsic
           width pushes `main` past the viewport instead of scrolling inside its own card. */}
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+      {/* **No `overflow` of its own beside the sidebar, on either axis.** The window is the
+          scroller: `main` is as tall as its content inside a `min-h-screen` row, so an
+          `overflow-y-auto` here never scrolled anything, and what it did do was make `main` a
+          scroll container, which stops anything inside it sticking to the window. The table's
+          toolbar sticks (`TableView.tsx`), so `main` must stay `visible`; any other value on
+          either axis brings the scroll container back.
+
+          The price is that `main` no longer absorbs sideways overflow: something wider than it
+          now scrolls the page, and the sticky sidebar with it. A wide table scrolls inside its
+          own wrapper and a popover keeps itself inside the viewport (`ui/Popover.tsx`), and
+          `e2e/table-pilot-findings.spec.ts` asserts no shell route scrolls the page sideways.
+
+          Under the top bar, below the `shell` breakpoint, nothing sticks and it is unchanged. */}
+      <main className={cx("min-w-0 flex-1 px-6 py-5", !isWide && "overflow-y-auto")}>
         {/* Only for a workspace on trial: a document that has arrived and whose `trial` is an
             object. `null` and no key at all are the same case, and then nothing is rendered
             here, so a self-hosted workspace's markup is what it was. The first child of

@@ -163,11 +163,121 @@ describe("FilterBuilder: the date value input accepts a free-text relative token
     await user.type(valueInput, "@today-7d");
 
     expect(valueInput).toHaveValue("@today-7d");
-    expect(onChange).toHaveBeenLastCalledWith({
-      field: "target_date",
-      op: "eq",
-      value: "@today-7d",
-    });
+    // A typed value is sent when typing pauses, so the assertion waits for it.
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith({
+        field: "target_date",
+        op: "eq",
+        value: "@today-7d",
+      }),
+    );
+  });
+});
+
+/**
+ * A typed value is shown at once and sent when typing pauses. Enter, leaving the box and the
+ * builder unmounting each send it immediately, whole, and exactly once.
+ *
+ * Real timers, and deliberately: the claim is about what has and has not been sent at the
+ * moment the last key lands, and `userEvent.type` returns at that moment, well inside the
+ * pause. `sent` counts only calls that carry the typed field, because choosing the field is
+ * itself a change and is not what is being measured.
+ */
+describe("FilterBuilder: a typed value is sent when typing pauses", () => {
+  const whole = { field: "title", op: "eq", value: "Atlas" };
+
+  async function typeIntoTitle() {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const view = renderWithProviders(
+      <FilterBuilder
+        fields={filterBuilderFields}
+        systemFields={[]}
+        initialFilter={null}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "+ Condition" }));
+    const row = screen.getByTestId("filter-node-root");
+    await user.selectOptions(within(row).getByLabelText("Field"), "title");
+    const box = within(row).getByLabelText("Title value");
+    await user.type(box, "Atlas");
+    const sent = () =>
+      onChange.mock.calls
+        .map(([tree]) => tree as { value?: unknown } | null)
+        .filter((tree) => tree !== null && tree.value !== undefined);
+    return { user, box, sent, view, onChange };
+  }
+
+  const afterThePause = () => new Promise((resolve) => setTimeout(resolve, 450));
+
+  it("shows every key at once and sends nothing until typing pauses, then the whole value once", async () => {
+    const { box, sent } = await typeIntoTitle();
+    expect(box).toHaveValue("Atlas");
+    // Five keys, five complete values (`A`, `At`, ...), and none of them sent.
+    expect(sent()).toEqual([]);
+
+    await waitFor(() => expect(sent()).toEqual([whole]));
+    await afterThePause();
+    expect(sent()).toEqual([whole]);
+  });
+
+  it("sends at once on Enter, and not again when the pause ends", async () => {
+    const { user, box, sent } = await typeIntoTitle();
+    await user.keyboard("{Enter}");
+    expect(sent()).toEqual([whole]);
+    expect(box).toHaveValue("Atlas");
+    await afterThePause();
+    expect(sent()).toEqual([whole]);
+  });
+
+  it("sends at once when focus leaves the box", async () => {
+    const { user, box, sent } = await typeIntoTitle();
+    await user.tab();
+    expect(sent()).toEqual([whole]);
+    expect(box).toHaveValue("Atlas");
+    await afterThePause();
+    expect(sent()).toEqual([whole]);
+  });
+
+  it("sends at once when the builder unmounts, which is what closing its popover does", async () => {
+    const { sent, view } = await typeIntoTitle();
+    view.unmount();
+    expect(sent()).toEqual([whole]);
+    await afterThePause();
+    expect(sent()).toEqual([whole]);
+  });
+
+  it("does not send a typed value again when another change follows it", async () => {
+    const { user, sent, onChange } = await typeIntoTitle();
+    // Clicking `NOT` takes focus out of the box, which sends the typed value, and is then a
+    // change of its own, sent at once. Two sends, each once, and no third when the pause ends.
+    await user.click(screen.getByRole("button", { name: "NOT" }));
+    expect(sent()).toEqual([whole]);
+    expect(onChange).toHaveBeenLastCalledWith({ not: whole });
+    const calls = onChange.mock.calls.length;
+    await afterThePause();
+    expect(onChange.mock.calls.length).toBe(calls);
+  });
+
+  it("sends a chosen value at once: a select cannot be half-typed", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithProviders(
+      <FilterBuilder
+        fields={filterBuilderFields}
+        systemFields={[]}
+        initialFilter={null}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "+ Condition" }));
+    const row = screen.getByTestId("filter-node-root");
+    await user.selectOptions(within(row).getByLabelText("Field"), "status");
+    const options = within(row).getByLabelText("Status value") as HTMLSelectElement;
+    const chosen = options.options[1].value;
+    await user.selectOptions(options, chosen);
+    expect(onChange).toHaveBeenLastCalledWith({ field: "status", op: "eq", value: chosen });
   });
 });
 

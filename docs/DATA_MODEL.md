@@ -504,6 +504,16 @@ handing the picker's `YYYY-MM-DD` to `new Date(string)` reads it as UTC, and han
 wrong calendar day for a viewer whose timezone is not UTC. Section 5 of `docs/DESIGN.md` states
 the parallel rule for reading a stored date-only value back out.
 
+**A filter literal on a date field follows the same rule** (DD-48). A `date` field compares
+against `YYYY-MM-DD`. A `datetime` field, and the datetime system fields, compare against
+`YYYY-MM-DDTHH:MM:SSZ` or `YYYY-MM-DD`, which is rewritten to that day at `T00:00:00Z` so the
+comparison is between instants: `lte 2026-01-07` stops at the first second of the 7th, and `eq
+2026-01-07` matches only that second. The check is a full match on ASCII digits and then a calendar
+check, both in `timeutil`, so `2026-1-7`, `2026-02-30`, a lower-case `z`, a fractional second and an
+offset are refused. The write path still checks with the lenient parsers and stores what it was
+given, so a value written unpadded sorts as text and cannot be matched by equality until it is
+rewritten.
+
 Absent optional values are stored by **omitting the key** from `data`, not by writing `null`. This
 makes `is_null` and `is_not_null` unambiguous and keeps documents small.
 
@@ -609,6 +619,20 @@ Three costs, stated rather than discovered:
   exactly on all four guarded types.
 
 The JSON export (`/admin/export`) is out of scope: it is a document, not a spreadsheet.
+
+### Blank CSV cells (DD-49)
+
+A blank cell is the empty string after the DD-20 restore. By default it changes nothing on a row
+that updates an existing record, and takes the field's default on a row that creates one. With
+`blank_clears` on an upsert, each mapped column whose cell is blank is cleared on the record that
+row resolves to. The clears are added to a row's values after the row is resolved and after the
+in-file uniqueness pass, never while the row is built: a `None` placed earlier would make two rows
+that each clear the same unique field fail as claiming one value, and would send a row whose
+matching field is blank down the lookup with no value. A cell of spaces is not blank, `null` and
+`\N` are stored as text, a row shorter than the header is blank in the cells it lacks, and a
+required field's blank is a row error. Relation columns are add-only and attachment columns are
+refused at the header. The import writes without a version check, so a clear removes what the
+record holds now.
 
 ## 5. Records
 
@@ -1370,7 +1394,7 @@ CREATE TABLE saved_views (
   name           TEXT NOT NULL,
   description    TEXT,
   mode           TEXT NOT NULL DEFAULT 'table',  -- 'table' | 'card'
-  config         TEXT NOT NULL,                  -- JSON: filter, sort, group_by, columns, widths
+  config         TEXT NOT NULL,                  -- JSON: filter, sort, group_by, columns, widths, pinned
   is_default     INTEGER NOT NULL DEFAULT 0,
   created_at     TEXT NOT NULL,
   created_by     TEXT NOT NULL REFERENCES principals(id),
@@ -1382,6 +1406,11 @@ CREATE UNIQUE INDEX ix_views_default
 ```
 
 All views are shared and visible to all members at MVP (see PRD open items).
+
+`config` is validated as a JSON object and nothing more. Its `pinned` member is an array of field
+keys that stay in view while the table scrolls sideways (DD-50). Absent, as in every view saved
+before pinning, means the object type's display field; an empty array means nothing is pinned. A
+key naming a field since removed is ignored when the table is drawn.
 
 ## 12. Storage abstraction
 

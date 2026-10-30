@@ -5,6 +5,7 @@
  */
 import type { FilterableField } from "./filterableFields";
 import type { FilterCondition } from "./types";
+import { isTypedValueWidget } from "./typedValueWidget";
 import { ValueInput } from "./ValueInput";
 import { Button } from "../ui/Button";
 import { btnSmClass, compactSelectClass } from "../ui/classes";
@@ -12,7 +13,8 @@ import { btnSmClass, compactSelectClass } from "../ui/classes";
 export interface ConditionRowProps {
   fields: FilterableField[];
   condition: FilterCondition;
-  onChange: (condition: FilterCondition) => void;
+  /** `typing`: the change is a key in a value box that can be half-typed. */
+  onChange: (condition: FilterCondition, typing?: boolean) => void;
   onRemove: () => void;
   onToggleNot: () => void;
   testId: string;
@@ -39,7 +41,10 @@ export function ConditionRow({
   };
 
   const handleValueChange = (value: unknown) => {
-    onChange({ ...condition, value });
+    onChange(
+      { ...condition, value },
+      field !== undefined && isTypedValueWidget(field, condition.op),
+    );
   };
 
   return (

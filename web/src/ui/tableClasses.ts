@@ -60,9 +60,21 @@ export const tableClassFor = (density: Density): string =>
  */
 export const recordsTableClass = tableClass + " table-fixed";
 
-/** The records table at a chosen density — the one table with a toggle. */
+/**
+ * The records table at a chosen density — the one table with a toggle.
+ *
+ * **`border-separate` with no spacing, and it is what makes a pinned column possible.** Every
+ * table here starts from `border-collapse`, and in a collapsed table the borders belong to the
+ * table's grid and not to the cells: a `position: sticky` cell moves and its borders stay
+ * behind. Measured on this table, a 2px red right-hand border set on every sticky cell was
+ * painted nowhere once the table had scrolled, so a stuck cell would have lost its row rule.
+ * Separate borders with no spacing draw the same picture, because these cells only ever carry a
+ * bottom border and so nothing doubles, and each border travels with its own cell. The two
+ * classes come after `border-collapse` in the generated stylesheet as well as in this string,
+ * and `ui-visual.spec.ts`'s table baselines are what would show it if they stopped winning.
+ */
 export const recordsTableClassFor = (density: Density): string =>
-  tableClassFor(density) + " table-fixed";
+  tableClassFor(density) + " table-fixed border-separate [border-spacing:0]";
 
 const TH_BASE =
   "whitespace-nowrap border-b border-line-2 bg-ground px-3 text-left text-2xs " +
@@ -88,6 +100,35 @@ export const tdClass = tdClassFor("comfortable");
 
 /** Row-selection tint; the `td`s are transparent, so the `tr` background shows through. */
 export const selectedRowClass = "bg-human-soft";
+
+/**
+ * A pinned column's cells, at the `shell` breakpoint and wider: stuck to the left edge of the
+ * table's own scroller while the other columns pass under them. The `left` offset is an inline
+ * style, because it is the summed width of the pinned columns before this one. Below the
+ * breakpoint the classes do nothing and the table scrolls as a whole.
+ *
+ * **A stuck cell needs its own ground.** Body cells are transparent and the row carries the
+ * hover and selection tints, so a pinned cell with no background would show the cells scrolling
+ * under it. It takes the same three states from the row: `surface` at rest, `ground` on hover
+ * (`group` is on the `tr`), `human-soft` when selected. The header already has its `ground` fill.
+ *
+ * Its row rule is its own bottom border, which travels with it because the records table
+ * separates its borders (`recordsTableClassFor`).
+ *
+ * `z-10` is below the table toolbar's `z-20`, so a stuck toolbar covers a stuck column where
+ * they cross.
+ */
+export const pinnedCellClass = "shell:sticky shell:z-10 bg-surface group-hover:bg-ground";
+export const pinnedSelectedCellClass =
+  "shell:sticky shell:z-10 bg-human-soft group-hover:bg-ground";
+export const pinnedHeaderClass = "shell:sticky shell:z-10";
+
+/**
+ * The right-most pinned column's dividing rule, on its header and its cells alike. An inset
+ * shadow rather than a right-hand border: it takes no width from the column, so pinning a
+ * column moves nothing in it.
+ */
+export const lastPinnedClass = "shell:shadow-[inset_-1px_0_0_var(--color-line-2)]";
 
 /** docs/DESIGN.md 7.7: group headers are 32px, `ground` fill, sans 600 13px. Not a density
  * preset — 2.4 lists four rows and this is not one of them — so it takes one height. */

@@ -17,6 +17,12 @@ export interface ColumnStateConfig {
   order: string[];
   visibility: Record<string, boolean>;
   sizing: Record<string, number>;
+  /**
+   * The pinned field keys. Absent on every view saved before pinning existed, where it means
+   * "the display field"; an explicit empty list means nothing is pinned
+   * (`columnPins.ts::resolvePinned`).
+   */
+  pinned?: string[];
 }
 
 export interface TableViewConfig {

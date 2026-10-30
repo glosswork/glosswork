@@ -16,6 +16,7 @@ import { levelAllows, type ObjectTypeDetail } from "../api/objectTypes";
 import { ReadOnlyBanner } from "../access/ReadOnlyBanner";
 import { updateRecord, type QueryResult, type RecordDoc } from "../api/records";
 import type { SavedView } from "../api/savedViews";
+import { useAuth } from "../auth/useAuth";
 import { ownsFilterError } from "../filters/chipFilter";
 import type { FilterNode } from "../filters/types";
 import { BulkToolbar } from "./BulkToolbar";
@@ -30,6 +31,7 @@ import {
   SELECT_COLUMN_ID,
 } from "./columns";
 import { ColumnPicker } from "./ColumnPicker";
+import { pinPlacement, resolvePinned } from "./columnPins";
 import { DensityToggle } from "./DensityToggle";
 import { FilterChipRow } from "./FilterChipRow";
 import { readDensity, resolveDensity, writeDensity, type Density } from "../ui/density";
@@ -52,6 +54,11 @@ import { ViewMenu } from "./ViewMenu";
 import type { SortKey } from "./sortSpec";
 import { cycleSingleSort } from "./sortSpec";
 import { defaultTableViewConfig, parseTableViewConfig, serializeTableViewConfig } from "./tableViewConfig";
+import {
+  readTableViewSession,
+  resolveSelectedViewId,
+  writeTableViewSession,
+} from "./tableViewSession";
 import type { TableViewConfig } from "./types";
 import { useBulkDelete } from "./useBulkDelete";
 import { useBulkEdit } from "./useBulkEdit";
@@ -62,7 +69,11 @@ import { cx } from "../ui/cx";
 import { EmptyState } from "../ui/EmptyState";
 import {
   groupTdClass,
+  lastPinnedClass,
   numCellClass,
+  pinnedCellClass,
+  pinnedHeaderClass,
+  pinnedSelectedCellClass,
   recordsTableClassFor,
   rowClass,
   selectedRowClass,
@@ -103,7 +114,26 @@ export function TableView({ objectType }: TableViewProps) {
     [fields],
   );
 
-  const initial = useMemo(() => defaultTableViewConfig(fields), [fields]);
+  const principalId = useAuth().principal?.id ?? null;
+  const displayFieldKey = objectType.effective_display_field_key;
+
+  /**
+   * What this tab last held for this table, read once, at mount (`tableViewSession.ts`).
+   *
+   * It is the table's **initial state**, not something applied by an effect after the first
+   * render. An effect would send one unfiltered query first, and those unfiltered rows are what
+   * the table would then keep on screen if the restored filter were refused. When there is a
+   * restored entry the default saved view is not applied on top of it: the person's own last
+   * state wins over the type's default.
+   */
+  const [restored] = useState(() => readTableViewSession(objectType.key, principalId));
+  const initial = useMemo(
+    () =>
+      restored !== null
+        ? parseTableViewConfig(restored.config, fields)
+        : defaultTableViewConfig(fields),
+    [fields, restored],
+  );
   const [filter, setFilter] = useState<FilterNode | null>(initial.filter);
   const [sortKeys, setSortKeys] = useState<SortKey[]>(initial.sort);
   const [groupBy, setGroupBy] = useState<string | null>(initial.groupBy);
@@ -112,8 +142,14 @@ export function TableView({ objectType }: TableViewProps) {
     initial.columns.visibility,
   );
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>(initial.columns.sizing);
+  /** The pinned field keys, resolved: a config with no `pinned` member pins the display field. */
+  const [columnPinned, setColumnPinned] = useState<string[]>(() =>
+    resolvePinned(initial.columns.pinned, displayFieldKey),
+  );
   const [rowSelection, setRowSelection] = useState<Record<string, true>>({});
-  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [storedViewId, setSelectedViewId] = useState<string | null>(
+    restored?.selectedViewId ?? null,
+  );
   const [viewGeneration, setViewGeneration] = useState(0);
   const [conflict, setConflict] = useState<InlineEditConflict | null>(null);
   /** Whether the create dialog is mounted. `ui/Dialog`'s open/close model IS
@@ -176,17 +212,23 @@ export function TableView({ objectType }: TableViewProps) {
       setColumnOrder(config.columns.order);
       setColumnVisibility(config.columns.visibility);
       setColumnSizing(config.columns.sizing);
+      setColumnPinned(resolvePinned(config.columns.pinned, displayFieldKey));
       setViewDensity(config.density);
       setRowSelection({});
       setViewGeneration((generation) => generation + 1);
     },
-    [],
+    [displayFieldKey],
   );
 
   const savedViewsQuery = useSavedViewsList(objectType.key);
   const savedViewMutations = useSavedViewMutations(objectType.key);
   const appliedDefaultRef = useRef(false);
   const savedViews = useMemo<SavedView[]>(() => savedViewsQuery.data ?? [], [savedViewsQuery.data]);
+  // A view id restored from the tab, or held since before somebody deleted the view, that is not
+  // in the list once the list arrives is "no view": `Save` must never be offered against a view
+  // that no longer exists. Derived rather than corrected in an effect, so nothing renders with
+  // the stale id in between.
+  const selectedViewId = resolveSelectedViewId(storedViewId, savedViewsQuery.data);
 
   useEffect(() => {
     // One-time synchronization from the saved-views query (an external system) into local
@@ -194,6 +236,9 @@ export function TableView({ objectType }: TableViewProps) {
     // become known." Deliberate, not a derived-render calculation.
     if (appliedDefaultRef.current || !savedViewsQuery.isSuccess) return;
     appliedDefaultRef.current = true;
+    // The tab's own restored state is already the table's state; the default is for a table
+    // opened with nothing remembered.
+    if (restored !== null) return;
     const defaultView = savedViews.find((view) => view.is_default);
     if (defaultView) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -228,9 +273,36 @@ export function TableView({ objectType }: TableViewProps) {
       columnOrder,
       columnVisibility,
       columnSizing,
+      columnPinned,
       density,
       mode: "table",
     });
+
+  /**
+   * Keep the tab's copy in step with the table. Written once the saved views have arrived (or
+   * there was a restored entry to begin with), and not before: an entry written in the moment
+   * between mount and the default view being applied would hold the unfiltered defaults, and
+   * the next visit would restore those instead of applying the default view.
+   */
+  const sessionReady = restored !== null || savedViewsQuery.isSuccess;
+  useEffect(() => {
+    if (!sessionReady || principalId === null) return;
+    writeTableViewSession(objectType.key, principalId, selectedViewId, currentConfig());
+    // `currentConfig` is rebuilt every render from exactly the values listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sessionReady,
+    principalId,
+    objectType.key,
+    selectedViewId,
+    filter,
+    sortKeys,
+    groupBy,
+    columnOrder,
+    columnVisibility,
+    columnSizing,
+    columnPinned,
+  ]);
 
   const handleSave = () => {
     if (selectedViewId) void savedViewMutations.saveExisting(selectedViewId, currentConfig());
@@ -255,34 +327,35 @@ export function TableView({ objectType }: TableViewProps) {
 
   /**
    * Completeness is not acceptance: the compiler refuses complete values too — a `date`
-   * that is neither ISO nor a token, an unresolvable `user_ref`, a relation key naming no record
-   * — and answers `422 validation_failed` naming the field. When the chip row can say **which
-   * chip** that field belongs to, the refusal belongs in that chip's popover and the previous
-   * result set stays on screen; a `validation_failed` naming nothing in the filter did not come
-   * from the filter, and keeps the page-level alert.
+   * that is neither canonical nor a token, an unresolvable `user_ref`, a relation key naming no
+   * record, a mistyped date token — and answers `422 validation_failed`.
+   *
+   * **A refused filter shows no rows, by whatever path it arrived**: a typed chip, the Advanced
+   * builder, a saved view picked from the View menu, a default view, a filter restored from the
+   * tab. The table area says `This filter could not be applied.` with the server's own sentence
+   * and `Clear filter` beside it. This table once kept the previous result on screen under the
+   * refused filter and marked the chip. Rows under a filter that did not produce them are a
+   * wrong answer presented as right, which is the defect this screen was reported for, and a
+   * mark on a chip is not enough to undo that reading (decided by the maintainer, 2026-10-12).
+   *
+   * `filterRefusal` is every `validation_failed` answered while a filter is set: the request
+   * carried the filter and the server would not run it. `filterError` is the narrower thing
+   * the chip row needs, a refusal naming a field one of its chips carries, so it can paint that
+   * chip. A `validation_failed` with no filter set did not come from a filter and keeps the
+   * page-level alert.
+   *
+   * No earlier result is held anywhere. `keepPreviousData` shows the previous page only while
+   * the next one is *pending* and drops it the moment the query errors, so `recordsQuery.data`
+   * is already empty for a refused filter. What that does not cover is the time the refused
+   * request is in flight: until the server answers, nothing knows it will be refused, and the
+   * previous rows are on screen exactly as they are for a filter that is about to succeed.
    */
   const validationFailure = recordsQuery.isError ? parseValidationFailed(recordsQuery.error) : null;
+  const filterRefusal = filter !== null ? validationFailure : null;
   const filterError =
-    validationFailure !== null && ownsFilterError(filter, validationFailure.fieldKey)
-      ? validationFailure
-      : null;
+    filterRefusal !== null && ownsFilterError(filter, filterRefusal.fieldKey) ? filterRefusal : null;
 
-  /**
-   * The last result that actually came back. `keepPreviousData` holds the previous page while the
-   * next one is *pending* and drops it the moment the query errors (`queryObserver`: placeholder
-   * data applies only at `status === "pending"`), which is exactly the "table goes to zero rows"
-   * defect. Holding it here is what makes "the previous result set stays on screen" true for a
-   * filter's own refusal.
-   *
-   * Held in state and adjusted during render — React's "adjusting state when a prop changes",
-   * the same pattern the identity reset above uses, rather than a ref: a ref read during render
-   * is what `react-hooks/refs` forbids, and it would not re-render when it changed anyway.
-   */
-  const [lastResult, setLastResult] = useState<QueryResult | undefined>(undefined);
-  if (recordsQuery.data !== undefined && recordsQuery.data !== lastResult) {
-    setLastResult(recordsQuery.data);
-  }
-  const result = recordsQuery.data ?? (filterError !== null ? lastResult : undefined);
+  const result = recordsQuery.data;
 
   const records = useMemo(() => result?.records ?? [], [result]);
 
@@ -407,6 +480,17 @@ export function TableView({ objectType }: TableViewProps) {
     },
   });
 
+  /**
+   * Where each pinned column sticks: `left` is the summed width of the pinned columns before it
+   * in the order the table is showing (`columnPins.ts`). Recomputed on every render, because a
+   * resize changes a width and a reorder changes which columns come first.
+   */
+  const pins = pinPlacement(
+    table.getVisibleLeafColumns().map((column) => column.id),
+    columnPinned,
+    (columnId) => table.getColumn(columnId)?.getSize() ?? 0,
+  );
+
   type TableRow = ReturnType<typeof table.getRowModel>["rows"][number];
 
   const renderRows = (rows: TableRow[]): React.ReactNode =>
@@ -430,7 +514,7 @@ export function TableView({ objectType }: TableViewProps) {
       return (
         <tr
           key={row.id}
-          className={cx(rowClass, row.getIsSelected() && selectedRowClass)}
+          className={cx(rowClass, "group", row.getIsSelected() && selectedRowClass)}
           data-testid={`row-${row.original.key}`}
         >
           {row.getVisibleCells().map((cell) => {
@@ -440,8 +524,12 @@ export function TableView({ objectType }: TableViewProps) {
                 className={cx(
                   tdClassFor(density),
                   (cellFieldType === "integer" || cellFieldType === "decimal") && numCellClass,
+                  cell.column.id in pins.offsets
+                    && (row.getIsSelected() ? pinnedSelectedCellClass : pinnedCellClass),
+                  cell.column.id === pins.lastPinned && lastPinnedClass,
                 )}
                 key={cell.id}
+                style={{ left: pins.offsets[cell.column.id] }}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>
@@ -479,13 +567,25 @@ export function TableView({ objectType }: TableViewProps) {
       : null;
   const agentLabel = agentTouchedLabel(agentTouchedCount(records));
 
+  /**
+   * An export the server refused. The export sends the view's own filter, so a filter the
+   * server refuses for the table is refused here too, and an awaited request with nothing
+   * catching its failure made `Export CSV` a button that did nothing at all. Cleared when the
+   * next export starts, so the alert is always about the last attempt.
+   */
+  const [exportError, setExportError] = useState<unknown>(null);
   const handleExport = async () => {
-    const blob = await exportCsv(objectType.key, {
-      filter: filter ?? undefined,
-      sort: sortKeys.length ? sortKeys : undefined,
-      columns: visibleFieldKeys,
-    });
-    downloadCsvBlob(blob, `${objectType.key}.csv`);
+    setExportError(null);
+    try {
+      const blob = await exportCsv(objectType.key, {
+        filter: filter ?? undefined,
+        sort: sortKeys.length ? sortKeys : undefined,
+        columns: visibleFieldKeys,
+      });
+      downloadCsvBlob(blob, `${objectType.key}.csv`);
+    } catch (caught) {
+      setExportError(caught);
+    }
   };
 
   const handleResubmit = async (payload: { values: Record<string, unknown>; expected_version: number }) => {
@@ -608,7 +708,19 @@ export function TableView({ objectType }: TableViewProps) {
           any width, so chips wrapping against each other is the design working rather than the
           toolbar breaking. What the assertion proves is that the toolbar's own items share a row;
           it does not prove, and does not claim, that a chip-heavy filter stays on one line. */}
-      <div className="flex flex-wrap items-center gap-1.5" data-testid="table-toolbar">
+      {/* **Sticky at the `shell` breakpoint and wider**, so the filter chips and the controls
+          stay in view while a tall table's rows scroll under them. The chips are inside this
+          element, so one sticky block carries both, and a chip row that wraps makes the stuck
+          block taller rather than hiding anything. `bg-ground` is the page's own ground, and
+          the spread shadow extends it 6px beyond the row without moving anything at rest, so
+          rows do not show in the gaps around a stuck toolbar. `z-20` puts it above the pinned
+          cells (`z-10`), and a popover opened from it is inside this stacking context, so it
+          is above both. Below the breakpoint the top bar scrolls with the page and so does
+          this, as before. The bulk toolbar under it does not stick. */}
+      <div
+        className="flex flex-wrap items-center gap-1.5 bg-ground shell:sticky shell:top-0 shell:z-20 shell:shadow-[0_0_0_6px_var(--color-ground)]"
+        data-testid="table-toolbar"
+      >
         {/* docs/DESIGN.md 7.4 and 8.2: the filter is a row of sentence chips, and the tree
             builder that used to sit open on the page all the time is behind the `Advanced` chip.
             `/search` keeps the inline builder; this is the table page's layer. */}
@@ -619,6 +731,7 @@ export function TableView({ objectType }: TableViewProps) {
           onChange={setFilter}
           builderKey={viewGeneration}
           error={filterError}
+          refusal={filterRefusal?.message ?? null}
         />
 
         {/* Group, sort and columns are chips — docs/DESIGN.md 7.4 names the first two ("Group
@@ -635,8 +748,10 @@ export function TableView({ objectType }: TableViewProps) {
           fields={fields}
           columnOrder={columnOrder.length ? columnOrder : fields.map((field) => field.key)}
           columnVisibility={columnVisibility}
+          columnPinned={columnPinned}
           onChangeOrder={setColumnOrder}
           onChangeVisibility={setColumnVisibility}
+          onChangePinned={setColumnPinned}
         />
         <DensityToggle density={density} onChange={chooseDensity} />
 
@@ -683,10 +798,13 @@ export function TableView({ objectType }: TableViewProps) {
 
       {/* Without this branch a failed load of the records query would render nothing. The pager
           is what makes a rejected cursor reachable, which is why it lives here. A filter's own
-          refusal is NOT shown here: it goes to the chip that
-          carries the field the server named, and this alert would empty the table under it. */}
-      {recordsQuery.isError && filterError === null && (
+          refusal is NOT shown here: the table area says it, below, where the rows would be. */}
+      {recordsQuery.isError && filterRefusal === null && (
         <Alert tone="error" title="Could not load records." error={recordsQuery.error} />
+      )}
+
+      {exportError !== null && (
+        <Alert tone="error" title="Could not export." error={exportError} />
       )}
 
       {inlineEdit.error && (
@@ -703,7 +821,16 @@ export function TableView({ objectType }: TableViewProps) {
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <th className={cx(thClassFor(density), "relative")} key={header.id} style={{ width: header.getSize() }}>
+                  <th
+                    className={cx(
+                      thClassFor(density),
+                      "relative",
+                      header.column.id in pins.offsets && pinnedHeaderClass,
+                      header.column.id === pins.lastPinned && lastPinnedClass,
+                    )}
+                    key={header.id}
+                    style={{ width: header.getSize(), left: pins.offsets[header.column.id] }}
+                  >
                     {!header.isPlaceholder &&
                       (DISPLAY_COLUMN_IDS.has(header.column.id) ? (
                         flexRender(header.column.columnDef.header, header.getContext())
@@ -808,7 +935,19 @@ export function TableView({ objectType }: TableViewProps) {
 
       {!recordsQuery.isLoading &&
         records.length === 0 &&
-        (filter !== null ? (
+        (filterRefusal !== null ? (
+          <EmptyState
+            title="This filter could not be applied."
+            data-testid="table-filter-refused"
+            action={
+              <Button type="button" className={btnSmClass} onClick={handleClearFilter}>
+                Clear filter
+              </Button>
+            }
+          >
+            {filterRefusal.message}
+          </EmptyState>
+        ) : recordsQuery.isError ? null : filter !== null ? (
           <EmptyState
             title="No records match this filter"
             data-testid="table-empty-filtered"

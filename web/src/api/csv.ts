@@ -21,6 +21,10 @@ export interface CsvImportResult {
   created: number;
   updated: number;
   errors: CsvImportError[];
+  /** How many field values `blankClears` removes; zero without it. */
+  cleared: number;
+  /** The same count by field key. */
+  cleared_by_field: Record<string, number>;
 }
 
 export interface ImportCsvOptions {
@@ -28,6 +32,11 @@ export interface ImportCsvOptions {
   upsertKey?: string;
   dryRun: boolean;
   createMissingOptions: boolean;
+  /**
+   * Upsert only: a blank cell in a column the file carries clears that field on a record the
+   * row updates. Sent only in upsert mode, because the server refuses it with `mode=create`.
+   */
+  blankClears?: boolean;
 }
 
 /** `POST /api/v1/object-types/{key}/import`. `csvText` must already have a field-key (or
@@ -43,6 +52,7 @@ export async function importCsv(
   if (options.upsertKey) form.set("upsert_key", options.upsertKey);
   form.set("dry_run", String(options.dryRun));
   form.set("create_missing_options", String(options.createMissingOptions));
+  if (options.mode === "upsert" && options.blankClears) form.set("blank_clears", "true");
   const response = await apiFetch(`/object-types/${encodeURIComponent(objectTypeKey)}/import`, {
     method: "POST",
     body: form,

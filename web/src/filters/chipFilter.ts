@@ -38,6 +38,7 @@
  */
 import { NEGATION_WORD, operatorWord } from "../ui/vocabulary";
 import { valueCardinality } from "./completeness";
+import { dateFilterWord, type RangeBound } from "./dateFilterValue";
 import type { FilterableField } from "./filterableFields";
 import {
   groupChildren,
@@ -127,25 +128,36 @@ export function ownsFilterError(filter: FilterNode | null, fieldKey: string | nu
  * never its stored key (FR-U2, docs/DESIGN.md 7.3), and that is the line below that reads
  * `field.options`.
  */
-function valueWord(field: FilterableField | undefined, value: unknown): string {
+function valueWord(
+  field: FilterableField | undefined,
+  value: unknown,
+  op: string,
+  bound: RangeBound = null,
+): string {
   if (value === null || value === undefined) return "";
   const option = field?.options?.find((candidate) => candidate.value === value);
   if (option) return option.label;
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  // A `datetime` bound reads the way its column does, in the viewer's timezone: the day when
+  // the instant is that operator's edge of a day here, day and time when it is not (a view
+  // saved in another timezone), and a token as typed. `dateFilterValue.ts` holds the rule.
+  if (field?.type === "datetime" && typeof value === "string") {
+    return dateFilterWord(op, bound, value);
+  }
   return String(value);
 }
 
 function valuePhrase(field: FilterableField | undefined, condition: FilterCondition): string {
   const cardinality = valueCardinality(condition.op);
   if (cardinality === "none") return "";
-  const value = condition.value;
+  const { op, value } = condition;
   if (cardinality === "pair" && Array.isArray(value)) {
-    return `${valueWord(field, value[0])} and ${valueWord(field, value[1])}`;
+    return `${valueWord(field, value[0], op, "lower")} and ${valueWord(field, value[1], op, "upper")}`;
   }
   if (cardinality === "list" && Array.isArray(value)) {
-    return value.map((one) => valueWord(field, one)).join(", ");
+    return value.map((one) => valueWord(field, one, op)).join(", ");
   }
-  return valueWord(field, value);
+  return valueWord(field, value, op);
 }
 
 /**

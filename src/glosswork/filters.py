@@ -22,6 +22,7 @@ from glosswork.errors import (
 )
 from glosswork.fieldtypes import PSEUDO_FIELDS, operators_for, option_values
 from glosswork.repositories.models import FieldDef
+from glosswork.timeutil import is_canonical_date, is_canonical_datetime
 
 # How deep a filter tree may nest (DD-18).
 #
@@ -206,6 +207,33 @@ def _parse_condition(raw: dict[str, Any], ctx: FilterContext) -> Condition:
     return Condition(field_key, field_type, op, value, field)
 
 
+# How much of a refused date literal the refusal quotes back (DD-19): enough to recognise
+# what was sent, never the whole of an arbitrarily long value.
+_QUOTED_LITERAL_MAX = 40
+
+
+def _date_literal_refusal(field_key: str, field_type: str, value: Any) -> str:
+    """The one sentence a refused ``date`` or ``datetime`` literal gets.
+
+    It names every accepted form and quotes what was sent, so a caller can correct the
+    value in one retry. The datetime sentence spells out "UTC, whole seconds, ending in
+    Z" because a fractional second and a ``+00:00`` offset are what a program emits by
+    default, and "UTC" alone does not say which part of such a value to change.
+    """
+    if isinstance(value, str):
+        quoted = repr(value[:_QUOTED_LITERAL_MAX])
+    else:
+        quoted = repr(value)[:_QUOTED_LITERAL_MAX]
+    if field_type == "datetime":
+        forms = (
+            "YYYY-MM-DDTHH:MM:SSZ (UTC, whole seconds, ending in Z), YYYY-MM-DD, or a "
+            "date token like @today-7d"
+        )
+    else:
+        forms = "YYYY-MM-DD or a date token like @today-7d"
+    return f"Field {field_key!r} ({field_type}) compares against {forms}; got {quoted}."
+
+
 def _resolve_scalar(
     field_type: str,
     field: FieldDef | None,
@@ -244,14 +272,31 @@ def _resolve_scalar(
             ) from exc
     if field_type in ("date", "datetime"):
         if is_date_token(value):
-            return resolve_date_token(str(value), field_type, ctx.now)
-        if not isinstance(value, str):
-            raise ValidationFailedError(
-                f"Field {field_key!r} ({field_type}) compares against an ISO-8601 string "
-                "or a date token like @today-7d.",
-                field_key,
-            )
-        return value
+            try:
+                return resolve_date_token(str(value), field_type, ctx.now)
+            except ValidationFailedError as exc:
+                # The resolver does not know which field it is resolving for. Without
+                # the key a client cannot put the refusal beside the value that caused
+                # it, the same reason the ``user_ref`` branch above re-raises. The
+                # resolver's sentence is passed through unchanged.
+                details = {k: v for k, v in exc.details.items() if k != "field_key"}
+                raise ValidationFailedError(exc.message, field_key, **details) from exc
+        # A literal is one of the canonical forms exactly, or it is refused. Returning
+        # any string, as this branch once did, compared it as text against stored ISO
+        # values: ``lt "7 Jan 2026"`` sorted after every one of them and answered 200
+        # with every record, on every surface that parses a filter. "It parses" is not
+        # the check either, because the parsers accept ``2026-1-7`` (see ``timeutil``).
+        if isinstance(value, str):
+            if field_type == "date" and is_canonical_date(value):
+                return value
+            if field_type == "datetime":
+                if is_canonical_datetime(value):
+                    return value
+                if is_canonical_date(value):
+                    # A calendar day against instants means that day's first second in
+                    # UTC, so the comparison is between two instants for every operator.
+                    return f"{value}T00:00:00Z"
+        raise ValidationFailedError(_date_literal_refusal(field_key, field_type, value), field_key)
     if field_type in ("short_text", "long_text", "url"):
         if not isinstance(value, str):
             raise ValidationFailedError(

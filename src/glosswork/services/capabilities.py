@@ -59,8 +59,17 @@ FIELD_TYPE_DESCRIPTIONS: dict[str, str] = {
     "integer": "Whole number; config.min and config.max bound it.",
     "decimal": "Decimal number; config.precision and config.scale bound its digits.",
     "boolean": "true or false.",
-    "date": "Calendar date as YYYY-MM-DD. Accepts date tokens in filters.",
-    "datetime": "UTC timestamp as YYYY-MM-DDTHH:MM:SSZ. Accepts date tokens in filters.",
+    "date": (
+        "Calendar date as YYYY-MM-DD. A filter compares it against exactly YYYY-MM-DD or a "
+        "date token; any other value is refused."
+    ),
+    "datetime": (
+        "UTC timestamp as YYYY-MM-DDTHH:MM:SSZ. A filter compares it against exactly that "
+        "form (UTC, whole seconds, ending in Z), a date token, or YYYY-MM-DD; any other "
+        "value is refused. YYYY-MM-DD here means that day at 00:00:00 UTC, an instant, so "
+        "lte 2026-01-07 stops at the first second of the 7th and eq 2026-01-07 matches "
+        "only that second."
+    ),
     "single_select": (
         "Exactly one of config.options; each option has value, label, and description."
     ),
