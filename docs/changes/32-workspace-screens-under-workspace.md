@@ -136,8 +136,8 @@ Keeping it would add a redirect branch to the wizard for almost no one.
    testing the screen directly. Tighten the regexes that match both old and new addresses
    (`/\/activity$/`, `/\/people$/`, `/\/setup$/`, `` `/schema/${KEY}$` ``) to the `/workspace/` form.
 6. Update `docs/DESIGN.md`, `PRD.md` and `docs/DEPLOYMENT.md` wherever they name these addresses, and
-   comments that name them as routes. `docs/DECISIONS.md` and `docs/BACKLOG.md` are history and are
-   left alone.
+   comments that name them as routes. The decisions log and the backlog are history and are left
+   alone.
 7. Run the Accept block. Record the baseline count.
 8. Close out, with a DD entry stating the rule: no route at a bare top-level segment, except
    `inbox`, `search`, `login` and the server's own paths. Add the known gaps to #32.
@@ -255,6 +255,16 @@ from `SHELL_ROUTES`. Not checked by the pass: P1. The pass did not run the e2e o
 
 - **AC2 names `/schema/SCH-1`; the spec uses `/schema/SCH-001`.** Record keys are zero-padded, so the
   plan's literal address names no record. The behaviour under test is the same.
+- **Step 6's backticked citations of the decisions log and the backlog became prose.** Those two files
+  are untracked in the maintainer's tree and absent from a clean checkout, so citing them failed
+  `test_every_referenced_document_exists` in AC6.
+- **Steps 3 and 4 are one commit.** Removing the static routes without the redirect decision leaves a
+  commit where every old address is broken. Both fences and the double highlight were measured by
+  mutation on that tree before it was committed: with `RecordRoute` swapped for `RecordPage`, "no request to
+  `/api/v1/records/new`" failed; with a redirect firing while the lookup is pending, "does not redirect
+  while pending" failed; without `end`, `/workspace/people` had two `aria-current` elements.
+- **Comments and docstrings that name these addresses were updated in `src` and `tests` as well as
+  `web`,** under step 6's "comments that name them as routes". No behaviour changes there.
 
 ## Durable content moved out of this plan
 
