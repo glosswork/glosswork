@@ -265,6 +265,18 @@ describe("old two-segment schema addresses", () => {
     await waitFor(() => expect(pathname()).toBe("/workspace/schema/new"));
   });
 
+  it("redirects /schema/new with replace, so Back leaves rather than bouncing", async () => {
+    const user = userEvent.setup();
+    renderAt(["/inbox", "/schema/new"]);
+
+    await waitFor(() => expect(pathname()).toBe("/workspace/schema/new"));
+    expect(screen.getByTestId("navigation-type")).toHaveTextContent("REPLACE");
+
+    await user.click(screen.getByRole("button", { name: "probe back" }));
+
+    await waitFor(() => expect(pathname()).toBe("/inbox"));
+  });
+
   it("redirects /schema/<key> whether or not a type keyed schema exists", async () => {
     serveTypes(typeDetail("schema", "Clashing schema"));
     renderAt(["/schema/initiative"]);
