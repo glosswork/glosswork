@@ -206,6 +206,23 @@ Queryable on every object type alongside user-defined fields (FR-R7):
 | `last_comment_at` | datetime | Enables "records with no recent discussion" |
 | `deleted_at` | datetime | Only meaningful with `include_deleted: true` |
 
+### Date literals
+
+A comparison value on a `date` or `datetime` field, or a datetime system field, is a date token
+(below) or exactly one of these forms (DD-48), for every operator and for each end of `between`:
+
+- `date`: `YYYY-MM-DD`.
+- `datetime`, `created_at`, `updated_at`, `last_comment_at`, `deleted_at`: `YYYY-MM-DDTHH:MM:SSZ`
+  (UTC, whole seconds, ending in `Z`), or `YYYY-MM-DD`.
+
+On a `datetime` field a bare day is that day at 00:00:00 UTC, an instant. So `lte 2026-01-07`
+stops at the first second of the 7th and `eq 2026-01-07` matches only that second. For a whole
+day, use `between` with the first and last second of it. No seconds, a fractional second, an
+offset, a lower-case `z`, an unpadded part and a day that is not on the calendar are refused with
+`validation_failed` (422) whose `details.field_key` is the field, and a message that names the forms
+and quotes the value sent, cut at 40 characters. An unknown token is refused with the field's key
+too. Nothing is written by a `bulk_update_records` whose filter is refused, dry run or live.
+
 ### Tokens
 
 Resolved server-side so agents never compute dates or look up their own identity (FR-R8, FR-R9):
@@ -939,6 +956,11 @@ a machine-readable `code`, a message that says what to do next, and structured `
 | `payload_too_large` | The request body exceeds this deployment's limit (DD-18). One setting, `GW_MAX_REQUEST_BYTES`, governs the cap on both surfaces, so the refusal is identical on REST and on MCP | Send less data; `details` carries `limit_bytes` and the `limit_name` an administrator would raise |
 | `internal_error` | Something the system could not classify (DD-19) | Retry once; if it repeats, quote `details.request_id` to an administrator, who can find the traceback in the application log |
 
+**A `validation_failed` from a filter names the field it was about** (DD-48), in `details.field_key`
+and in the message, so a retry changes one literal. A CSV import refuses `blank_clears=true` with
+`mode=create` the same way, because a flag that does nothing is how a mistyped mode passes unnoticed
+(DD-49).
+
 **`internal_error` is the one error that deliberately tells an agent nothing about what went
 wrong.** Every other code exists because some code decided the caller could act on it; this one is
 raised by nobody and is constructed only where an unclassified exception would otherwise escape.
@@ -1150,6 +1172,11 @@ procedure, since a restore API would have to overwrite the database serving it.
 
 CSV endpoints (`POST /api/v1/object-types/{key}/import`, `GET .../export`) are REST-only at MVP;
 agents that need bulk writes use `bulk_update_records` or iterate `create_record`.
+
+The import takes a form field `blank_clears` (DD-49), off by default, valid only with
+`mode=upsert`. Its result always carries `cleared`, the number of field values the import removes,
+and `cleared_by_field`, a map of field key to count: zero and empty without the flag and when any
+row has an error. The route's OpenAPI description states what the flag does and what it does not.
 
 An exported CSV cell is **neutralized** (DD-20): a `short_text`, `long_text`,
 `single_select` or `multi_select` cell beginning with `=`, `+`, `-`, `@`, a tab or a carriage

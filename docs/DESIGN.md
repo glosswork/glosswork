@@ -432,7 +432,13 @@ Filters render as sentence chips: `Stage is not Lost ×`. Height 28px, radius 99
 border. The `+ Add filter` chip is dashed. Clicking a chip or the add chip opens a popover
 with field, operator (display vocabulary) and value. **The query does not run until the
 condition is complete**; an incomplete condition is shown in the popover, not in the chip row,
-and never produces a server error. Group and sort are the same chip grammar
+and never produces a server error. A `date` or `datetime` value is a text box that keeps what was typed, a calendar button, and the
+hint `A date like 2026-01-07, or a relative date like @today-7d.`; text that is not a date turns
+the hint into the refusal and disables `Apply`. A day becomes the instant that makes the chip's
+sentence true in the viewer's zone (DD-48): the first second for "is before" and "is on or after",
+the last for "is on or before" and "is after", and `is` and `is not` need an exact time. A chip
+reads an instant as the day alone only at its operator's edge. The Advanced builder sends a typed
+value after a pause (DD-43). Group and sort are the same chip grammar
 (`Group by Stage`, `Sort: Next action`). The NOT toggle is a switch inside the popover labelled
 "Exclude matches".
 
@@ -551,6 +557,11 @@ and role at the bottom with sign-out. Below 960px the sidebar collapses to a top
 button. Search opens from the sidebar item and from `/`; the search box no longer lives in the
 header.
 
+**Sticky at the shell breakpoint and wider.** The sidebar is `sticky top-0` and `main` has no
+overflow of its own on either axis, so the window is the one scroller and anything wider than
+`main` scrolls the page. A popover stays inside the viewport: its panel shifts left by any overflow
+(`ui/Popover.tsx`). Below the breakpoint nothing sticks.
+
 **Does not change.** Routes. `/login` remains the one signed-out route. The `current-principal`
 test id remains on the signed-in identity. Object-type navigation still comes from
 `list_object_types`.
@@ -626,6 +637,20 @@ control.*
 the `vis_wide` fixture. `ui-visual.spec.ts` asserts one row at 1280 and at 800, which sit either
 side of the 960–1000px failure band, so the suite has never seen it. Section 9's "wrap at 640" is
 wrong in the same way.*
+
+**The toolbar sticks to the top of the window** (test id `table-toolbar`, with the chips inside
+it) at the shell breakpoint and wider, above the pinned cells and below any popover opened from it.
+**Pinned columns** (DD-50) are `position: sticky` with `left` equal to the summed widths of the
+pinned columns before them, so with the display field pinned it stops at the table's left edge. The
+last one carries a right-hand rule drawn as an inset shadow, the Columns popover has a `Pin` and
+`Unpin` toggle per field, and pinning does not reorder. The records table uses separated borders,
+so each row rule belongs to its cell and travels with it. **A filter the server refuses** (DD-48)
+replaces the table area with `This filter could not be applied.`, the server's sentence and
+`Clear filter`, and no rows or count; the refused chip is marked and carries the message, and
+`Export CSV` is refused by the same filter and says `Could not export.`. **The unsaved state of a
+table** survives leaving it (DD-50). The import wizard, in upsert mode, shows `Blank cells clear the
+field`, off by default, and a dry run with it on reports `3 values will be cleared: Superseded by
+(3).` (DD-49).
 
 **Does not change.** The keyset paging model. Saved views semantics (FR-U3). Bulk toolbar
 behaviour. Inline cell editing. CSV import and export entry points (they move to the toolbar's
