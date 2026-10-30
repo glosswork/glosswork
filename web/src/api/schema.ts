@@ -567,7 +567,7 @@ export interface paths {
         /**
          * Agent Label Directory
          * @description The agent picker's options (FR-U8): every label this caller could meet on
-         *     ``/activity``, so filtering by an agent does not require knowing a UUID.
+         *     ``/workspace/activity``, so filtering by an agent does not require knowing a UUID.
          *
          *     ``read`` is the right gate, argued rather than assumed, and the argument is about the
          *     **rows**, not the projection. ``AgentLabelService.search_labels`` scopes the result to

@@ -20,7 +20,7 @@
  * sentence the Activity card must make true, and `activityEvents.test.ts` is what pins it.
  *
  * **What the rule costs, stated rather than discovered later.** A link or unlink no longer
- * appears on the record page. It is still in `/activity` and still in the audit trail; it is not
+ * appears on the record page. It is still in `/workspace/activity` and still in the audit trail; it is not
  * lost, it is not shown here. That is chosen over a second kind of event whose body would read
  * "Linked record" and whose revert affordance does not exist.
  */

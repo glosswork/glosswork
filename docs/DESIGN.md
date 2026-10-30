@@ -569,10 +569,10 @@ test id remains on the signed-in identity. Object-type navigation still comes fr
 *Five things the list above does not say, recorded here rather than left to be rediscovered:*
 
 - **The Workspace section carries a `Schema` entry**, which the list above omits. The shell is the
-  schema editor's only entry point — `/schema/new` is linked from `/schema` and from nowhere else —
+  schema editor's only entry point — `/workspace/schema/new` is linked from `/workspace/schema` and from nowhere else —
   so building this list literally would leave both routes alive and neither navigable. Wherever the
   schema editor eventually belongs, it is reachable from the shell until something else reaches it.
-- **`People & agents` and `Setup` are two entries**, at `/people` and `/setup`; `/settings` only
+- **`People & agents` and `Setup` are two entries**, at `/workspace/people` and `/workspace/setup`; `/settings` only
   redirects. One route gets one link, because two links to one route put two `aria-current="page"`
   elements on it. The Workspace section reads `People & agents`, `Activity`, `Schema`, `Setup`: this
   list's order with `Schema` kept in the slot the bullet above gives it, and `Setup` last.
@@ -682,7 +682,7 @@ on this page (FR-U2).
 `audit_events` already carries a row per comment, so appending the audit trail to the comment
 thread renders every live comment twice and keeps a bodyless copy of every deleted one. The
 count is exactly `comments + versions`, which `record-detail/activityEvents.ts` owns and its
-test pins. A link or an unlink therefore does not appear on this page; it is still in `/activity`
+test pins. A link or an unlink therefore does not appear on this page; it is still in `/workspace/activity`
 and still in the audit trail.
 
 **Newest-first is a reversal, not a descending sort.** Timestamps are stored at second precision
@@ -835,10 +835,10 @@ fixtures. It is proven by component tests and by `e2e/first-run.spec.ts` instead
 
 ### 8.6 People & agents, Setup
 
-Settings is two routes, and `/settings` redirects to `/people` with
+Settings is two routes, and `/settings` redirects to `/workspace/people` with
 `replace` so Back leaves the app rather than bouncing between the old URL and the new one.
 
-`/people` is three cards, each a `Card` (7.6) holding a table (7.7) at the comfortable density:
+`/workspace/people` is three cards, each a `Card` (7.6) holding a table (7.7) at the comfortable density:
 
 - **People** (admin only): `Person` as a `Hand` (6.2), `Email`, `Role` as the native select in
   the row, `Status`, and an unheaded actions cell. Invite is a native `<dialog>` opened from the
@@ -847,7 +847,7 @@ Settings is two routes, and `/settings` redirects to `/people` with
   before `Deactivate`, opening a native `<dialog>` named `Reset password for {name}` that
   says, before anything is submitted, that the person will be signed out everywhere and every token
   they hold stops working. The caller's own row never offers it: your own password is changed from
-  `/setup`, with the current one (DD-13).
+  `/workspace/setup`, with the current one (DD-13).
 - **Agent labels**, grouped by owner, with the owner's `Hand` in a 7.7 group header: `Label`
   (mono), `Display name`, `Description`, `First seen`, `Last seen`, `Calls`, `Verified`. A row
   the caller owns carries an inline rename; every other row is read-only, which is exactly what
@@ -855,7 +855,7 @@ Settings is two routes, and `/settings` redirects to `/people` with
 - **Service accounts** (admin only): `Account` as a `Hand`, which draws the agent square per 6.5,
   `Description`, `Status`, actions. Create is a native `<dialog>`.
 
-`/setup` is four cards: personal access tokens (every signed-in principal; the inline mint form
+`/workspace/setup` is four cards: personal access tokens (every signed-in principal; the inline mint form
 and the once-only minted-token dialog are unchanged), **password** (every signed-in person),
 the search index panel, and export.
 
@@ -891,7 +891,7 @@ the search index panel, and export.
   column of times is a column a reader scans down. It is also what makes a screenshot of such a
   column stable: a Playwright mask hides a cell's content but not its effect on layout, so
   proportional figures let a masked live timestamp move every column to its right.
-- **A non-admin's `/people` carries one sentence saying why it is nearly empty.** Two of the
+- **A non-admin's `/workspace/people` carries one sentence saying why it is nearly empty.** Two of the
   three cards need the `admin` role (FR-I10), and a page called "People & agents" showing neither
   would promise what it withholds. It is not 7.5's access banner: that sentence names one object
   type and the level held on it, and this is a deployment-wide role, not a grant. The precedent
@@ -901,7 +901,7 @@ the search index panel, and export.
 
 - **The `Password` card is a sentence for a person who signs in through an identity provider**, not
   an absence. An OIDC principal has no password here, and a Setup page with no password card would
-  read as a bug rather than a decision, which is the argument the non-admin `/people` sentence above
+  read as a bug rather than a decision, which is the argument the non-admin `/workspace/people` sentence above
   makes. For a local account the card is three `type="password"` fields with their `autocomplete`
   values, the revocation sentence **before** the button (changing a password costs every token, so
   the cost is stated before it is paid), and the server's own message under `Current password` when
@@ -927,7 +927,7 @@ renders.
 
 ### 8.7 Activity
 
-`/audit` is `/activity` and redirects with `replace`. The screen is
+`/audit` is `/workspace/activity` and redirects with `replace`. The screen is
 a chip row over a feed: six chips in 7.4's grammar — `Record`, `Person`, `Agent`, `Type`,
 `Field`, `Date` — above `ui/ActivityEvent.tsx` at full width, one entry per write, each with the
 write's `Hand`, the record it is about as a link, and a change pill per field.

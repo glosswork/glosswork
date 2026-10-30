@@ -48,7 +48,7 @@ SRC = REPO_ROOT / "src" / "glosswork"
 # ``tests/test_rest_scope_enforcement.py``.
 #
 # ``AgentLabelService`` is listed although most of it "touches no object type at all".
-# ``search_labels`` is the agent picker's directory on ``/activity``, and its whole safety property
+# ``search_labels`` is the agent picker's directory on ``/workspace/activity``, and its whole safety property
 # is that it shows a caller no label their own audit search would hide -- so it asks
 # ``AccessService`` the same question ``AuditService.search`` asks, and the service belongs in the
 # list below. Its four other entry points still touch no object type and are named in EXEMPT with

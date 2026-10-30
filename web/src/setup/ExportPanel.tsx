@@ -1,5 +1,5 @@
 /**
- * The Export card on `/setup` (FR-E5, FR-U9; DD-36; docs/DESIGN.md 8.6).
+ * The Export card on `/workspace/setup` (FR-E5, FR-U9; DD-36; docs/DESIGN.md 8.6).
  *
  * **An `<a download>`, not a button, and that is the whole design.** `GET /api/v1/admin/export`
  * is a safe method (`routes/admin_ops.py`), so the browser sends the session cookie, follows the

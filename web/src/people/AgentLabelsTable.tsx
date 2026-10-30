@@ -1,5 +1,5 @@
 /**
- * The Agent labels card on `/people` (FR-I6, FR-I7; docs/DESIGN.md 6.1, 6.2, 7.7, 8.6).
+ * The Agent labels card on `/workspace/people` (FR-I6, FR-I7; docs/DESIGN.md 6.1, 6.2, 7.7, 8.6).
  *
  * **One table, not two panels.** Separate "My agent labels" (the caller's own, editable) and
  * "All agent labels (admin)" (everyone's, read-only) cards would make an admin read their own

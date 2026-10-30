@@ -106,7 +106,7 @@ export const toolbarTriggerClass =
   "px-2.5 py-1 text-sm text-ink hover:bg-ground";
 
 /**
- * A label/value readout inside a card: the search-index counts on `/setup`, and whatever else
+ * A label/value readout inside a card: the search-index counts on `/workspace/setup`, and whatever else
  * needs a `<dl>` rather than a table.
  *
  * **It takes the place of five older `panel*` recipes**, which went with `web/src/settings/`. Two

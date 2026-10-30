@@ -1,5 +1,5 @@
 /**
- * `/activity`'s feed, as data.
+ * `/workspace/activity`'s feed, as data.
  *
  * Separate from `ActivityFeed.tsx` because business logic does not live in a component
  * (`AGENTS.md` non-negotiable 3, frontend clause) — and because `react-refresh/only-export-components`

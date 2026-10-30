@@ -1,5 +1,5 @@
 /**
- * `/setup` (docs/DESIGN.md 8.6): how this deployment is configured, as against `/people`,
+ * `/workspace/setup` (docs/DESIGN.md 8.6): how this deployment is configured, as against `/workspace/people`,
  * which is who is on it.
  *
  * **Replaces the second half of `/settings`.** The split is by question rather than by

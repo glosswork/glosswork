@@ -1,6 +1,6 @@
 """The agent-label directory, and the one property that makes it safe.
 
-``/activity`` filters by agent, and a filter that will not show you its options is a
+``/workspace/activity`` filters by agent, and a filter that will not show you its options is a
 filter nobody can use: the screen it replaces asked for ``agent_label_id`` as free text,
 a UUID no person knows. A picker needs a list, and without this route no ``read``-scoped
 route serves one (``GET /agent-labels`` is the caller's own; ``GET /admin/agent-labels``

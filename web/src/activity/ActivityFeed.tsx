@@ -1,5 +1,5 @@
 /**
- * `/activity`'s feed: one entry per write, at full width (docs/DESIGN.md 7.8, 8.7).
+ * `/workspace/activity`'s feed: one entry per write, at full width (docs/DESIGN.md 7.8, 8.7).
  *
  * **One entry is one write on one record.** `groupAuditEvents` keys on `(request_id, record_id)`
  * — a request id alone identifies an HTTP request, and a CSV import or a `write_batch` (DD-22)

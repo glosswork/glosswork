@@ -1,5 +1,5 @@
 /**
- * The Service accounts card on `/people` (FR-U9, FR-I3, FR-I5; docs/DESIGN.md 6.1, 6.5, 8.6).
+ * The Service accounts card on `/workspace/people` (FR-U9, FR-I3, FR-I5; docs/DESIGN.md 6.1, 6.5, 8.6).
  *
  * **An empty description is refused client-side** (AGENTS.md non-negotiable 6: a service
  * account with no stated purpose is exactly the metadata this product declines to accept

@@ -54,7 +54,7 @@ export function groupAuditEvents(events: AuditEventDoc[]): AuditWriteGroup[] {
   for (const event of events) {
     const last = groups[groups.length - 1];
     // **The key is the request id AND the record**, which on this page is a distinction
-    // without a difference and on `/activity` is not. A request id identifies an
+    // without a difference and on `/workspace/activity` is not. A request id identifies an
     // HTTP request, not a write: `RecordService.write_batch` (DD-22) and a CSV import are one
     // request across many records, so on a cross-record feed the request id alone would
     // collapse an entire import into a single entry with an unbounded number of change pills.

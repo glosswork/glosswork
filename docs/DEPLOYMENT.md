@@ -428,7 +428,7 @@ lets a type's own administrator manage its grants without being a system adminis
 ### In the browser: a permissions panel, for a type's administrator
 
 The same three operations, plus the type's default access, have a screen: a
-**Permissions** panel at the bottom of `/schema/{key}`. It shows the type's default access, one
+**Permissions** panel at the bottom of `/workspace/schema/{key}`. It shows the type's default access, one
 row per explicit grant with its level and a Remove control, and a picker to grant someone new. A
 grant at `none` shows as **Denied** rather than vanishing, because `none` is an explicit denial
 that overrides a permissive default, which is a different fact from having no row at all.

@@ -42,7 +42,7 @@ class AgentLabelService:
         limit: int = DIRECTORY_DEFAULT_LIMIT,
     ) -> list[AgentLabelRow]:
         """The picker's options (FR-U8): every label this caller could encounter on
-        `/activity`, so a person can filter by an agent without knowing a UUID.
+        `/workspace/activity`, so a person can filter by an agent without knowing a UUID.
 
         **Scoped to what the caller can already see, and that is the safety property.**
         It asks `AccessService` the same question `AuditService.search` asks -- unrestricted,

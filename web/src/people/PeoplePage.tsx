@@ -1,10 +1,10 @@
 /**
- * `/people` (docs/DESIGN.md 8.6): the people and the agents on this deployment, as a
+ * `/workspace/people` (docs/DESIGN.md 8.6): the people and the agents on this deployment, as a
  * directory rather than as a settings screen.
  *
  * **Split by question rather than by permission.** One settings page interleaving what is yours
  * with what you administer (your own agent labels, then everybody's, then your own tokens, then
- * admin panels) is a scroll. This page answers "who is here", `/setup` answers "how is this
+ * admin panels) is a scroll. This page answers "who is here", `/workspace/setup` answers "how is this
  * deployment configured", and `/settings` redirects here.
  *
  * **Pending schema proposals are not here.** They are on `/inbox`, a screen about a decision

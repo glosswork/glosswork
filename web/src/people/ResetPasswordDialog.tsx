@@ -1,5 +1,5 @@
 /**
- * The reset-password dialog on `/people` (FR-I17;
+ * The reset-password dialog on `/workspace/people` (FR-I17;
  * docs/DESIGN.md 7.1, 7.2, 7.6, 8.6): an administrator sets a new password for another local
  * user's account, with no current password to prove -- an administrator's authority over the
  * row is the grant `GET /api/v1/principals` already requires (FR-I10), not knowledge of a

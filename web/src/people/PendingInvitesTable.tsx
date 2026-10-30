@@ -1,5 +1,5 @@
 /**
- * Pending invites on `/people` (change 9, FR-I19): the live invites on a workspace that signs
+ * Pending invites on `/workspace/people` (change 9, FR-I19): the live invites on a workspace that signs
  * people in by emailed code, each with "Revoke". Admin-only, like the People card beside it.
  *
  * An invite leaves this list when its address first signs in (the person then appears under

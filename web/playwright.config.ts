@@ -155,7 +155,7 @@ export default defineConfig({
         // **Raised for the suite, not for a deployment.** `login_ip_max_attempts`
         // defaults to 60 in a 300-second window, and every worker signs in from 127.0.0.1, so
         // the whole run shares one budget: at 61 specs the suite sat one sign-in under its own
-        // ceiling, and `/activity`'s four tipped it over. The failure does not look like a rate
+        // ceiling, and `/workspace/activity`'s four tipped it over. The failure does not look like a rate
         // limit -- the login POST returns 429, the shell never renders, and four unrelated
         // specs report `current-principal` missing -- so it reads as an application bug in
         // whatever changed last. The per-account budget stays at its default; this is the
