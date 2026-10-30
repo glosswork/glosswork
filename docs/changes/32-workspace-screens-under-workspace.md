@@ -225,6 +225,26 @@ Expected: 0. Screenshots do not show the address, and no product screen renders 
 visible text. Any repaint is a finding. The suite's `SHELL_ROUTES`-style navigation must go to the
 new addresses.
 
+Actual: 0. `--project=visual` passed 50 of 50 with no retry, and the checkout had no changed file
+after it.
+
+## Accept results
+
+Run on a clean worktree at `5a76053`, which differs from this commit only in this file.
+
+| Criterion | Exit | Count |
+| --- | --- | --- |
+| AC1 | 0 | 1302 tests in 111 files |
+| AC2 | 0 | 16 passed |
+| AC3 | 0 | 130 passed, no retry |
+| AC4 | 0 | 50 passed, no retry |
+| AC5 lint, typecheck, build | 0, 0, 0 | |
+| AC6 | 0 | 107 passed |
+| `uv run pytest -q`, since docstrings changed | 0 | 2380 passed, 3 xfailed |
+| `uv run ruff check .`, run in the maintainer's tree at `5a76053` | 0 | |
+
+Not established: `end` in `ObjectTypeNav.tsx`, which no module imports, so nothing renders it.
+
 ## Adversarial pass
 
 Run 2026-10-30 on Opus by a session that did not write the plan. No plan code existed to run, so
