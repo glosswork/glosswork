@@ -31,7 +31,7 @@ export function SchemaEditorIndexRoute() {
         including the description every field carries for agents to read.
       </p>
       {canCreate ? (
-        <Link to="/schema/new" className={linkButtonClass}>
+        <Link to="/workspace/schema/new" className={linkButtonClass}>
           Create object type
         </Link>
       ) : (
@@ -45,7 +45,7 @@ export function SchemaEditorIndexRoute() {
         {(objectTypes ?? []).map((objectType) => (
           <li key={objectType.key} className="px-3.5 py-2 text-sm">
             <Link
-              to={`/schema/${objectType.key}`}
+              to={`/workspace/schema/${objectType.key}`}
               className="font-medium text-human-ink hover:underline"
             >
               {objectType.name}

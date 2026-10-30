@@ -13,14 +13,14 @@
  * both reaching `/search`, which owns `q`/`mode`/`types`/`filter` from there on per
  * `search/searchParams.ts`. Only the entry point moved.
  */
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 
 import { ActivityPage } from "./activity/ActivityPage";
 import { CsvImportWizardPage } from "./csv-import/CsvImportWizardPage";
 import { InboxPage } from "./inbox/InboxPage";
 import { IndexRoute } from "./routes/IndexRoute";
 import { ObjectTypePage } from "./routes/ObjectTypePage";
-import { RecordPage } from "./routes/RecordPage";
+import { RecordRoute } from "./routes/RecordRoute";
 import { SchemaEditorIndexRoute } from "./schema-editor/SchemaEditorIndexRoute";
 import { SchemaEditorPage } from "./schema-editor/SchemaEditorPage";
 import { SearchPage } from "./search/SearchPage";
@@ -109,34 +109,27 @@ function Shell() {
               the list rather than leave the Inbox (docs/DESIGN.md 9). It is also the URL the
               API's approval message hands to every agent, so it has to exist as a link a person
               can be sent. Both sit above `/:objectTypeKey`; React Router ranks static segments
-              higher, so an object type keyed `inbox` is shadowed here exactly as one keyed
-              `people`, `setup`, `search`, `activity` or `schema` already is. Splitting `settings`
-              into two routes freed one word and claimed two, a net of one more reserved word;
-              nothing in the backend reserves
-              an object-type key (DD-20 reserves eight FIELD names, at
-              `fieldtypes.validate_field_key`), so this comment is the only record of the set. */}
+              higher, so an object type keyed `inbox` is shadowed here, as one keyed `search` or
+              `login` is. Those three are the whole set, plus the server's own paths, which a
+              reload reaches before this router does. Nothing in the backend reserves an
+              object-type key (DD-20 reserves eight FIELD names, at
+              `fieldtypes.validate_field_key`), so this comment is the only record of it. */}
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/inbox/:proposalId" element={<InboxPage />} />
-          <Route path="/schema" element={<SchemaEditorIndexRoute />} />
-          <Route path="/schema/new" element={<SchemaEditorPage />} />
-          <Route path="/schema/:objectTypeKey" element={<SchemaEditorPage />} />
-          <Route path="/activity" element={<ActivityPage />} />
-          {/* The screen was renamed. The old URL keeps working for the reason `/settings` does:
-              it is in this repository's own comments and in whatever anyone bookmarked.
-              `replace`, so Back leaves rather than bouncing through the redirect. */}
-          <Route path="/audit" element={<Navigate to="/activity" replace />} />
-          <Route path="/people" element={<PeoplePage />} />
-          <Route path="/setup" element={<SetupPage />} />
-          {/* `/settings` was split in two. The old URL keeps working because it is in
-              this repository's own comments, and in whatever anyone
-              bookmarked. `replace`, not a push: a pushed redirect leaves `/settings` on the
-              history stack, so Back from `/people` lands on it, redirects forward again, and the
-              button stops working. */}
-          <Route path="/settings" element={<Navigate to="/people" replace />} />
+          {/* **No route at bare `/workspace`, and nothing here a type keyed `workspace` serves**:
+              its table, its import page and its record pages all stay below. An address these
+              screens used to live at is decided below the type routes, by `routes/oldAddresses.ts`,
+              because a static redirect here would take the address from a type with that key. */}
+          <Route path="/workspace/schema" element={<SchemaEditorIndexRoute />} />
+          <Route path="/workspace/schema/new" element={<SchemaEditorPage />} />
+          <Route path="/workspace/schema/:objectTypeKey" element={<SchemaEditorPage />} />
+          <Route path="/workspace/activity" element={<ActivityPage />} />
+          <Route path="/workspace/people" element={<PeoplePage />} />
+          <Route path="/workspace/setup" element={<SetupPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/:objectTypeKey/import" element={<CsvImportWizardPage />} />
           <Route path="/:objectTypeKey" element={<ObjectTypePage />} />
-          <Route path="/:objectTypeKey/:recordKey" element={<RecordPage />} />
+          <Route path="/:objectTypeKey/:recordKey" element={<RecordRoute />} />
         </Routes>
       </main>
     </div>
