@@ -826,3 +826,23 @@ does not contain becomes "no view".
 `web/src/table-view/tableViewConfig.test.ts`, `web/e2e/table-pilot-findings.spec.ts`.
 
 **See.** `docs/DESIGN.md` section 8.2; `docs/DATA_MODEL.md` section 11; `PRD.md` FR-U1.
+
+### DD-51: No route sits at a bare top-level segment, except `inbox`, `search`, `login` and the server's own paths
+
+The workspace screens live under `/workspace` (`/workspace/people`, `/workspace/activity`,
+`/workspace/setup`, `/workspace/schema`), and the only routes at a bare top-level segment are
+`/inbox`, `/search` and `/login`, beside the server's own paths. Every other first segment is an
+object type's key. The old addresses `/activity`, `/audit`, `/people`, `/settings`, `/setup` and
+`/schema*` are decided below the type routes, never above them: a readable type with that key
+renders its table, and only a 404 or 403 on the lookup redirects, with `replace`, to the screen.
+There is no route at bare `/workspace`, so a type keyed `workspace` keeps its table.
+
+**Why.** A static route outranks `/:objectTypeKey`, so a screen at a bare segment shadows any type
+with that key, and keys are immutable, so the type cannot be renamed out of the clash. A type keyed
+`activity` had no working table for that reason. Known gaps: a type keyed `inbox`, `search` or
+`login` is still shadowed, and a type keyed `new` has no reachable schema editor.
+
+**Held by.** `web/src/App.workspaceRoutes.test.tsx`, `web/src/routes/oldAddresses.test.ts`,
+`web/e2e/workspace-routes.spec.ts`.
+
+**See.** `docs/DESIGN.md` sections 8.1, 8.6 and 8.7; `PRD.md` FR-U1.
