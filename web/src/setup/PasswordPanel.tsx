@@ -1,17 +1,17 @@
 /**
- * The Password card on `/setup` (FR-I17; docs/DESIGN.md 7.1, 7.2, 7.6, 8.6): a signed-in person's
+ * The Password card on `/workspace/setup` (FR-I17; docs/DESIGN.md 7.1, 7.2, 7.6, 8.6): a signed-in person's
  * own password change, beside `Personal access tokens`, which is already the per-person card on
  * this page.
  *
  * **Session-only, and the form does not say so.** The service refuses a personal access token
  * regardless of what this component renders, so a PAT-authenticated caller never reaches
- * `/setup` through a route this SPA offers in the first place (a PAT is not how the browser signs
+ * `/workspace/setup` through a route this SPA offers in the first place (a PAT is not how the browser signs
  * in); nothing here re-declares that rule.
  *
  * **The OIDC state is a sentence, not an absence.** `auth_provider` is `"oidc"` for a principal
  * whose password lives with an identity provider this deployment does not control, and rendering
  * no card at all would look like a bug rather than a decision — the same argument docs/DESIGN.md
- * 8.6 already made for a non-admin's `/people` and 8.1's Inbox badge before it: an absence gets a
+ * 8.6 already made for a non-admin's `/workspace/people` and 8.1's Inbox badge before it: an absence gets a
  * reason.
  *
  * Submits through `onSubmit` with `event.preventDefault()` and never calls `navigate`: the

@@ -1,7 +1,7 @@
 /**
  * The Activity event (`docs/DESIGN.md` 7.8): the one component a comment and a version-producing
  * write both render through, on the record page's Activity card and at full width on
- * `/activity`.
+ * `/workspace/activity`.
  *
  * **Presentational only** (DD-3's frontend clause). Every value it prints — the timestamp, the
  * body, each change's old and new strings — arrives as a prop; it fetches nothing, formats no field
@@ -74,7 +74,7 @@ export interface ActivityEventProps {
   changes?: ActivityChange[];
   /** Keys section 3's feed wash. See the header comment for why this is a prop. */
   isAgentAuthored: boolean;
-  /** The whole-event action ("Revert record to this version"). Absent on `/activity`. */
+  /** The whole-event action ("Revert record to this version"). Absent on `/workspace/activity`. */
   action?: ReactNode;
   "data-testid"?: string;
 }

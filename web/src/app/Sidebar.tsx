@@ -184,6 +184,10 @@ export function ShellNavLists({
           <li key={objectType.key}>
             <NavLink
               to={`/${objectType.key}`}
+              // `NavLink` matches subpaths, so a type keyed `workspace` would light up beside every
+              // workspace screen and put two `aria-current` elements on the page. The cost is
+              // that this one type loses its highlight on its own record pages.
+              end={objectType.key === "workspace"}
               className={navLinkClassName}
               data-testid={`nav-type-${objectType.key}`}
             >

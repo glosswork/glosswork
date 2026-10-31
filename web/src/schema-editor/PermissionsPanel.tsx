@@ -1,6 +1,6 @@
 /**
  * The per-object-type permissions panel (FR-U11, DD-11). A grant
- * is per object type, so the screen belongs on the type: `/schema/:objectTypeKey` is already the
+ * is per object type, so the screen belongs on the type: `/workspace/schema/:objectTypeKey` is already the
  * per-type administrative surface and its other controls already require `admin` on the type.
  *
  * **Rendered for whoever holds `admin` on the type**, which is the one authority the three grant

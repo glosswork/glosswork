@@ -49,7 +49,7 @@ export function FirstRun() {
 
       <p className="text-base text-ink-2">
         No agent yet? You can{" "}
-        <Link to="/schema/new" className="text-human-ink underline-offset-2 hover:underline">
+        <Link to="/workspace/schema/new" className="text-human-ink underline-offset-2 hover:underline">
           set up a type by hand
         </Link>
         .

@@ -1,5 +1,5 @@
 /**
- * The People card on `/people` (FR-U9, FR-I3, FR-I10; docs/DESIGN.md 7.6, 7.7, 8.6).
+ * The People card on `/workspace/people` (FR-U9, FR-I3, FR-I10; docs/DESIGN.md 7.6, 7.7, 8.6).
  *
  * **Replaces `settings/UsersPanel.tsx`**, which rendered each principal as its own
  * `rounded-card` row inside a `rounded-card` panel, with a `<Select>` and a two-step deactivate

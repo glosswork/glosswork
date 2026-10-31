@@ -361,14 +361,14 @@ Full tool catalog: [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
   selection. **Exported cells are inert** (DD-20): a text or select cell that would be
   read as a formula by a spreadsheet is neutralized, so opening the file cannot execute what a
   writer stored.
-- **FR-U8.** **Activity.** Every write as a feed at `/activity`, filtered by chips over record,
+- **FR-U8.** **Activity.** Every write as a feed at `/workspace/activity`, filtered by chips over record,
   person, agent label, object type, field or time range; person and agent are pickers, not ids.
 - **FR-U9.** **People & agents, and Setup.** Two screens, not one Settings page, and `/settings`
-  redirects to `/people` (`docs/DESIGN.md` 8.6). **`/people`:** the people directory, each row's
+  redirects to `/workspace/people` (`docs/DESIGN.md` 8.6). **`/workspace/people`:** the people directory, each row's
   role settable to any of the three, its status shown, and an active local account's password
   resettable by an administrator other than its owner (FR-I17); service accounts; and every agent label
   grouped by owner, the caller's own renamable and the rest not, with verification as a column
-  rather than a warning. **`/setup`:** personal access tokens, your own password (FR-I17), the search index and its re-index
+  rather than a warning. **`/workspace/setup`:** personal access tokens, your own password (FR-I17), the search index and its re-index
   trigger, and the full-deployment export as a download; a backup is not offered in the browser
   (DD-36, and 8.6 says why). The PAT scope selector offers what role and credential both permit,
   so a `creator` mints the `admin` token the schema routes need. Proposals are the Inbox (8.4).
@@ -378,7 +378,7 @@ Full tool catalog: [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
   only the controls the caller's `your_access` level reaches, and carries exactly one statement of
   that level so the absence is explained once rather than N times or not at all (DD-42). **A
   principal holding `admin` on a type** manages that type's access from a permissions panel on
-  `/schema/{key}`: its default access, one row per explicit grant with its level and a remove
+  `/workspace/schema/{key}`: its default access, one row per explicit grant with its level and a remove
   control, and a picker to grant someone new. The threshold is the level on the type, not a
   system role (DD-11), so a `creator` administering the type it defined has the panel too. Names
   on existing rows come from the response's own `principals` sidecar and the picker from the
@@ -473,8 +473,8 @@ principal may touch, and how. Superseding FR-I3's "members read and write all re
   from the `admin`-gated management routes rather than widening them (DD-25). Both names were
   already published to every reader on comment and audit rows (DD-25).
 - **FR-I17.** **Passwords change in the browser.** A signed-in person with a local password changes
-  it on `/setup` with the current password, from a browser session only; an administrator resets an
-  active local account's from its row on `/people`, never their own. Every change revokes every token
+  it on `/workspace/setup` with the current password, from a browser session only; an administrator resets an
+  active local account's from its row on `/workspace/people`, never their own. Every change revokes every token
   and every other session the account holds, and a self-change loses a race with a reset (DD-13). An
   identity-provider account sees a sentence instead of a form.
 - **FR-I18.** **A hosted workspace signs people in by emailed code** (DD-45). With `GW_RELAY_URL`

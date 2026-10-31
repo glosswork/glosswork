@@ -12,6 +12,12 @@ import {
   RELAY_BASE_URL,
   RELAY_PORT,
   RELAY_TOKEN,
+  ROUTES_CLASH_BASE_URL,
+  ROUTES_CLASH_DATA_DIR,
+  ROUTES_CLASH_PORT,
+  ROUTES_PLAIN_BASE_URL,
+  ROUTES_PLAIN_DATA_DIR,
+  ROUTES_PLAIN_PORT,
   TRIAL_BASE_URL,
   TRIAL_DATA_DIR,
   TRIAL_ENDS_AT,
@@ -149,7 +155,7 @@ export default defineConfig({
         // **Raised for the suite, not for a deployment.** `login_ip_max_attempts`
         // defaults to 60 in a 300-second window, and every worker signs in from 127.0.0.1, so
         // the whole run shares one budget: at 61 specs the suite sat one sign-in under its own
-        // ceiling, and `/activity`'s four tipped it over. The failure does not look like a rate
+        // ceiling, and `/workspace/activity`'s four tipped it over. The failure does not look like a rate
         // limit -- the login POST returns 429, the shell never renders, and four unrelated
         // specs report `current-principal` missing -- so it reads as an application bug in
         // whatever changed last. The per-account budget stays at its default; this is the
@@ -269,5 +275,31 @@ export default defineConfig({
         GW_SUBSCRIBE_URL: TRIAL_SUBSCRIBE_URL,
       },
     },
+    // The workspace routes scenarios (change 32): one server with no clashing object type and
+    // one with types keyed `activity`, `schema` and `workspace`, which on the functional server
+    // would change what every other spec sees (`e2e/constants.ts`). `workspace-routes.spec.ts`
+    // is the only spec that reaches either.
+    ...[
+      { port: ROUTES_PLAIN_PORT, baseUrl: ROUTES_PLAIN_BASE_URL, dataDir: ROUTES_PLAIN_DATA_DIR },
+      { port: ROUTES_CLASH_PORT, baseUrl: ROUTES_CLASH_BASE_URL, dataDir: ROUTES_CLASH_DATA_DIR },
+    ].map(({ port, baseUrl, dataDir }) => ({
+      command: `bash -c "npm run build && cd .. && uv run uvicorn glosswork.app:app --port ${port}"`,
+      url: `${baseUrl}/healthz`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+      stdout: "pipe" as const,
+      stderr: "pipe" as const,
+      env: {
+        GW_DATA_DIR: dataDir,
+        GW_LOGIN_IP_MAX_ATTEMPTS: "1000",
+        GW_EMBEDDING_ENABLED: "false",
+        GW_BOOTSTRAP_ADMIN_EMAIL: E2E_ADMIN_EMAIL,
+        GW_BOOTSTRAP_ADMIN_PASSWORD: E2E_ADMIN_PASSWORD,
+        GW_COOKIE_SECURE: "false",
+        GW_AUTH_MODE: "standalone",
+        GW_BASE_URL: baseUrl,
+        GW_WORKSPACE_NAME: E2E_WORKSPACE_NAME,
+      },
+    })),
   ],
 });

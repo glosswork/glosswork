@@ -284,6 +284,26 @@ export const TRIAL_SUBSCRIBE_URL = "https://subscribe.example.com/e2e";
 export const TRIAL_DATA_DIR = prepareBareDataDir("trial");
 
 /**
+ * The workspace routes scenarios (change 32) run against two more app servers, each with its own
+ * data directory: one with no clashing object type and one with types keyed `activity`, `schema`
+ * and `workspace`. They cannot share the functional server, because type keys are unique and
+ * cannot be retired there and a type keyed `activity` changes what its other specs see. The
+ * visual project never reaches either, so no baseline repaints. Embedding is off because nothing
+ * here searches.
+ */
+export const ROUTES_PLAIN_PORT = 8937;
+export const ROUTES_PLAIN_BASE_URL = `http://localhost:${ROUTES_PLAIN_PORT}`;
+const routesPlainCredential = prepareCredential("-routes-plain");
+export const ROUTES_PLAIN_DATA_DIR = routesPlainCredential.dataDir;
+export const ROUTES_PLAIN_AUTH_HEADER = { Authorization: `Bearer ${routesPlainCredential.token}` };
+
+export const ROUTES_CLASH_PORT = 8938;
+export const ROUTES_CLASH_BASE_URL = `http://localhost:${ROUTES_CLASH_PORT}`;
+const routesClashCredential = prepareCredential("-routes-clash");
+export const ROUTES_CLASH_DATA_DIR = routesClashCredential.dataDir;
+export const ROUTES_CLASH_AUTH_HEADER = { Authorization: `Bearer ${routesClashCredential.token}` };
+
+/**
  * Drives the real `/login` screen with an arbitrary local account's credentials, and waits for
  * the app shell's signed-in identity block to render before returning. No spec injects a session
  * cookie programmatically: at least one real, browser-driven sign-in through the login screen

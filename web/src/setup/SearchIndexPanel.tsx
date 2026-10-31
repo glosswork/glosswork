@@ -1,5 +1,5 @@
 /**
- * The Search index card on `/setup` (FR-Q9, FR-U9).
+ * The Search index card on `/workspace/setup` (FR-Q9, FR-U9).
  *
  * The indexing queue's counts and failed jobs over `GET /api/v1/admin/search-index`, and the
  * re-index trigger behind a confirm step. It is a `ui/Card.tsx` rather than `panelClass`, and the

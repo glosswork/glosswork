@@ -1,5 +1,5 @@
 /**
- * Whether a row on `/people` offers `Reset password` (FR-I17).
+ * Whether a row on `/workspace/people` offers `Reset password` (FR-I17).
  *
  * A pure function in its own module rather than exported from `PeopleTable.tsx`: that file also
  * exports a component, and `react-refresh/only-export-components` refuses a second export from a

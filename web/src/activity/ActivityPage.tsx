@@ -1,5 +1,5 @@
 /**
- * `/activity` (docs/DESIGN.md 8.7): every write on this deployment, as a feed you can
+ * `/workspace/activity` (docs/DESIGN.md 8.7): every write on this deployment, as a feed you can
  * filter by the person or the agent that made it.
  *
  * **Replaces `/audit`**, which asked for `Principal ID` and `Agent label ID` as free text. Both

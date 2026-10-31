@@ -13,7 +13,7 @@
  * `access/hidingIsNeverTheOnlySignal.test.ts`: the Inbox lists proposals across every type, so
  * it has no single object type to name in this sentence.
  *
- * **Not every absence needs this banner.** `/people` hides two cards from a non-admin and
+ * **Not every absence needs this banner.** `/workspace/people` hides two cards from a non-admin and
  * says so in a sentence of its own, because a deployment-wide role is not a grant on an object
  * type and this component's copy names a type and a level.
  *

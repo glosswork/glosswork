@@ -60,7 +60,7 @@ export async function listAgentLabels(all = false): Promise<AgentLabelDoc[]> {
 
 /**
  * One entry of `GET /api/v1/agent-labels/directory` — the agent picker's options on
- * `/activity`, and the one route in this family any authenticated principal may read.
+ * `/workspace/activity`, and the one route in this family any authenticated principal may read.
  *
  * **Three keys, and the reason it may be read at `read` scope is not the projection.** The
  * route scopes its rows to the labels appearing on audit events the caller may read, using the

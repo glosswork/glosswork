@@ -1,5 +1,5 @@
 /**
- * The Personal access tokens card on `/setup` (FR-U9, FR-I4, FR-I5; docs/DESIGN.md 7.7, 8.6).
+ * The Personal access tokens card on `/workspace/setup` (FR-U9, FR-I4, FR-I5; docs/DESIGN.md 7.7, 8.6).
  *
  * **A table, not a `rounded-card` row per token with a `<dl>` inside it.** Expiry, last use and
  * revocation are facts you compare across tokens, which is what columns are for.
@@ -15,7 +15,7 @@
  * enforces both regardless, independently of what this component renders.
  *
  * **The mint form is inline, and `MintedTokenDialog` is its one dialog.** The invite and
- * service-account forms are native dialogs on `/people`; this one is not, because submitting it
+ * service-account forms are native dialogs on `/workspace/people`; this one is not, because submitting it
  * opens a dialog, and a dialog opened from inside a dialog is a focus-return problem with
  * nothing to gain. The plaintext is shown exactly once.
  */

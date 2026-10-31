@@ -23,7 +23,7 @@ import {
  *     account, and an OIDC identity against `e2e/fake-idp.mjs` (a real local provider process,
  *     not a mock inside this test — see its own doc comment for what it does and does not
  *     validate);
- *   - minting and then revoking a PAT through `/setup`'s "Personal access tokens" card
+ *   - minting and then revoking a PAT through `/workspace/setup`'s "Personal access tokens" card
  *     (`web/src/setup/AccessTokensPanel.tsx`), the plaintext shown exactly once;
  *   - a second, independently-signed-in principal's writes are attributed to *that* principal,
  *     not to whichever credential happens to be in the browser (proving sessions, not shared
@@ -115,11 +115,11 @@ test("signs in through the OIDC redirect flow against the local fake IdP", async
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test("mints and then revokes a PAT through /setup, plaintext shown exactly once", async ({
+test("mints and then revokes a PAT through /workspace/setup, plaintext shown exactly once", async ({
   page,
 }) => {
   await signInAsE2eAdmin(page);
-  await page.goto("/setup");
+  await page.goto("/workspace/setup");
 
   // The mint carries an expiry, because that is the path that once broke. The picked date
   // becomes the end of that day UTC, one instant per date and not one per viewer, so the

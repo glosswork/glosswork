@@ -114,7 +114,7 @@ const SEARCH_QUERY_PHRASE = "photon ledger";
 /** The activity fixture type, a type of its own per the frozen-fixture rule. Two field
  * updates on one record produce two revertible changes with real old->new values, alongside the
  * record's own non-revertible "create". The screen it feeds was once the audit browser and is
- * now `/activity`; the type key stays `vis_audit` because renaming a seeded
+ * now `/workspace/activity`; the type key stays `vis_audit` because renaming a seeded
  * fixture type would repaint every baseline that frames the sidebar. */
 const AUDIT_TYPE_KEY = "vis_audit";
 const AUDIT_RECORD_KEY = "VAUD-001";
@@ -1797,7 +1797,7 @@ test.describe("schema editor", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/schema");
+    await page.goto("/workspace/schema");
     // Two "Visual Schema" links exist once this fixture is seeded: the shell's own object-type
     // nav, and this screen's list — scope to the latter (`main`).
     const indexList = page.getByRole("main").getByRole("link", { name: "Visual Schema" });
@@ -1825,7 +1825,7 @@ test.describe("schema editor", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto(`/schema/${SCHEMA_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${SCHEMA_TYPE_KEY}`);
 
     // `create_object_type` inserts an `admin` grant for the creating principal in the same
     // transaction — including when that principal is already an `admin`, a deliberate
@@ -1844,7 +1844,7 @@ test.describe("schema editor", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto(`/schema/${SCHEMA_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${SCHEMA_TYPE_KEY}`);
     await page.getByRole("button", { name: "Add field" }).click();
     const form = page.getByRole("form", { name: "Add field" });
     await expect(form).toBeVisible();
@@ -1857,7 +1857,7 @@ test.describe("schema editor", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto(`/schema/${SCHEMA_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${SCHEMA_TYPE_KEY}`);
     const row = page.getByTestId("field-row-legacy_note");
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: "Delete" }).click();
@@ -1951,7 +1951,7 @@ test.describe("inbox", () => {
 });
 
 /**
- * `/people` and `/setup`.
+ * `/workspace/people` and `/workspace/setup`.
  *
  * **What `people-agent-labels` does and does not picture, stated rather than discovered later.**
  * No REST-seeded fixture in this suite creates an agent label, and that is deliberate: `agents`
@@ -1968,7 +1968,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     const card = page.getByRole("region", { name: "People" });
     await expect(card.getByText("This is the only active administrator.")).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -1981,7 +1981,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     const card = page.getByRole("region", { name: "Agent labels" });
     await expect(card.getByText("No agent labels yet.")).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -1992,7 +1992,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     const card = page.getByRole("region", { name: "Service accounts" });
     // Not empty on any real deployment: the app seeds a "bootstrap" service account (DD-4)
     // before this suite's fixtures ever run. Its row renders no date cell, so no mask.
@@ -2008,7 +2008,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     await page.getByRole("region", { name: "People" }).getByRole("button", { name: "Invite" }).click();
     const dialog = page.getByTestId("invite-user-dialog");
     await expect(dialog).toBeVisible();
@@ -2020,7 +2020,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/setup");
+    await page.goto("/workspace/setup");
     const card = page.getByRole("region", { name: "Personal access tokens" });
     const row = card.locator("tbody tr").first();
     await expect(row).toBeVisible();
@@ -2044,7 +2044,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/setup");
+    await page.goto("/workspace/setup");
     const card = page.getByRole("region", { name: "Search index" });
     await expect(card.getByText("bge-small-en-v1.5")).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -2061,7 +2061,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/setup");
+    await page.goto("/workspace/setup");
     const card = page.getByRole("region", { name: "Export" });
     await expect(card.getByTestId("export-link")).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -2073,7 +2073,7 @@ test.describe("people and setup", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/setup");
+    await page.goto("/workspace/setup");
     const card = page.getByRole("region", { name: "Password" });
     await expect(card.getByRole("button", { name: "Change password" })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -2144,7 +2144,7 @@ test.describe("search", () => {
 });
 
 /**
- * `/activity`.
+ * `/workspace/activity`.
  *
  * **Why the feed shot is scoped to one record**, written here because it is the only written
  * record of it: `search_audit_events` also returns every fixture type's own
@@ -2159,7 +2159,7 @@ test.describe("activity", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/activity");
+    await page.goto("/workspace/activity");
     const chips = page.getByTestId("activity-filters");
     await expect(chips.getByRole("button", { name: "Add filter" })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -2172,7 +2172,7 @@ test.describe("activity", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/activity");
+    await page.goto("/workspace/activity");
     const chips = page.getByTestId("activity-filters");
     await chips.getByRole("button", { name: "Add filter" }).click();
     await page.getByRole("menuitem", { name: "Agent" }).click();
@@ -2190,7 +2190,7 @@ test.describe("activity", () => {
     page,
   }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/activity");
+    await page.goto("/workspace/activity");
     const chips = page.getByTestId("activity-filters");
     await chips.getByRole("button", { name: "Add filter" }).click();
     await page.getByRole("menuitem", { name: "Record" }).click();
@@ -2406,7 +2406,7 @@ test.describe("design-review findings", () => {
       `resting sidebar row: rgb(${restingColors.fg}) on rgb(${restingColors.bg})`,
     ).toBeGreaterThanOrEqual(4.5);
 
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     const activeWorkspace = sidebar.locator('a[aria-current="page"]').first();
     await expect(activeWorkspace).toBeVisible();
     const workspaceColors = await paintedColors(activeWorkspace);
@@ -2509,7 +2509,7 @@ test.describe("design-review findings", () => {
 
   test("no empty state carries its own border inside a card", async ({ page }) => {
     await signInAsE2eAdmin(page);
-    await page.goto("/people");
+    await page.goto("/workspace/people");
 
     // The positive control first: this fixture's screen really does render an empty state
     // inside a card, so a zero count below cannot come from a screen that failed to load.

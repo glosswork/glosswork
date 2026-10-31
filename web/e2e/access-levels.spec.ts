@@ -217,7 +217,7 @@ test.describe("a write-granted member", () => {
   });
 
   test("may propose a destructive schema change but not edit the schema", async ({ page }) => {
-    await page.goto(`/schema/${OBJECT_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${OBJECT_TYPE_KEY}`);
     await expect(page.getByRole("heading", { name: "Access Probe", level: 1 })).toBeVisible();
 
     // Asserted explicitly, not by the absence of a hidden control: both go through
@@ -276,7 +276,7 @@ test.describe("a creator holding admin on the type (DD-11)", () => {
     page,
   }) => {
     await signInAs(page, CREATOR_EMAIL, PASSWORD);
-    await page.goto(`/schema/${OBJECT_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${OBJECT_TYPE_KEY}`);
     await expect(page.getByRole("heading", { name: "Access Probe", level: 1 })).toBeVisible();
 
     // It holds `admin` on the type, so every schema control is offered and no banner shows...
@@ -311,7 +311,7 @@ test.describe("a creator holding admin on the type (DD-11)", () => {
 test.describe("a system administrator's permissions panel", () => {
   test("changes the default access, grants, denies, and removes", async ({ page }) => {
     await signInAsE2eAdmin(page);
-    await page.goto(`/schema/${OBJECT_TYPE_KEY}`);
+    await page.goto(`/workspace/schema/${OBJECT_TYPE_KEY}`);
     const panel = page.getByRole("region", { name: "Permissions" });
     await expect(panel.getByLabel("Default access")).toBeVisible();
 

@@ -2,8 +2,8 @@
  * Password self-service and admin reset (FR-I17), against a real uvicorn process and the real
  * built frontend.
  *
- * FR-I17 has two halves: a signed-in person changes their own password from `/setup`'s
- * `Password` card, and an administrator resets anyone else's from `/people`. Both revoke the same
+ * FR-I17 has two halves: a signed-in person changes their own password from `/workspace/setup`'s
+ * `Password` card, and an administrator resets anyone else's from `/workspace/people`. Both revoke the same
  * set -- every other session and every personal access token the account holds -- which is what
  * the self-change and admin-reset scenarios below prove from the *outside*: not by reading an
  * audit row, but by watching a second, already-signed-in browser context lose its session.
@@ -87,7 +87,7 @@ async function rowFor(page: Page, testId: string) {
   return row;
 }
 
-test("a member changes their own password on /setup, and every other session and login notices", async ({
+test("a member changes their own password on /workspace/setup, and every other session and login notices", async ({
   page,
   browser,
 }) => {
@@ -104,7 +104,7 @@ test("a member changes their own password on /setup, and every other session and
     const pageB = await contextB.newPage();
     await signInAs(pageB, member.email, member.password);
 
-    await page.goto("/setup");
+    await page.goto("/workspace/setup");
     const passwordRegion = page.getByRole("region", { name: "Password" });
     await expect(passwordRegion).toBeVisible();
     await passwordRegion.getByLabel("Current password").fill(member.password);
@@ -121,8 +121,8 @@ test("a member changes their own password on /setup, and every other session and
     // "A is still signed in" an assertion about the *kept* session rather than the untouched
     // client-side state the SPA carries between an action and its own response.
     await page.reload();
-    // A is still on /setup, still signed in -- the change kept the session that made it.
-    await expect(page).toHaveURL(/\/setup$/);
+    // A is still on /workspace/setup, still signed in -- the change kept the session that made it.
+    await expect(page).toHaveURL(/\/workspace\/setup$/);
     await expect(page.getByTestId("current-principal")).toBeVisible();
 
     // B's session was revoked. Only a full page load notices.
@@ -148,12 +148,12 @@ test("a member changes their own password on /setup, and every other session and
   }
 });
 
-test("a wrong current password on /setup is refused under that field, and the page stays signed in", async ({
+test("a wrong current password on /workspace/setup is refused under that field, and the page stays signed in", async ({
   page,
 }) => {
   const member = await createDisposableUser("wrong-current");
   await signInAs(page, member.email, member.password);
-  await page.goto("/setup");
+  await page.goto("/workspace/setup");
 
   const passwordRegion = page.getByRole("region", { name: "Password" });
   await expect(passwordRegion).toBeVisible();
@@ -173,7 +173,7 @@ test("a wrong current password on /setup is refused under that field, and the pa
   await expect(page.getByTestId("current-principal")).toBeVisible();
 });
 
-test("an administrator resets a member's password on /people, and the member's own session and login notice", async ({
+test("an administrator resets a member's password on /workspace/people, and the member's own session and login notice", async ({
   page,
   browser,
 }) => {
@@ -187,7 +187,7 @@ test("an administrator resets a member's password on /people, and the member's o
     await signInAs(memberPage, member.email, member.password);
 
     await signInAsE2eAdmin(page);
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     const row = await rowFor(page, `user-${member.id}`);
     await row.getByRole("button", { name: "Reset password" }).click();
 
@@ -213,12 +213,12 @@ test("an administrator resets a member's password on /people, and the member's o
   }
 });
 
-test("the administrator's own row on /people offers no Reset password button", async ({
+test("the administrator's own row on /workspace/people offers no Reset password button", async ({
   page,
 }) => {
   const member = await createDisposableUser("no-self-reset");
   await signInAsE2eAdmin(page);
-  await page.goto("/people");
+  await page.goto("/workspace/people");
 
   // Positive control asserted FIRST: a missing table (a broken page, an empty query) would make
   // an absence assertion pass for the wrong reason if it ran alone. Asserting the button exists

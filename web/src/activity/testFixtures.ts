@@ -1,4 +1,4 @@
-/** Shared fixtures for `/activity`'s two component suites. */
+/** Shared fixtures for `/workspace/activity`'s two component suites. */
 import { http, HttpResponse } from "msw";
 
 import type { AuditEventDoc } from "../api/records";

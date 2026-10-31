@@ -1,5 +1,5 @@
 /**
- * `/activity`'s filter state: the six FR-U8 dimensions, as a flat set of chips.
+ * `/workspace/activity`'s filter state: the six FR-U8 dimensions, as a flat set of chips.
  *
  * **This is deliberately not `filters/chipFilter.ts`.** That module converts between a flat AND
  * of sentence chips and the record **filter AST** — fields of one object type, an operator

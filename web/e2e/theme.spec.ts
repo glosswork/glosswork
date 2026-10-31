@@ -85,7 +85,7 @@ test.describe("DD-41: the theme applies, in all three states", () => {
 
   test("the faces the tokens name are the faces that load", async ({ page }) => {
     await signInAsE2eAdmin(page);
-    // The wordmark lives on the login page, which is behind us now; `/people`'s own h1 carries
+    // The wordmark lives on the login page, which is behind us now; `/workspace/people`'s own h1 carries
     // the display face, so it is the element to read after signing in. What this test needs is
     // any signed-in page with an `h1` in the display face.
     //
@@ -93,7 +93,7 @@ test.describe("DD-41: the theme applies, in all three states", () => {
     // sits in front of `main`. That is exactly why the sidebar renders no heading element
     // (asserted in `shell.spec.ts`): if it ever grows one, this
     // test silently starts measuring the workspace name instead of the page title.
-    await page.goto("/people");
+    await page.goto("/workspace/people");
     await page.getByRole("heading", { level: 1, name: "People & agents" }).waitFor();
     await page.evaluate(() => document.fonts.ready);
 

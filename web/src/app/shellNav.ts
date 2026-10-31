@@ -46,18 +46,18 @@ export interface ShellNavEntry {
  *   it.
  *
  * **`Schema` is in this list although 8.1's Workspace list omits it**, which 8.1 notes: this
- * entry is the schema editor's only entry point, and `/schema/new` is linked only from `/schema`
- * itself. Implementing that list literally would leave both routes alive and neither navigable.
+ * entry is the schema editor's only entry point, and `/workspace/schema/new` is linked only from
+ * `/workspace/schema` itself. Implementing that list literally would leave both routes alive and neither navigable.
  */
 export const SHELL_NAV: readonly ShellNavEntry[] = [
   { id: "inbox", label: "Inbox", to: "/inbox", section: "primary", showsCount: true },
   { id: "search", label: "Search", to: "/search", section: "primary" },
   // 8.1's Workspace order is People & agents, Activity, Setup. `Schema` is an addition to
   // that list (see the note above), so it keeps the slot it already holds and Setup goes last.
-  { id: "people", label: "People & agents", to: "/people", section: "workspace" },
-  { id: "activity", label: "Activity", to: "/activity", section: "workspace" },
-  { id: "schema", label: "Schema", to: "/schema", section: "workspace" },
-  { id: "setup", label: "Setup", to: "/setup", section: "workspace" },
+  { id: "people", label: "People & agents", to: "/workspace/people", section: "workspace" },
+  { id: "activity", label: "Activity", to: "/workspace/activity", section: "workspace" },
+  { id: "schema", label: "Schema", to: "/workspace/schema", section: "workspace" },
+  { id: "setup", label: "Setup", to: "/workspace/setup", section: "workspace" },
 ] as const;
 
 /** The entries of one section, in declared order. A helper rather than a `.filter()` at each

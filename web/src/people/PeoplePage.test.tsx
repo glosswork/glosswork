@@ -1,5 +1,5 @@
 /**
- * `/people`: people, agent labels and service accounts, asserted against the table markup.
+ * `/workspace/people`: people, agent labels and service accounts, asserted against the table markup.
  *
  * Four shapes are worth knowing, and each is noted where it sits:
  * `(unverified)` is a `Verified` column, `(inactive)` is a `Status` column, the agent labels are

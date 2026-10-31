@@ -1,5 +1,5 @@
 /**
- * `/activity`, against a real uvicorn process and the real built frontend.
+ * `/workspace/activity`, against a real uvicorn process and the real built frontend.
  *
  * **The spec exists for one claim**: filtering by an agent chosen from the picker returns only
  * rows with that label. Two agent labels are seeded, not one, because a
@@ -79,10 +79,10 @@ test.afterAll(async () => {
   await apiContext.dispose();
 });
 
-test("/audit redirects to /activity", async ({ page }) => {
+test("/audit redirects to /workspace/activity", async ({ page }) => {
   await signInAsE2eAdmin(page);
   await page.goto("/audit");
-  await expect(page).toHaveURL(/\/activity$/);
+  await expect(page).toHaveURL(/\/workspace\/activity$/);
   await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
 });
 
@@ -90,7 +90,7 @@ test("filtering by an agent chosen from the picker returns only rows with that l
   page,
 }) => {
   await signInAsE2eAdmin(page);
-  await page.goto("/activity");
+  await page.goto("/workspace/activity");
 
   const chips = page.getByTestId("activity-filters");
   const feed = page.getByTestId("activity-feed");
@@ -144,7 +144,7 @@ test("filtering by an agent chosen from the picker returns only rows with that l
 
 test("the agent picker offers no free-text identifier", async ({ page }) => {
   await signInAsE2eAdmin(page);
-  await page.goto("/activity");
+  await page.goto("/workspace/activity");
   await page.getByTestId("activity-filters").getByRole("button", { name: "Add filter" }).click();
   await page.getByRole("menuitem", { name: "Agent" }).click();
 
@@ -159,7 +159,7 @@ test("the chip row stays reachable at 640px (docs/DESIGN.md 9)", async ({ page }
   // A Playwright assertion because `getBoundingClientRect` returns zeroes in jsdom (AGENTS.md),
   // so nothing in the component suite claims to measure this.
   await signInAsE2eAdmin(page);
-  await page.goto("/activity");
+  await page.goto("/workspace/activity");
 
   const chips = page.getByTestId("activity-filters");
   await chips.getByRole("button", { name: "Add filter" }).click();

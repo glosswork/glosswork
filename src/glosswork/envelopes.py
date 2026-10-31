@@ -175,7 +175,7 @@ def principal_doc(principal: PrincipalRow) -> dict[str, Any]:
 def agent_label_directory_doc(label: AgentLabelRow) -> dict[str, Any]:
     """One agent-label directory entry. **Exactly three keys.**
 
-    The picker on ``/activity`` needs a name to show and an id to filter by, and nothing
+    The picker on ``/workspace/activity`` needs a name to show and an id to filter by, and nothing
     else. Withheld, all six of them FR-I7 telemetry and all six on
     :func:`serializers.agent_label_doc`: ``principal_id`` (whose label it is),
     ``call_count``, ``first_seen_at``, ``last_seen_at``, ``verified`` and ``description``.
@@ -278,7 +278,7 @@ def me_doc(principal: PrincipalRow, actor: ActorContext) -> dict[str, Any]:
     row itself — the same principal can be reached through credentials of different
     scope and auth method.
 
-    ``auth_provider`` is what lets the ``Password`` card on ``/setup``
+    ``auth_provider`` is what lets the ``Password`` card on ``/workspace/setup``
     decide whether to render a form or a sentence: it is already served to an
     administrator on every principal row through ``principal_doc``, so serving a
     caller their own is no new disclosure.

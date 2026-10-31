@@ -78,7 +78,7 @@ describe("FirstRun", () => {
     renderWithProviders(<FirstRun />);
 
     const link = await screen.findByRole("link", { name: "set up a type by hand" });
-    expect(link).toHaveAttribute("href", "/schema/new");
+    expect(link).toHaveAttribute("href", "/workspace/schema/new");
     expect(screen.queryByText(/template/i)).not.toBeInTheDocument();
   });
 

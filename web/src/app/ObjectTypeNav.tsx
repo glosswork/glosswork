@@ -12,6 +12,9 @@ export function ObjectTypeNav({ objectTypes }: { objectTypes: ObjectTypeSummary[
           <li key={objectType.key}>
             <NavLink
               to={`/${objectType.key}`}
+              // As in `Sidebar.tsx`: a type keyed `workspace` must not light up on every workspace
+              // screen.
+              end={objectType.key === "workspace"}
               className={({ isActive }) =>
                 cx(navLinkClass, isActive ? navLinkActiveClass : navLinkRestClass)
               }

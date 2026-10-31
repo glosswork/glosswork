@@ -54,7 +54,7 @@ const ALLOWED: Record<string, string> = {
   "filters/ValueInput.tsx": "renders `<option>` text in the filter builder's principal picker",
   "schema-editor/PermissionsPanel.tsx":
     "renders `<option>` text in the grant picker; its grant ROWS go through `PrincipalName`",
-  // `SettingsPage.tsx` has no exemption: `/people`'s three cards render every principal through
+  // `SettingsPage.tsx` has no exemption: `/workspace/people`'s three cards render every principal through
   // `Hand`, and `AgentLabelsTable`'s group header names the owner through it too. An agent label's
   // own `display_name` column is a label's name, not a principal's, and is bare text on purpose.
   //

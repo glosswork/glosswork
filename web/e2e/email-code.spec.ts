@@ -58,7 +58,7 @@ test("the first administrator signs in with an emailed code, and there is no pas
   request,
 }) => {
   await signInByCode(page, request, E2E_ADMIN_EMAIL);
-  await page.goto("/setup");
+  await page.goto("/workspace/setup");
   await expect(page.getByTestId("password-email-code")).toBeVisible();
 });
 
@@ -85,7 +85,7 @@ test("an administrator invites a person, whose first code sign-in creates them",
   const invitee = `invitee-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
   await signInByCode(page, request, E2E_ADMIN_EMAIL);
 
-  await page.goto("/people");
+  await page.goto("/workspace/people");
   const people = page.getByRole("region", { name: "People" });
   await people.getByRole("button", { name: "Invite" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite by email" });
@@ -109,7 +109,7 @@ test("an administrator invites a person, whose first code sign-in creates them",
     await inviteeContext.close();
   }
 
-  await page.goto("/people");
+  await page.goto("/workspace/people");
   await expect(page.getByRole("region", { name: "People" }).getByText(invitee)).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Pending invites" }).getByText(invitee),

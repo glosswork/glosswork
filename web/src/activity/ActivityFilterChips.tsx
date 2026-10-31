@@ -1,5 +1,5 @@
 /**
- * `/activity`'s chip row (docs/DESIGN.md 7.4, 8.7).
+ * `/workspace/activity`'s chip row (docs/DESIGN.md 7.4, 8.7).
  *
  * Six dimensions, each a sentence chip with a popover, plus 7.4's dashed `+ Add filter`. The two
  * that used to be free-text UUID fields — `Person` and `Agent` — are pickers over

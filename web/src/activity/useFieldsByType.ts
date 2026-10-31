@@ -1,5 +1,5 @@
 /**
- * The field definitions `/activity`'s change pills need, one read per object type in view.
+ * The field definitions `/workspace/activity`'s change pills need, one read per object type in view.
  *
  * **Why a fan-out at all.** `formatChangeValue` needs a `FieldDoc` to render a value as a person
  * reads it — a date as `1 Sep`, a select as its display label. The record page has the record's

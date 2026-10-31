@@ -75,7 +75,7 @@ function CreateObjectType() {
         description,
         key_prefix: keyPrefix.trim(),
       });
-      navigate(`/schema/${created.key}`);
+      navigate(`/workspace/schema/${created.key}`);
     } catch (caught) {
       const envelope = parseApiError(caught);
       setSubmitError(envelope?.message ?? "The request failed.");
