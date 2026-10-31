@@ -3,6 +3,36 @@
 One section per released version, newest first. `CONTRIBUTING.md`, "Releases", says how a
 version is numbered and when this file is written.
 
+## 0.3.0
+
+**Upgrading.** Pull the new image and start it on the same volume. No setting, REST route or MCP
+tool that 0.2.0 had is renamed or removed. Two things behave differently:
+
+- A date in a filter must now be exact, for every caller. A date filter that used to answer with
+  rows, compared as text, can now answer `validation_failed`, 422. That covers `query_records`,
+  `search`, `bulk_update_records`, CSV export and saved views. Use `YYYY-MM-DD`,
+  `YYYY-MM-DDTHH:MM:SSZ` or a token such as `@today-7d`. If an agent or script builds date filters,
+  check what it sends.
+- People & agents, Activity, Schema and Setup moved under `/workspace`. Old links still work: they
+  redirect, unless an object type has that key, in which case they open its table.
+
+- 13: the View menu and every other popover stay inside the window.
+- 14: unsaved filters and other table changes survive leaving a table and coming back, in the same
+  tab.
+- 15: a date filter refuses what it cannot read and says why, and a refused filter shows no rows. It
+  never keeps rows it did not produce.
+- 16: the sidebar and the table toolbar stay in view while a long table scrolls.
+- 17: a multi-value text filter keeps what is typed.
+- 18: columns can be pinned, and the pins are saved with a view.
+- 19: a CSV upsert clears a field from a blank cell only when `blank_clears` is set, and reports what
+  it cleared.
+- 28: the backend tests run as four shards in CI. Nothing changes for anyone running the product.
+- 30: where a hosting operator sets `GW_TRIAL_ENDS_AT`, a workspace on trial shows the time left and
+  a subscribe link, and says when the trial has ended. A self-hosted workspace sets nothing and sees
+  nothing new.
+- 32: an object type's table is reachable when its key matches one of those four screens or the
+  older `audit` and `settings` addresses. The keys `inbox`, `search` and `login` are still taken.
+
 ## 0.2.0
 
 **Upgrading.** Pull the new image and start it on the same volume. A deployment set up as
