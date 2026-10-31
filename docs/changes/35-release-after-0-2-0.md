@@ -47,6 +47,9 @@ does that.
 - **AC2.** `uv run pytest -q -m structural`.
 - **AC3.** `uv run pytest -q tests/test_release_workflow.py`.
 
+Results at this branch's release commit, on a clean checkout: AC1 one line changed. AC2 107 passed.
+AC3 13 passed. The container tests and the image build run in the release workflow.
+
 ## Adversarial pass
 
 Skipped by the maintainer's decision on 2026-10-31: releases are low risk. Instead, the session
